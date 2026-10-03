@@ -1,0 +1,20 @@
+{
+  "name": "pith-desk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "build:ui": "npm --prefix frontend run build",
+    "dev": "npm run build:ui && CGO_ENABLED=0 go run ./cmd/pith-desk",
+    "preview": "npm run build:ui && CGO_ENABLED=0 go run ./cmd/pith-desk --preview",
+    "build": "npm run build:ui && mygo build -skip-build-command -skip-dmg -skip-notarize",
+    "build:mac": "npm run build:ui && mygo build -skip-build-command -platform darwin/universal -skip-dmg -skip-notarize",
+    "check": "npm run build:ui && CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go vet ./..."
+  },
+  "devDependencies": {
+    "mygo-cli": "0.2.1"
+  }
+}

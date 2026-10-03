@@ -1,0 +1,12 @@
+node_modules/
+frontend/node_modules/
+frontend/dist/
+build/
+bin/
+dist/
+.mygo/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
