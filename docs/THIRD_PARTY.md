@@ -6,7 +6,7 @@ Pith Desk's own code is covered by the root [LICENSE](../LICENSE), GNU Affero Ge
 
 | Component | Pinned version | License and retained notice |
 | --- | --- | --- |
-| [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261003091049-9ef56f7b1a53` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
+| [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261004114236-0fbdc914b818` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
 | [MyGo](https://github.com/egoist/mygo) | `v0.2.1` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
 | [coder/websocket](https://github.com/coder/websocket) | `v1.8.15` | ISC: `WEBSOCKET-LICENSE`. |
 | [gofrs/flock](https://github.com/gofrs/flock) | `v0.13.1` | BSD-3-Clause: `FLOCK-LICENSE`. |

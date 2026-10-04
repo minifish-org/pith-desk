@@ -4,10 +4,14 @@ This preview includes model connection checks, session token/context status,
 failure guidance, explicit task continuation and metadata-only diagnostic
 exports, alongside workspaces, file tools, skills, MCP and saved conversations.
 
-Download the macOS universal preview ZIP, extract it and move **Pith Desk.app**
-to Applications. It includes Apple Silicon and Intel binaries. You do not need
-Go, Node.js or npm to run it. Apple Silicon native launch is tested; Intel code
-is cross-built and still needs testing on an Intel Mac.
+This release switches Mac downloads to Apple Silicon only and updates the
+embedded Pith SDK, including preservation of queued inputs across retries and
+session rebuilds. Desktop image attachments are not included yet.
+
+Download the macOS ARM64 preview ZIP, extract it and move **Pith Desk.app**
+to Applications. It supports Apple Silicon Macs (M series); Intel Mac is not
+supported. You do not need Go, Node.js or npm to run it. Apple Silicon native
+launch is tested. The earlier `v0.1.0-rc.1` universal release is unchanged.
 
 **This is an ad-hoc signed, unnotarized experimental preview. macOS may block it.**
 If you trust this source and intend to test it, follow [Apple's Open Anyway instructions](https://support.apple.com/en-us/102445)

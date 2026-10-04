@@ -67,8 +67,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          if ls build/releases/*-preview.zip >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" build/releases/pith-desk-* --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Mac preview)" --notes-file docs/RELEASE_PREVIEW.md
+          if ls build/releases/pith-desk-*-macos-arm64-preview.zip >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" build/releases/pith-desk-*-macos-arm64* --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon preview)" --notes-file docs/RELEASE_PREVIEW.md
           else
-            gh release create "$RELEASE_TAG" build/releases/pith-desk-* --verify-tag --generate-notes
+            gh release create "$RELEASE_TAG" build/releases/pith-desk-*-macos-arm64* --verify-tag --generate-notes
           fi

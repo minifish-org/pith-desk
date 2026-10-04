@@ -10,7 +10,7 @@ This first version supports text conversations, workspace folders, streamed answ
 
 ## Try it
 
-Download the experimental Mac universal package from [Releases](https://github.com/minifish-org/pith-desk/releases). It includes Apple Silicon and Intel binaries. The current preview is ad-hoc signed and **not notarized**; see the release notes for macOS opening instructions and tested platforms. Building from source remains an option for development.
+Download the Apple Silicon (ARM64) preview from [Releases](https://github.com/minifish-org/pith-desk/releases). New Mac releases target M-series Macs only; packages use `macos-arm64` in their names. The earlier `v0.1.0-rc.1` universal preview remains available unchanged. The current preview is ad-hoc signed and **not notarized**; see the release notes for macOS opening instructions and tested platforms. Building from source remains an option for development.
 
 On macOS, open the built **Pith Desk.app**. You do not need Go, Node.js or npm to run the packaged application.
 
@@ -94,7 +94,7 @@ Open the loopback URL printed by the process. The browser preview uses the real 
 npm run build
 ```
 
-The local build creates an application bundle under `build/`. It uses ad-hoc signing and skips notarization and DMG generation. Developer ID signing and notarization are separate release steps for distributing outside this machine. Use `npm run build -- -platform darwin/universal` for both Mac architectures.
+The local build creates an application bundle under `build/`. It uses ad-hoc signing and skips notarization and DMG generation. Developer ID signing and notarization are separate release steps for distributing outside this machine. `npm run build` uses the current host architecture; `npm run build:mac` and Mac release packaging target Apple Silicon (ARM64). Source builds on Intel Mac are outside the supported scope.
 
 ```sh
 npm --prefix frontend run build
@@ -122,7 +122,7 @@ This is an experimental local desktop product. It has no computer-control tools,
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 
-Pith Desk targets macOS and Linux. Windows is not supported. Native application testing and the current CI workflow cover Mac ARM64; Linux and Intel Mac runtime testing and public release packages are still pending. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Preview downloads use manual replacement of the app bundle; no automatic updater is available. See [release packaging and signing](docs/RELEASING.md).
+Pith Desk targets macOS on Apple Silicon (ARM64) and Linux. Intel Mac and Windows are not supported. Native application testing and the current CI workflow cover Mac ARM64; Linux runtime testing and public release packages are still pending. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Preview downloads use manual replacement of the app bundle; no automatic updater is available. See [release packaging and signing](docs/RELEASING.md).
 
 CGO-disabled cross-builds have passed for Linux on amd64 and arm64. This establishes compilation only. Linux needs GTK3 and WebKitGTK at runtime; CGO-disabled builds do not remove these system WebView dependencies.
 

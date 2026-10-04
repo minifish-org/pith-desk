@@ -35,7 +35,7 @@ jobs:
           CGO_ENABLED: "1"
       - name: Cross-build supported targets
         run: |
-          GOOS=darwin GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-darwin-amd64" ./cmd/pith-desk
+          GOOS=darwin GOARCH=arm64 go build -o "$RUNNER_TEMP/pith-desk-darwin-arm64" ./cmd/pith-desk
           GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-linux-amd64" ./cmd/pith-desk
           GOOS=linux GOARCH=arm64 go build -o "$RUNNER_TEMP/pith-desk-linux-arm64" ./cmd/pith-desk
       - run: npm run build

@@ -96,7 +96,7 @@ coverage for those targets.
 - Save diagnostics and inspect its JSON. Confirm it contains no prompts, file
   data, endpoint URL, local paths, API/MCP keys or raw provider error bodies.
   Cancel must not trigger a WebView download.
-- Run `npm run release:preview`; verify both architectures and CGO-disabled
+- Run `npm run release:preview`; verify the ARM64 architecture and CGO-disabled
   metadata, archive extraction and dependency notices. Actual Developer ID
   signing/notarization requires credentials and a separate native acceptance.
 

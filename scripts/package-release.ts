@@ -24,11 +24,11 @@ function run(command: string, args: string[], capture = false): string {
 const sourceCommit = run('git', ['rev-parse', 'HEAD'], true);
 const sourceDirty = !!run('git', ['status', '--porcelain'], true);
 run('npm', ['run', 'build:ui']);
-run('npx', ['--no-install', 'mygo', 'build', '-skip-build-command', '-platform', 'darwin/universal', '-skip-dmg', '-skip-notarize', '-o', 'build/release', '-sign', '-']);
-const app = join(root, 'build/release/darwin-universal/Pith Desk.app');
+run('npx', ['--no-install', 'mygo', 'build', '-skip-build-command', '-platform', 'darwin/arm64', '-skip-dmg', '-skip-notarize', '-o', 'build/release', '-sign', '-']);
+const app = join(root, 'build/release/darwin-arm64/Pith Desk.app');
 const binary = join(app, 'Contents/MacOS/Pith Desk');
 const architectures = run('lipo', ['-archs', binary], true).split(/\s+/).sort();
-if (architectures.join(',') !== 'arm64,x86_64') throw new Error('Expected a universal Mac app containing arm64 and x86_64.');
+if (architectures.join(',') !== 'arm64') throw new Error('Expected an Apple Silicon Mac app containing only arm64.');
 const output = join(root, 'build/releases');
 mkdirSync(output, { recursive: true });
 if (signed) {
@@ -42,13 +42,8 @@ if (signed) {
   run('spctl', ['--assess', '--type', 'execute', '--verbose=2', app]);
 }
 run('codesign', ['--verify', '--deep', '--strict', app]);
-// Metadata for both slices must explicitly say CGO is disabled.
-for (const architecture of ['arm64', 'x86_64']) {
-  const slice = join(root, `build/release/check-${architecture}`);
-  run('lipo', [binary, '-thin', architecture, '-output', slice]);
-  if (!run('go', ['version', '-m', slice], true).includes('CGO_ENABLED=0')) throw new Error('A release slice was built with CGO enabled.');
-}
-const filename = `pith-desk-${version}-macos-universal${signed ? '' : '-preview'}.zip`;
+if (!run('go', ['version', '-m', binary], true).includes('CGO_ENABLED=0')) throw new Error('The release binary was built with CGO enabled.');
+const filename = `pith-desk-${version}-macos-arm64${signed ? '' : '-preview'}.zip`;
 const archive = join(output, filename);
 run('ditto', ['-c', '-k', '--keepParent', app, archive]);
 const checksum = createHash('sha256').update(readFileSync(archive)).digest('hex');

@@ -1,7 +1,7 @@
 # Releasing Pith Desk
 
-End users download an application, not a source checkout. Mac packages contain
-both Apple Silicon and Intel code, the embedded UI, dependency notices and the
+End users download an application, not a source checkout. Mac packages target
+Apple Silicon (ARM64) and contain the embedded UI, dependency notices and the
 Pith library. Go, Node.js and npm are development requirements only.
 
 ## Local preview
@@ -13,9 +13,9 @@ npm run check
 npm run release:preview
 ```
 
-The output is `build/releases/pith-desk-0.1.0-macos-universal-preview.zip`,
+The output is `build/releases/pith-desk-0.1.0-macos-arm64-preview.zip`,
 with a SHA-256 checksum and a manifest recording architecture, CGO and signing
-status. Packaging verifies both binary slices have `CGO_ENABLED=0` and checks
+status. Packaging verifies the binary is ARM64 with `CGO_ENABLED=0` and checks
 the ad-hoc signature. The preview is **not Developer ID signed or notarized**.
 Do not advertise it as a Gatekeeper-approved distribution.
 
@@ -45,7 +45,7 @@ verified release process; it cannot be tested on a host without a certificate.
 ## GitHub releases
 
 The Mac release workflow runs for pushed `v*` tags, tests the exact tagged source,
-builds a universal application and publishes the ZIP, checksum and manifest.
+builds an ARM64 application and publishes the ZIP, checksum and manifest.
 Without signing secrets it explicitly publishes a **prerelease preview**.
 
 For a signed release configure these GitHub Actions secrets:
@@ -62,9 +62,12 @@ unsigned package. Never put signing files or credentials into release assets.
 Keep package.json, mygo.config.ts and the backend Version constant aligned when
 changing the app version. Test native cold launch, Settings connection tests,
 normal task execution, Stop, restart, and both save-dialog cancellation paths
-before tagging. Run Intel Mac and Linux runtime checks on their actual hosts;
+before tagging. Intel Mac is outside the supported scope. Run Linux runtime checks on actual hosts;
 cross-compilation alone is not runtime verification.
 
 Automatic updates are intentionally absent. Users can quit the app and replace
 the old bundle; their settings and sessions are stored outside it. Back up that
 data before upgrading if it matters to you.
+
+The previously published `v0.1.0-rc.1` universal preview remains unchanged.
+New releases target Apple Silicon only.
