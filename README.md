@@ -4,6 +4,10 @@ A local desktop workspace for getting things done with an AI agent. Pith Desk us
 
 This first version supports text conversations, workspace folders, streamed answers, file tools, conversation permissions, workspace instructions and skills, and optional MCP connections. DeepSeek Flash is the default model. An OpenAI-compatible Chat Completions endpoint with tool calling can also be configured, using a compatible model ID from Pith's catalog.
 
+![Pith Desk on macOS showing a workspace conversation, a tool result, and a generated Markdown file](docs/images/pith-desk-macos.png)
+
+*The macOS desktop in Light appearance, using a demonstration workspace and conversation.*
+
 ## Try it
 
 There is no downloadable release yet. Build from source using the instructions below, then open the application bundle.
