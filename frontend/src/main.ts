@@ -6,17 +6,20 @@ interface Workspace { id: string; name: string; path: string }
 type AppearanceMode = 'system' | 'light' | 'dark';
 type PermissionMode = 'ask' | 'workspace-write' | 'full-access';
 interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number; permissionMode?: PermissionMode; archived?: boolean }
-interface QueuedMessage { id: string; text: string; mode: 'steer' | 'follow-up' }
+interface QueuedMessage { id: string; text: string; mode: 'steer' | 'follow-up'; imageCount?: number }
 interface Artifact { path: string; name: string }
 interface WorkspaceResources { workspaceId: string; instructions: { name: string; path: string; content: string }[]; skills: { name: string; path: string; description: string }[]; diagnostics: string[] }
 interface MCPConnection { name: string; type: 'http' | 'stdio'; url?: string; command?: string; args: string[]; envKeys?: string[]; enabled: boolean; hasBearerToken: boolean; status: 'disconnected' | 'connecting' | 'connected' | 'error'; toolCount: number; error?: string }
-interface Message { id: string; role: string; text: string; toolName?: string; status?: string }
+interface MessageImage { index: number; mimeType: string }
+interface ImageInput { type: 'image'; data: string; mimeType: string }
+interface DraftImage extends ImageInput { id: string; name: string; size: number; url: string }
+interface Message { id: string; role: string; text: string; toolName?: string; status?: string; images?: MessageImage[] }
 interface Approval { id: string; toolName: string; args: unknown; warning?: string }
 interface RunUsage { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
 interface RuntimeStatus { phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
 interface Failure { kind: string; message: string; advice: string; canContinue: boolean }
 interface State {
-  settings: { baseUrl: string; model: string; hasApiKey: boolean; appearance?: AppearanceMode };
+  settings: { baseUrl: string; model: string; hasApiKey: boolean; appearance?: AppearanceMode; supportsImages?: boolean; imageUploadLimit?: number };
   workspaces: Workspace[];
   conversations: Conversation[];
   activeId: string | null;
@@ -75,8 +78,14 @@ let resourcesRequest = 0;
 let mcpConnections: MCPConnection[] = [];
 let mcpRequest = 0;
 let mcpEditorGeneration = 0;
+let draftImages: DraftImage[] = [];
+let readingImages = false;
+let draftGeneration = 0;
+const historyImages = new Map<string, Promise<string>>();
+let imageGeneration = 0;
 
 const paths: Record<string, string> = {
+  image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   chat: '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5a8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
@@ -137,9 +146,12 @@ $('app').innerHTML = `
       <details id="run-status" class="run-status" hidden><summary id="run-status-summary"></summary><div id="run-status-details"></div></details>
       <section id="queued-messages" class="queued-messages" aria-label="Pending messages" aria-live="polite" hidden></section>
       <form id="composer-form" class="composer">
+        <div id="draft-images" class="draft-images" aria-label="Image attachments" hidden></div>
+        <input id="image-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden />
         <textarea id="composer-input" rows="1" placeholder="Ask Pith to help with your work…" aria-label="Message Pith"></textarea>
         <div class="composer-toolbar">
           <div class="composer-context">
+            <button id="attach-images" type="button" class="quiet-icon attach-images" data-action="attach-images" aria-label="Attach images" title="Attach images">${icon('image')}</button>
             <button type="button" class="workspace-chip" data-action="workspace">${icon('folder')}<span id="composer-workspace">Select workspace</span>${icon('down')}</button>
             <label class="permission-control" id="permission-control">${icon('shield')}<span class="sr-only">Conversation permissions</span><select id="permission-mode" aria-describedby="permission-description"><option value="ask">Ask before changes</option><option value="workspace-write">Allow workspace changes</option><option value="full-access">Full access</option></select>${icon('down')}</label>
             <label class="queue-control" id="queue-control" hidden><span class="sr-only">Send while Pith is running</span><select id="queue-mode"><option value="steer">Add instruction</option><option value="follow-up">Queue next task</option></select></label>
@@ -147,6 +159,7 @@ $('app').innerHTML = `
           <div class="composer-actions"><span class="keyboard-hint">↵ to send</span><button id="send-button" class="send-button" type="submit" aria-label="Send message">${icon('arrow')}</button><button id="stop-button" class="stop-button" type="button" data-action="stop" aria-label="Stop agent" hidden>${icon('stop')}<span>Stop</span></button></div>
         </div>
       </form>
+      <p id="image-guidance" class="composer-note image-guidance" hidden></p>
       <p class="composer-note" id="permission-description">Pith can read workspace files. Changes and commands require your approval.</p>
     </div>
   </main>
@@ -219,6 +232,7 @@ function render(): void {
     $('messages').innerHTML = state.messages.map(renderMessage).join('') + (state.running && !state.pendingApproval ? `<div class="agent-working"><span class="agent-avatar">${logo}</span><span class="working-dots"><i></i><i></i><i></i></span><span>Pith is working</span></div>` : '');
     messagesSignature = signature;
     renderedActiveId = state.activeId;
+    loadHistoryImages();
     if (nearBottom || changedConversation) requestAnimationFrame(() => chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior: changedConversation ? 'instant' : 'smooth' }));
   }
 
@@ -226,6 +240,7 @@ function render(): void {
   renderArtifacts();
   renderQueue();
   renderRuntime();
+  renderDraftImages();
   const error = localError || state.error || '';
   $('inline-error').hidden = !error || (!localError && !!state.failure);
   $('inline-error').textContent = error;
@@ -234,7 +249,7 @@ function render(): void {
   $('stop-button').hidden = !state.running;
   $('queue-control').hidden = !state.running;
   $('send-button').hidden = false;
-  $<HTMLButtonElement>('send-button').disabled = !snapshotLoaded || requestBusy || !input.value.trim() || !workspace || !state.settings.hasApiKey || !!activeConversation?.archived;
+  $<HTMLButtonElement>('send-button').disabled = !snapshotLoaded || requestBusy || readingImages || (!input.value.trim() && !draftImages.length) || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey || !!activeConversation?.archived;
   $<HTMLSelectElement>('queue-mode').disabled = requestBusy;
   const queuedMode = $<HTMLSelectElement>('queue-mode').value;
   $('send-button').setAttribute('aria-label', state.running ? queuedMode === 'follow-up' ? 'Queue next task' : 'Add instruction' : 'Send message');
@@ -289,7 +304,7 @@ function renderQueue(): void {
   if (signature === queueSignature) return;
   queueSignature = signature;
   $('queued-messages').hidden = !queued.length;
-  $('queued-messages').innerHTML = queued.length ? `<div class="section-heading">Pending messages</div>${queued.map((entry) => `<div class="queued-message"><span class="queue-badge">${entry.mode === 'steer' ? 'Instruction' : 'Next task'}</span><span>${escape(entry.text)}</span></div>`).join('')}` : '';
+  $('queued-messages').innerHTML = queued.length ? `<div class="section-heading">Pending messages</div>${queued.map((entry) => `<div class="queued-message"><span class="queue-badge">${entry.mode === 'steer' ? 'Instruction' : 'Next task'}</span><span>${escape(entry.text)}${entry.imageCount ? `<small class="queue-image-count">${entry.imageCount} image${entry.imageCount === 1 ? '' : 's'}</small>` : ''}</span></div>`).join('')}` : '';
 }
 
 function renderAppearance(): void {
@@ -321,8 +336,10 @@ function renderWelcome(workspace?: Workspace): void {
 
 function renderMessage(message: Message): string {
   const text = message.text ?? '';
-  if (message.role === 'tool') return `<details class="tool-message" ${message.status === 'running' ? 'open' : ''}><summary>${icon('terminal')}<span>${escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(message.status || 'Result')}</span>${icon('down')}</summary><pre>${escape(text)}</pre></details>`;
-  if (message.role === 'user') return `<article class="message user-message"><div class="message-content"><div class="message-label">You</div><div class="user-text">${escape(text)}</div></div></article>`;
+  const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${state.activeId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" loading="lazy" />`).join('');
+  const gallery = images ? `<div class="message-images">${images}</div>` : '';
+  if (message.role === 'tool') return `<details class="tool-message" ${message.status === 'running' ? 'open' : ''}><summary>${icon('terminal')}<span>${escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(message.status || 'Result')}</span>${icon('down')}</summary><pre>${escape(text)}</pre>${gallery}</details>`;
+  if (message.role === 'user') return `<article class="message user-message"><div class="message-content"><div class="message-label">You</div>${text ? `<div class="user-text">${escape(text)}</div>` : ''}${gallery}</div></article>`;
   if (message.role === 'system') return `<div class="system-message">${escape(text)}</div>`;
   return `<article class="message assistant-message"><span class="agent-avatar">${logo}</span><div class="message-content"><div class="message-label">Pith</div><div class="markdown">${renderMarkdown(text)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}</div></article>`;
 }
@@ -379,7 +396,7 @@ function setState(next: State): void {
   const activeChanged = next.activeId !== state.activeId;
   const runFinished = state.running && !next.running;
   state = { ...next, queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
-  if (activeChanged) { artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; }
+  if (activeChanged) { clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; }
   snapshotLoaded = true;
   render();
   if (shouldLoadArtifacts && next.activeId) void loadArtifacts(next.activeId);
@@ -430,6 +447,7 @@ async function newConversation(workspaceId = selectedWorkspace()?.id): Promise<v
   if (await mutate('/api/conversations', { workspaceId })) {
     historyArchived = false;
     input.value = '';
+    clearDraftImages();
     resizeComposer();
     closeSidebar();
     input.focus();
@@ -439,21 +457,26 @@ async function newConversation(workspaceId = selectedWorkspace()?.id): Promise<v
 async function send(): Promise<void> {
   const draft = input.value;
   const text = input.value.trim();
-  if (!text || requestBusy) return;
+  const images = draftImages.map(({ type, data, mimeType }) => ({ type, data, mimeType }));
+  const submittedIds = new Set(draftImages.map((image) => image.id));
+  if ((!text && !images.length) || requestBusy || readingImages) return;
+  if (images.length && !state.settings.supportsImages) { localError = 'Choose an image-capable model in Settings, or remove the attachments.'; render(); return; }
   if (state.conversations.find((entry) => entry.id === state.activeId)?.archived) return;
-  if (state.running) { await queueMessage(text, draft); return; }
+  if (state.running) { await queueMessage(text, draft, images, submittedIds); return; }
   if (!state.settings.hasApiKey) { openSettings(); return; }
   if (!selectedWorkspace()) { openWorkspace(); return; }
   if (!state.activeId && !await mutate('/api/conversations', { workspaceId: selectedWorkspace()!.id })) return;
-  if (await mutate('/api/send', { text })) {
+  if (await mutate('/api/send', { text, images }, () => {
     if (input.value === draft) input.value = '';
+    clearDraftImages(submittedIds);
+  })) {
     resizeComposer();
     render();
     chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior: 'smooth' });
   }
 }
 
-async function queueMessage(text: string, draft: string): Promise<void> {
+async function queueMessage(text: string, draft: string, images: ImageInput[], submittedIds: Set<string>): Promise<void> {
   const id = state.activeId;
   if (!id || requestBusy) return;
   const mode = $<HTMLSelectElement>('queue-mode').value === 'follow-up' ? 'follow-up' : 'steer';
@@ -462,7 +485,8 @@ async function queueMessage(text: string, draft: string): Promise<void> {
   render();
   try {
     // A queue POST is sent exactly once. A lost response must not duplicate work.
-    await request('/api/queue', { id, text, mode });
+    await request('/api/queue', { id, text, mode, images });
+    clearDraftImages(submittedIds);
     if (input.value === draft) input.value = '';
     resizeComposer();
     await refresh().catch(() => { localError = 'Message submitted. Waiting for the local service to update the pending list.'; });
@@ -788,11 +812,109 @@ async function addWorkspace(path: string): Promise<void> {
 }
 
 function closeSidebar(): void { $('sidebar').classList.remove('open'); $('sidebar-scrim').classList.remove('visible'); }
+function renderDraftImages(): void {
+  $('draft-images').hidden = !draftImages.length;
+  $('draft-images').innerHTML = draftImages.map((image) => `<figure class="draft-image"><img src="${escape(image.url)}" alt="${escape(image.name)}" /><figcaption>${escape(image.name)}</figcaption><button type="button" class="remove-image" data-remove-image="${image.id}" aria-label="Remove ${escape(image.name)}" ${requestBusy || readingImages ? 'disabled' : ''}>${icon('close')}</button></figure>`).join('');
+  $<HTMLButtonElement>('attach-images').disabled = requestBusy || readingImages || !snapshotLoaded;
+  const guidance = $('image-guidance');
+  guidance.hidden = !draftImages.length;
+  guidance.textContent = state.settings.supportsImages
+    ? 'Images are saved with this conversation and sent to your configured model provider. Up to 20 MiB total per message.'
+    : 'This model does not support images. Choose an image-capable model in Settings, or remove the attachments.';
+}
+
+function clearDraftImages(ids?: Set<string>): void {
+  if (!ids) draftGeneration++;
+  draftImages = draftImages.filter((image) => {
+    if (ids && !ids.has(image.id)) return true;
+    URL.revokeObjectURL(image.url);
+    return false;
+  });
+}
+
+async function addImageFiles(files: File[]): Promise<void> {
+  if (!files.length || requestBusy || readingImages) return;
+  readingImages = true;
+  localError = '';
+  render();
+  const added: DraftImage[] = [];
+  const generation = draftGeneration;
+  try {
+    const limit = state.settings.imageUploadLimit || 20 * 1024 * 1024;
+    if (draftImages.reduce((sum, image) => sum + image.size, 0) + files.reduce((sum, file) => sum + file.size, 0) > limit) throw new Error('Image attachments must total 20 MiB or less per message.');
+    for (const file of files) {
+      const mimeType = file.type || ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' } as Record<string, string>)[file.name.split('.').pop()?.toLowerCase() || ''];
+      if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mimeType) || !file.size) throw new Error('Use nonempty PNG, JPEG, GIF or WebP images.');
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+        reader.onload = () => resolve(String(reader.result).split(',', 2)[1]);
+        reader.readAsDataURL(file);
+      });
+      added.push({ id: Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join(''), type: 'image', data, mimeType, name: file.name || 'Pasted image', size: file.size, url: URL.createObjectURL(file) });
+    }
+    if (disposed || generation !== draftGeneration) { for (const image of added) URL.revokeObjectURL(image.url); return; }
+    draftImages.push(...added);
+  } catch (error) {
+    for (const image of added) URL.revokeObjectURL(image.url);
+    localError = error instanceof Error ? error.message : String(error);
+  } finally { readingImages = false; render(); }
+}
+
+function clearHistoryImages(): void {
+  imageGeneration++;
+  for (const value of historyImages.values()) void value.then((url) => URL.revokeObjectURL(url)).catch(() => {});
+  historyImages.clear();
+}
+
+function loadHistoryImages(): void {
+  for (const image of $('messages').querySelectorAll<HTMLImageElement>('img[data-image-key]')) {
+    const key = image.dataset.imageKey!;
+    let value = historyImages.get(key);
+    if (!value) {
+      const generation = imageGeneration;
+      const params = new URLSearchParams({ id: state.activeId || '', message: image.dataset.messageId!, index: image.dataset.imageIndex! });
+      value = fetch(`/api/image?${params}`, { headers: headers(), credentials: 'same-origin' }).then(async (response) => {
+        if (!response.ok) throw new Error('Image attachment could not be loaded.');
+        const blob = await response.blob();
+        if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type)) throw new Error('Invalid image attachment.');
+        if (generation !== imageGeneration || disposed) throw new Error('Conversation changed.');
+        return URL.createObjectURL(blob);
+      });
+      historyImages.set(key, value);
+      const pending = value;
+      void pending.catch(() => { if (historyImages.get(key) === pending) historyImages.delete(key); });
+    }
+    void value.then((url) => { if (image.isConnected) image.src = url; }).catch(() => { if (image.isConnected) { image.alt = 'Image unavailable'; image.classList.add('image-unavailable'); } });
+  }
+}
+
+$('image-picker').addEventListener('change', (event) => {
+  const picker = event.currentTarget as HTMLInputElement;
+  const files = Array.from(picker.files || []);
+  picker.value = '';
+  void addImageFiles(files);
+});
+input.addEventListener('paste', (event) => {
+  const files = Array.from(event.clipboardData?.items || []).filter((item) => item.kind === 'file' && item.type.startsWith('image/')).map((item) => item.getAsFile()).filter((file): file is File => !!file);
+  if (files.length) { event.preventDefault(); void addImageFiles(files); }
+});
+$('composer-form').addEventListener('dragover', (event) => {
+  if (event.dataTransfer?.types.includes('Files')) { event.preventDefault(); if (!requestBusy && !readingImages) $('composer-form').classList.add('drag-images'); }
+});
+$('composer-form').addEventListener('dragleave', () => $('composer-form').classList.remove('drag-images'));
+$('composer-form').addEventListener('drop', (event) => {
+  event.preventDefault();
+  $('composer-form').classList.remove('drag-images');
+  void addImageFiles(Array.from(event.dataTransfer?.files || []));
+});
+
 function resizeComposer(): void { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
 
 document.addEventListener('click', async (event) => {
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand');
   if (!target) return;
+  if (target.dataset.removeImage) { if (!requestBusy && !readingImages) { clearDraftImages(new Set([target.dataset.removeImage])); render(); } return; }
   if (target.dataset.close) { $<HTMLDialogElement>(target.dataset.close).close(); return; }
   if (target.classList.contains('brand')) { event.preventDefault(); input.focus(); return; }
   if (target.dataset.historyFilter) { historyArchived = target.dataset.historyFilter === 'archived'; renderHistory(); return; }
@@ -817,7 +939,7 @@ document.addEventListener('click', async (event) => {
   if (target.dataset.prompt) { input.value = target.dataset.prompt; resizeComposer(); render(); input.focus(); return; }
   if (target.dataset.conversation) {
     if (state.running) { localError = 'Stop the current run before switching conversations.'; render(); return; }
-    await mutate('/api/open', { id: target.dataset.conversation }); closeSidebar(); return;
+    if (await mutate('/api/open', { id: target.dataset.conversation })) clearDraftImages(); render(); closeSidebar(); return;
   }
   if (target.dataset.workspace || target.dataset.modalWorkspace) {
     const id = target.dataset.workspace || target.dataset.modalWorkspace!;
@@ -845,6 +967,7 @@ document.addEventListener('click', async (event) => {
     case 'new': await newConversation(); break;
     case 'settings': openSettings(); break;
     case 'continue': if (!state.running && state.activeId && state.failure?.canContinue) await mutate('/api/continue', { id: state.activeId }); break;
+    case 'attach-images': if (!requestBusy && !readingImages) $<HTMLInputElement>('image-picker').click(); break;
     case 'diagnostics': await exportDiagnostics(); break;
     case 'workspace': openWorkspace(); break;
     case 'resources': openResources(); break;
@@ -966,7 +1089,7 @@ async function streamEvents(): Promise<void> {
   }
 }
 
-window.addEventListener('beforeunload', () => { disposed = true; eventSocket?.close(); });
+window.addEventListener('beforeunload', () => { disposed = true; clearDraftImages(); clearHistoryImages(); eventSocket?.close(); });
 systemAppearance.addEventListener('change', () => {
   if (appearanceMode(state.settings.appearance) === 'system') applyAppearance('system');
 });

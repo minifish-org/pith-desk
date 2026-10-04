@@ -3,7 +3,9 @@ package host
 import (
 	"encoding/json"
 	"errors"
+	aitypes "github.com/minifish-org/pith/packages/ai/types"
 	"net/http"
+	"strconv"
 
 	"github.com/minifish-org/pith-desk/internal/desk"
 )
@@ -38,6 +40,20 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 	var value any
 	var err error
 	switch r.URL.Path {
+	case "/api/image":
+		index, parseErr := strconv.Atoi(r.URL.Query().Get("index"))
+		if parseErr != nil {
+			s.fail(w, "Image attachment not found", http.StatusNotFound)
+			return true
+		}
+		data, mime, imageErr := s.service.ConversationImage(r.URL.Query().Get("id"), r.URL.Query().Get("message"), index)
+		if imageErr != nil {
+			s.fail(w, "Image attachment not found", http.StatusNotFound)
+			return true
+		}
+		w.Header().Set("Content-Type", mime)
+		_, _ = w.Write(data)
+		return true
 	case "/api/resources":
 		value, err = s.service.Resources(r.URL.Query().Get("workspaceId"))
 	case "/api/artifacts":
@@ -129,12 +145,13 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		}
 	case "/api/queue":
 		var in struct {
-			ID   string `json:"id"`
-			Text string `json:"text"`
-			Mode string `json:"mode"`
+			ID     string                 `json:"id"`
+			Text   string                 `json:"text"`
+			Mode   string                 `json:"mode"`
+			Images []aitypes.ImageContent `json:"images"`
 		}
 		if err = decode(&in); err == nil {
-			err = s.service.QueueMessage(in.ID, in.Text, in.Mode)
+			err = s.service.QueueMessage(in.ID, in.Text, in.Mode, in.Images...)
 		}
 	case "/api/rename":
 		var in struct {

@@ -10,3 +10,7 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Local UI test captures
+.playwright-cli/
+output/playwright/

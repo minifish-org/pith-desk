@@ -2,7 +2,7 @@
 
 A local desktop workspace for getting things done with an AI agent. Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native window. The interface is TypeScript. The product is a separate repository; it does not fork or modify the agent SDK.
 
-This first version supports text conversations, workspace folders, streamed answers, file tools, conversation permissions, workspace instructions and skills, and optional MCP connections. DeepSeek Flash is the default model. An OpenAI-compatible Chat Completions endpoint with tool calling can also be configured, using a compatible model ID from Pith's catalog.
+This first version supports text and image conversations, workspace folders, streamed answers, file tools, conversation permissions, workspace instructions and skills, and optional MCP connections. DeepSeek Flash is the default model. An OpenAI-compatible Chat Completions endpoint with tool calling can also be configured, using a compatible model ID from Pith's catalog.
 
 ![Pith Desk on macOS showing a workspace conversation, a tool result, and a generated Markdown file](docs/images/pith-desk-macos.png)
 
@@ -70,6 +70,31 @@ Pith provides the MCP transports, tool discovery, and calls. Desk saves connecti
 
 Tokens and environment overrides are saved in the private local `mcp.json` file and their values are never returned in public configuration responses. This client does not install MCP servers or bundle their Node/Python runtimes. OAuth login and a connector marketplace are outside this version's scope.
 
+## Images
+
+Use **Attach images** in the composer, drag images onto it, or paste a screenshot.
+Preview and remove attachments before sending. An image can be sent alone, with
+text, or as a queued instruction or next task while the agent is working.
+
+PNG, JPEG, GIF and WebP are accepted, with a **20 MiB total upload limit per
+message** to bound local upload memory. Provider limits may be lower. Image
+bytes are sent unchanged; this client does not resize or transcode uploads.
+Model capability comes from the pinned Pith catalog. Text-only models reject
+image inputs before starting a run; a compatible endpoint must actually support
+the selected model's image input.
+
+Accepted images are saved inside Pith's local session records, outside the
+workspace, and sent to your configured model provider. Unsaved drafts stay in
+memory and are cleared when you start or switch conversations. History previews
+are fetched from the authenticated local service; image bytes are not included
+in every streaming state update. Guarded workspace image reading is also enabled
+for image-capable models. Markdown exports mark image attachments but do not
+embed their bytes.
+
+Image support is included in the
+[`v0.1.0-rc.3` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.3).
+
+
 ## Develop
 
 Requirements: Go 1.27.1 or later, Node.js 22.12 or later, npm, and macOS 12 or later for the first desktop target.
@@ -118,7 +143,7 @@ See [testing and native smoke checks](docs/TESTING.md) for verification and a sh
 
 ## Current boundaries
 
-This is an experimental local desktop product. It has no computer-control tools, image attachments, plugin marketplace, scheduled jobs, enterprise account system or automatic updates yet. Durable is available in the pinned Pith library, but this UI currently uses its normal coding-agent sessions.
+This is an experimental local desktop product. It has no computer-control tools, plugin marketplace, scheduled jobs, enterprise account system or automatic updates yet. Durable is available in the pinned Pith library, but this UI currently uses its normal coding-agent sessions.
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 

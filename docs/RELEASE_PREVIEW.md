@@ -4,9 +4,12 @@ This preview includes model connection checks, session token/context status,
 failure guidance, explicit task continuation and metadata-only diagnostic
 exports, alongside workspaces, file tools, skills, MCP and saved conversations.
 
-This release switches Mac downloads to Apple Silicon only and updates the
-embedded Pith SDK, including preservation of queued inputs across retries and
-session rebuilds. Desktop image attachments are not included yet.
+Mac downloads are Apple Silicon only. The embedded Pith SDK preserves queued
+inputs across retries and session rebuilds. Image selection, paste/drop,
+previews, queued image inputs
+and persistent image history are now included. PNG, JPEG, GIF and WebP uploads
+must total 20 MiB or less per message; provider limits may be lower. Images
+require an image-capable model and are sent to the configured provider.
 
 Download the macOS ARM64 preview ZIP, extract it and move **Pith Desk.app**
 to Applications. It supports Apple Silicon Macs (M series); Intel Mac is not

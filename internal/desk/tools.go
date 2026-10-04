@@ -18,9 +18,10 @@ import (
 // os.Root guards every file operation, including symlink resolution at access
 // time. This protects the file tools; an approved shell still has OS access.
 type filePolicy struct {
-	root    *os.Root
-	path    string
-	dataDir string
+	root        *os.Root
+	path        string
+	dataDir     string
+	allowImages bool
 }
 
 func newFilePolicy(path, dataDir string) (*filePolicy, error) {
@@ -106,7 +107,14 @@ func (p *filePolicy) DetectImageMimeType(path string) (string, bool, error) {
 		return "", false, err
 	}
 	if strings.HasPrefix(http.DetectContentType(data), "image/") {
-		return "", false, errors.New("Image reading is not enabled in this preview; use text files")
+		if !p.allowImages {
+			return "", false, errors.New("Choose an image-capable model in Settings to read images")
+		}
+		mime := http.DetectContentType(data)
+		if !supportedImageType(mime) {
+			return "", false, errors.New("Use PNG, JPEG, GIF or WebP images")
+		}
+		return mime, true, nil
 	}
 	return "", false, nil
 }

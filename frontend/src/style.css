@@ -502,3 +502,17 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .connection-test [role=status] { font-size: 13px; line-height: 1.5; margin-top: 8px; }
 .test-success { color: var(--accent); }
 .diagnostics-setting { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--muted); }
+
+.attach-images { flex-shrink: 0; }
+.draft-images { display: flex; gap: 10px; overflow-x: auto; padding: 4px 0 14px; }
+.draft-image { flex: 0 0 104px; position: relative; margin: 0; }
+.draft-image img { display: block; width: 104px; height: 80px; object-fit: cover; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-subtle); }
+.draft-image figcaption { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 5px; }
+.remove-image { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.remove-image .icon { width: 12px; height: 12px; }
+.composer.drag-images { outline: 2px solid var(--accent); outline-offset: 3px; }
+.image-guidance { text-align: left; line-height: 1.5; }
+.message-images { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.history-image { display: block; max-width: min(100%, 320px); max-height: 250px; width: auto; height: auto; object-fit: contain; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-subtle); }
+.image-unavailable { min-width: 120px; min-height: 60px; font-size: 11px; color: var(--muted); }
+.queue-image-count { display: block; color: var(--muted); font-size: 10px; margin-top: 3px; }

@@ -16,14 +16,16 @@ const (
 )
 
 type QueuedMessage struct {
-	ID   string    `json:"id"`
-	Text string    `json:"text"`
-	Mode QueueMode `json:"mode"`
+	ID         string                 `json:"id"`
+	Text       string                 `json:"text"`
+	Mode       QueueMode              `json:"mode"`
+	Images     []aitypes.ImageContent `json:"-"`
+	ImageCount int                    `json:"imageCount,omitempty"`
 }
 
 // QueueMessage belongs to the current run only. Pith chooses the next safe
 // steering boundary or the point at which it would otherwise finish.
-func (s *Service) QueueMessage(id, text, mode string) error {
+func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageContent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || !s.state.Running || s.aborting || s.queueClosing {
@@ -33,13 +35,21 @@ func (s *Service) QueueMessage(id, text, mode string) error {
 		return errors.New("Queue a message for the active conversation only")
 	}
 	text = strings.TrimSpace(text)
-	if text == "" {
-		return errors.New("Write a message first")
+	if text == "" && len(images) == 0 {
+		return errors.New("Write a message or attach an image first")
 	}
 	if mode != QueueSteer && mode != QueueFollowUp {
 		return errors.New("Choose steer or follow-up")
 	}
-	message := QueuedMessage{ID: newID(), Text: text, Mode: QueueMode(mode)}
+	model, err := resolveModel(s.config.Model, s.config.BaseURL)
+	if err != nil {
+		return err
+	}
+	images, err = validateImages(images, model)
+	if err != nil {
+		return err
+	}
+	message := QueuedMessage{ID: newID(), Text: text, Mode: QueueMode(mode), Images: images, ImageCount: len(images)}
 	s.state.QueuedMessages = append(s.state.QueuedMessages, message)
 	if s.queueReady && s.session != nil {
 		if err := s.dispatchMessageLocked(message); err != nil {
@@ -54,9 +64,9 @@ func (s *Service) QueueMessage(id, text, mode string) error {
 func (s *Service) dispatchMessageLocked(message QueuedMessage) error {
 	var err error
 	if message.Mode == QueueSteer {
-		err = s.session.Steer(message.Text)
+		err = s.session.Steer(message.Text, codingagent.PromptOptions{Images: message.Images})
 	} else {
-		err = s.session.FollowUp(message.Text)
+		err = s.session.FollowUp(message.Text, codingagent.PromptOptions{Images: message.Images})
 	}
 	if err == nil {
 		s.queueDispatched[message.ID] = true
@@ -94,7 +104,7 @@ func (s *Service) observeQueuedMessageLocked(event codingagent.SessionEvent) {
 	// message, retaining identical messages that are still in the queue.
 	for _, mode := range []QueueMode{QueueSteer, QueueFollowUp} {
 		for i, message := range s.state.QueuedMessages {
-			if message.Mode == mode && message.Text == text && s.queueDispatched[message.ID] {
+			if message.Mode == mode && message.Text == text && sameImages(message.Images, event.Message.Message.User.Content.Blocks) && s.queueDispatched[message.ID] {
 				delete(s.queueDispatched, message.ID)
 				s.state.QueuedMessages = append(s.state.QueuedMessages[:i], s.state.QueuedMessages[i+1:]...)
 				return

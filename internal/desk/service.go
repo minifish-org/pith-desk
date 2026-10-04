@@ -26,10 +26,12 @@ import (
 )
 
 type Settings struct {
-	BaseURL    string         `json:"baseUrl"`
-	Model      string         `json:"model"`
-	HasAPIKey  bool           `json:"hasApiKey"`
-	Appearance AppearanceMode `json:"appearance"`
+	BaseURL          string         `json:"baseUrl"`
+	Model            string         `json:"model"`
+	HasAPIKey        bool           `json:"hasApiKey"`
+	Appearance       AppearanceMode `json:"appearance"`
+	SupportsImages   bool           `json:"supportsImages"`
+	ImageUploadLimit int            `json:"imageUploadLimit"`
 }
 
 // An empty APIKey preserves the saved key. ClearAPIKey explicitly removes it.
@@ -82,11 +84,12 @@ func (mode PermissionMode) allows(tool string) bool {
 }
 
 type Message struct {
-	ID       string `json:"id"`
-	Role     string `json:"role"`
-	Text     string `json:"text"`
-	ToolName string `json:"toolName,omitempty"`
-	Status   string `json:"status,omitempty"`
+	ID       string         `json:"id"`
+	Role     string         `json:"role"`
+	Text     string         `json:"text"`
+	ToolName string         `json:"toolName,omitempty"`
+	Status   string         `json:"status,omitempty"`
+	Images   []MessageImage `json:"images,omitempty"`
 }
 
 type Approval struct {
@@ -134,6 +137,7 @@ type Service struct {
 	runCancel        context.CancelFunc
 	runDone          chan struct{}
 	session          *codingagent.AgentSession
+	activeManager    *codingagent.SessionManager
 	approval         chan bool
 	approvalCtx      context.Context
 	approvalGate     chan struct{}
@@ -234,7 +238,13 @@ func (s *Service) Snapshot() State {
 	out.Workspaces = append([]Workspace{}, s.state.Workspaces...)
 	out.Conversations = append([]Conversation{}, s.state.Conversations...)
 	out.Messages = append([]Message{}, s.state.Messages...)
+	for i := range out.Messages {
+		out.Messages[i].Images = append([]MessageImage(nil), out.Messages[i].Images...)
+	}
 	out.QueuedMessages = append([]QueuedMessage{}, s.state.QueuedMessages...)
+	for i := range out.QueuedMessages {
+		out.QueuedMessages[i].Images = append([]aitypes.ImageContent(nil), out.QueuedMessages[i].Images...)
+	}
 	if out.Failure != nil {
 		failure := *out.Failure
 		out.Failure = &failure
@@ -373,19 +383,19 @@ func (s *Service) OpenConversation(id string) error {
 	return nil
 }
 
-func (s *Service) Send(text string) error {
+func (s *Service) Send(text string, images ...aitypes.ImageContent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.sendLocked(text)
+	return s.sendLocked(text, images...)
 }
 
-func (s *Service) sendLocked(text string) error {
+func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
 	text = strings.TrimSpace(text)
-	if text == "" {
-		return errors.New("Write a message first")
+	if text == "" && len(images) == 0 {
+		return errors.New("Write a message or attach an image first")
 	}
 	index := s.conversationIndexLocked(s.state.ActiveID)
 	if index < 0 {
@@ -410,8 +420,15 @@ func (s *Service) sendLocked(text string) error {
 	if err != nil {
 		return err
 	}
+	images, err = validateImages(images, model)
+	if err != nil {
+		return err
+	}
 	if conversation.Title == "New conversation" {
 		title := []rune(strings.Split(text, "\n")[0])
+		if len(title) == 0 {
+			title = []rune("Image conversation")
+		}
 		if len(title) > 80 {
 			title = append(title[:77], '.', '.', '.')
 		}
@@ -443,7 +460,7 @@ func (s *Service) sendLocked(text string) error {
 	s.queueClosing = false
 	s.state.Error = ""
 	s.changedLocked()
-	go s.run(ctx, s.runDone, conversation.ID, workspace, s.config, model, text)
+	go s.run(ctx, s.runDone, conversation.ID, workspace, s.config, model, text, images)
 	return nil
 }
 
@@ -586,7 +603,7 @@ func (s *Service) Close() {
 	close(s.closeDone)
 }
 
-func (s *Service) run(ctx context.Context, done chan struct{}, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string) {
+func (s *Service) run(ctx context.Context, done chan struct{}, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent) {
 	var manager *codingagent.SessionManager
 	var session *codingagent.AgentSession
 	var registry *codingagent.ToolRegistry
@@ -621,7 +638,7 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: s.state.Runtime, Failure: s.state.Failure}); err != nil {
 			s.state.Error = "Task history was saved, but run status could not be saved: " + err.Error()
 		}
-		s.session, s.runCancel = nil, nil
+		s.session, s.activeManager, s.runCancel = nil, nil, nil
 		s.state.Running = false
 		s.aborting = false
 		s.clearQueueLocked()
@@ -677,6 +694,7 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 	if runErr != nil {
 		return
 	}
+	policy.allowImages = model.SupportsImageInput()
 	registry, runErr = s.buildTools(policy)
 	if runErr != nil {
 		return
@@ -703,7 +721,7 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		return
 	}
 	s.mu.Lock()
-	s.session = session
+	s.session, s.activeManager = session, manager
 	s.state.Runtime.Phase = "working"
 	s.updateRuntimeLocked(manager)
 	s.changedLocked()
@@ -712,7 +730,7 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		s.observe(event, manager)
 	})
 	defer unsubscribe()
-	_, runErr = session.Prompt(ctx, text)
+	_, runErr = session.Prompt(ctx, text, codingagent.PromptOptions{Images: images})
 	s.mu.Lock()
 	s.queueClosing = true
 	s.mu.Unlock()
@@ -776,7 +794,7 @@ func (s *Service) observe(event codingagent.SessionEvent, manager *codingagent.S
 		s.state.Runtime.Phase = "retrying"
 		s.queueClosing = false
 		s.queueReady = true
-		s.queueDispatched = map[string]bool{}
+		// Pith preserves pending queues across retry; dispatch only new messages.
 		s.dispatchQueueLocked()
 	case codingagent.SessionEventAutoRetryEnd:
 		s.state.Runtime.Phase = "working"
@@ -853,6 +871,7 @@ func messagesFrom(manager *codingagent.SessionManager) []Message {
 		switch {
 		case msg.User != nil:
 			out.Text = msg.User.Content.Text + blockText(msg.User.Content.Blocks)
+			out.Images = messageImages(msg.User.Content.Blocks)
 		case msg.Assistant != nil:
 			out.Text = blockText(msg.Assistant.Content)
 			if msg.Assistant.StopReason == aitypes.StopReasonError || msg.Assistant.StopReason == aitypes.StopReasonAborted {
@@ -861,11 +880,12 @@ func messagesFrom(manager *codingagent.SessionManager) []Message {
 		case msg.ToolResult != nil:
 			out.Role, out.ToolName = "tool", msg.ToolResult.ToolName
 			out.Text, out.Status = blockText(msg.ToolResult.Content), "done"
+			out.Images = messageImages(msg.ToolResult.Content)
 			if msg.ToolResult.IsError {
 				out.Status = "error"
 			}
 		}
-		if out.Text != "" || out.Role == "tool" {
+		if out.Text != "" || len(out.Images) > 0 || out.Role == "tool" {
 			messages = append(messages, out)
 		}
 	}
@@ -968,7 +988,8 @@ func (s *Service) conversationIndexLocked(id string) int {
 }
 
 func (s *Service) refreshSettingsLocked() {
-	s.state.Settings = Settings{BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: s.config.APIKey != "", Appearance: s.config.Appearance}
+	model, _ := resolveModel(s.config.Model, s.config.BaseURL)
+	s.state.Settings = Settings{BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: s.config.APIKey != "", Appearance: s.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
 }
 
 func (s *Service) persistCatalogLocked() error {

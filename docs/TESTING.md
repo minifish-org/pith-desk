@@ -106,3 +106,29 @@ continuation, cumulative usage, successful tool-call connection probe, rejected
 key guidance, native diagnostic save, JSON inspection and Save cancellation.
 No production configuration or live model credentials were used. Intel Mac
 runtime and real Developer ID notarization remain unverified.
+
+## Image input verification
+
+The image follow-up on 2026-10-04 used only offline provider fixtures and
+isolated application data. Full Go tests, vet, race checks and an ARM64
+CGO-disabled app build cover the actual pinned SDK image options. Integration
+tests verify unchanged image bytes in Chat Completions requests, image-only
+messages, steering/follow-up ordering, detached snapshots, persistent history
+after restart, and image markers in Markdown exports. A larger-than-2-MiB
+upload exercises the expanded image request transport. Invalid MIME/base64,
+SVG, excess upload size, unknown image references, unauthenticated and foreign
+origin reads are rejected. Workspace image reads retain the existing file guard.
+
+The browser check covered choosing/removing a PNG, image-only sending, and
+loaded history after refresh. File-drop and a synthetic PNG clipboard event
+added loaded previews; switching the fixture to a text-only model disabled
+sending and kept both drafts. The native WKWebView check covered restoring
+that session, choosing a PNG with the macOS file picker, previewing it, sending
+it and completing the response. Fixture logs confirmed the selected bytes
+reached the offline provider. These checks do not certify a live model's visual
+understanding or an endpoint's support for every catalog capability.
+
+For manual acceptance, also paste a screenshot or drag multiple supported
+images onto the composer, check removal and mixed text/image input, and test
+a text-only model. A rejected upload must keep the draft and leave the
+existing history unchanged. Diagnostics must not include image bytes.

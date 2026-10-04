@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	aitypes "github.com/minifish-org/pith/packages/ai/types"
 
 	assets "github.com/minifish-org/pith-desk"
 	"github.com/minifish-org/pith-desk/internal/desk"
@@ -110,7 +111,7 @@ func (s *Server) broadcast() {
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+strings.Replace(s.URL, "http://", "ws://", 1)+"; img-src 'self' data:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+strings.Replace(s.URL, "http://", "ws://", 1)+"; img-src 'self' data: blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 	if r.Host != s.listener.Addr().String() {
 		http.Error(w, "Invalid host", http.StatusForbidden)
 		return
@@ -182,7 +183,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "Method not allowed", 405)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	bodyLimit := int64(2 << 20)
+	if r.URL.Path == "/api/send" || r.URL.Path == "/api/queue" {
+		bodyLimit = 32 << 20
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
 	decode := func(dst any) error {
 		d := json.NewDecoder(r.Body)
 		d.DisallowUnknownFields()
@@ -237,10 +242,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/api/send":
 		var in struct {
-			Text string `json:"text"`
+			Text   string                 `json:"text"`
+			Images []aitypes.ImageContent `json:"images"`
 		}
 		if err = decode(&in); err == nil {
-			err = s.service.Send(in.Text)
+			err = s.service.Send(in.Text, in.Images...)
 		}
 	case "/api/abort":
 		s.service.Abort()

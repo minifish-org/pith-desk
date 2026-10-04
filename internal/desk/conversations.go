@@ -168,6 +168,9 @@ func (s *Service) ExportConversation(id string) (string, error) {
 				label = "System"
 			}
 			markdown.WriteString("## " + label + "\n\n")
+			if len(message.Images) > 0 {
+				fmt.Fprintf(&markdown, "_[%d image attachment(s), retained in the local session; not embedded in this Markdown export.]_\n\n", len(message.Images))
+			}
 			if message.Status == "error" {
 				markdown.WriteString("_This response or tool reported an error._\n\n")
 			}
