@@ -27,6 +27,10 @@ run('npm', ['run', 'build:ui']);
 run('npx', ['--no-install', 'mygo', 'build', '-skip-build-command', '-platform', 'darwin/arm64', '-skip-dmg', '-skip-notarize', '-o', 'build/release', '-sign', '-']);
 const app = join(root, 'build/release/darwin-arm64/Pith Desk.app');
 const binary = join(app, 'Contents/MacOS/Pith Desk');
+const bundleIcon = run('plutil', ['-extract', 'CFBundleIconFile', 'raw', '-o', '-', join(app, 'Contents/Info.plist')], true);
+if (bundleIcon !== 'AppIcon.icns' || readFileSync(join(app, 'Contents/Resources', bundleIcon)).subarray(0, 4).toString() !== 'icns') {
+  throw new Error('The application bundle must include the configured macOS icon.');
+}
 const architectures = run('lipo', ['-archs', binary], true).split(/\s+/).sort();
 if (architectures.join(',') !== 'arm64') throw new Error('Expected an Apple Silicon Mac app containing only arm64.');
 const output = join(root, 'build/releases');

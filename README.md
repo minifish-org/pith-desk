@@ -12,6 +12,9 @@ This first version supports text and image conversations, workspace folders, str
 
 Download the Apple Silicon (ARM64) preview from [Releases](https://github.com/minifish-org/pith-desk/releases). New Mac releases target M-series Macs only; packages use `macos-arm64` in their names. The earlier `v0.1.0-rc.1` universal preview remains available unchanged. The current preview is ad-hoc signed and **not notarized**; see the release notes for macOS opening instructions and tested platforms. Building from source remains an option for development.
 
+The preview includes the Pith Desk icon in Finder and the Dock, with a matching
+favicon for the browser preview.
+
 On macOS, open the built **Pith Desk.app**. You do not need Go, Node.js or npm to run the packaged application.
 
 1. Choose a workspace folder.
@@ -92,7 +95,7 @@ for image-capable models. Markdown exports mark image attachments but do not
 embed their bytes.
 
 Image support is included in the
-[`v0.1.0-rc.3` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.3).
+[`v0.1.0-rc.4` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.4).
 
 
 ## Develop

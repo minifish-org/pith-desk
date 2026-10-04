@@ -4,6 +4,7 @@ export default defineConfig({
   name: "Pith Desk",
   identifier: "org.minifish.pithdesk",
   version: "0.1.0",
+  icon: "frontend/public/icon.png",
   main: "./cmd/pith-desk",
   buildCommand: "npm --prefix frontend run build",
   // The host package embeds the frontend itself, so MyGo only packages
