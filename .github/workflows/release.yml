@@ -1,0 +1,74 @@
+name: Mac release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    env:
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci
+      - run: npm --prefix frontend ci
+      - run: npm run check
+      - name: Package preview or signed release
+        env:
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          PITH_DESK_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [ -z "$MAC_CERTIFICATE_P12$MAC_CERTIFICATE_PASSWORD$PITH_DESK_SIGNING_IDENTITY$APPLE_ID$APPLE_TEAM_ID$APPLE_APP_PASSWORD" ]; then
+            npm run release:preview
+          else
+            : "${MAC_CERTIFICATE_P12:?Missing signing certificate}"
+            : "${MAC_CERTIFICATE_PASSWORD:?Missing certificate password}"
+            : "${PITH_DESK_SIGNING_IDENTITY:?Missing signing identity}"
+            : "${APPLE_ID:?Missing Apple ID}"
+            : "${APPLE_TEAM_ID:?Missing Apple team ID}"
+            : "${APPLE_APP_PASSWORD:?Missing app-specific password}"
+            SIGNING_KEYCHAIN="$RUNNER_TEMP/pith-desk-signing.keychain-db"
+            SIGNING_PASSWORD="$(openssl rand -hex 32)"
+            export SIGNING_KEYCHAIN
+            trap 'security delete-keychain "$SIGNING_KEYCHAIN" || true; rm -f "$RUNNER_TEMP/certificate.p12"' EXIT
+            security create-keychain -p "$SIGNING_PASSWORD" "$SIGNING_KEYCHAIN"
+            security set-keychain-settings -lut 21600 "$SIGNING_KEYCHAIN"
+            security unlock-keychain -p "$SIGNING_PASSWORD" "$SIGNING_KEYCHAIN"
+            printf '%s' "$MAC_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+            security import "$RUNNER_TEMP/certificate.p12" -k "$SIGNING_KEYCHAIN" -P "$MAC_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$SIGNING_PASSWORD" "$SIGNING_KEYCHAIN"
+            security list-keychains -d user -s "$SIGNING_KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+            xcrun notarytool store-credentials pith-desk-release --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$SIGNING_KEYCHAIN"
+            export PITH_DESK_NOTARY_PROFILE=pith-desk-release
+            export PITH_DESK_NOTARY_KEYCHAIN="$SIGNING_KEYCHAIN"
+            npm run release:signed
+          fi
+      - name: Publish tagged build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ls build/releases/*-preview.zip >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" build/releases/pith-desk-* --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Mac preview)" --notes-file docs/RELEASE_PREVIEW.md
+          else
+            gh release create "$RELEASE_TAG" build/releases/pith-desk-* --verify-tag --generate-notes
+          fi

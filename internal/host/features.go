@@ -24,6 +24,12 @@ func (s *Server) SetExportAction(save func(string) error) {
 	s.exportMarkdown = save
 }
 
+func (s *Server) SetDiagnosticsAction(save func(string) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.saveDiagnostics = save
+}
+
 // These handlers run only after the common host, origin and token checks.
 func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodGet {
@@ -38,6 +44,14 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 		value, err = s.service.Artifacts(r.URL.Query().Get("id"))
 	case "/api/mcp":
 		value = s.service.ListMCP()
+	case "/api/diagnostics":
+		var data string
+		data, err = s.service.Diagnostics()
+		if err == nil {
+			w.Header().Set("Content-Disposition", `attachment; filename="pith-desk-diagnostics.json"`)
+			_, _ = w.Write([]byte(data))
+			return true
+		}
 	case "/api/export":
 		var markdown string
 		markdown, err = s.service.ExportConversation(r.URL.Query().Get("id"))
@@ -61,6 +75,38 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, decode func(any) error) bool {
 	var err error
 	switch r.URL.Path {
+	case "/api/test-connection":
+		var in desk.ConfigInput
+		if err = decode(&in); err == nil {
+			var result desk.ConnectionTest
+			result, err = s.service.TestConnection(r.Context(), in)
+			if err == nil {
+				_ = json.NewEncoder(w).Encode(result)
+				return true
+			}
+		}
+	case "/api/continue":
+		var in struct {
+			ID string `json:"id"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.ContinueTask(in.ID)
+		}
+	case "/api/diagnostics":
+		var data string
+		data, err = s.service.Diagnostics()
+		if err == nil {
+			s.mu.Lock()
+			save := s.saveDiagnostics
+			s.mu.Unlock()
+			if save != nil {
+				err = save(data)
+			}
+			if err == nil {
+				_ = json.NewEncoder(w).Encode(map[string]bool{"native": save != nil})
+				return true
+			}
+		}
 	case "/api/export":
 		var in struct {
 			ID string `json:"id"`

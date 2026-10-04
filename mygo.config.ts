@@ -10,6 +10,7 @@ export default defineConfig({
   // the native shell. No generated Go bridge is exposed to the web page.
   bindings: ".mygo/bindings.ts",
   out: "build",
+  resources: ["LICENSE", "third_party", "docs/THIRD_PARTY.md"],
   macos: {
     minimumSystemVersion: "12.0",
     signingIdentity: "-",

@@ -136,6 +136,19 @@ func runDesktop(dataDir string) error {
 			}
 			return os.WriteFile(path, []byte(markdown), 0o600)
 		})
+		server.SetDiagnosticsAction(func(data string) error {
+			dialogMu.Lock()
+			defer dialogMu.Unlock()
+			path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
+				Parent: window.Load(), Title: "Save diagnostics",
+				DefaultPath: "pith-desk-diagnostics.json", CreateDirectories: true,
+				Filters: []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}},
+			})
+			if err != nil || path == "" {
+				return err
+			}
+			return os.WriteFile(path, []byte(data), 0o600)
+		})
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title: "Pith Desk", Hidden: true,
 			Width: 1320, Height: 860, MinWidth: 900, MinHeight: 600,

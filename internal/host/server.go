@@ -40,6 +40,7 @@ type Server struct {
 	openFile          func(string) error
 	revealFile        func(string) error
 	exportMarkdown    func(string) error
+	saveDiagnostics   func(string) error
 }
 
 func Start(service *desk.Service, picker func() (string, error), appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {

@@ -106,6 +106,8 @@ type State struct {
 	Running         bool            `json:"running"`
 	PendingApproval *Approval       `json:"pendingApproval,omitempty"`
 	Error           string          `json:"error,omitempty"`
+	Runtime         RuntimeStatus   `json:"runtime"`
+	Failure         *Failure        `json:"failure,omitempty"`
 }
 
 type savedConfig struct {
@@ -147,6 +149,8 @@ type Service struct {
 	mcpRuntime       *codingagent.MCPRuntime
 	mcpConnecting    bool
 	mcpConnectCancel context.CancelFunc
+	probeCancel      context.CancelFunc
+	probeDone        chan struct{}
 }
 
 func New(dataDir string) (*Service, error) {
@@ -231,6 +235,10 @@ func (s *Service) Snapshot() State {
 	out.Conversations = append([]Conversation{}, s.state.Conversations...)
 	out.Messages = append([]Message{}, s.state.Messages...)
 	out.QueuedMessages = append([]QueuedMessage{}, s.state.QueuedMessages...)
+	if out.Failure != nil {
+		failure := *out.Failure
+		out.Failure = &failure
+	}
 	if out.PendingApproval != nil {
 		approval := *out.PendingApproval
 		approval.Args = append(json.RawMessage(nil), approval.Args...)
@@ -245,21 +253,9 @@ func (s *Service) Configure(input ConfigInput) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
-	base := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
-	u, err := url.Parse(base)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return errors.New("Enter an HTTP or HTTPS API base URL without credentials, query, or fragment")
-	}
-	modelID := strings.TrimSpace(input.Model)
-	if _, err := resolveModel(modelID, base); err != nil {
+	next, err := validatedConfig(input, s.config)
+	if err != nil {
 		return err
-	}
-	next := savedConfig{BaseURL: base, Model: modelID, APIKey: s.config.APIKey, Appearance: s.config.Appearance}
-	if input.APIKey != "" {
-		next.APIKey = strings.TrimSpace(input.APIKey)
-	}
-	if input.ClearAPIKey {
-		next.APIKey = ""
 	}
 	if err := writeJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
 		return err
@@ -267,8 +263,38 @@ func (s *Service) Configure(input ConfigInput) error {
 	s.config = next
 	s.refreshSettingsLocked()
 	s.state.Error = ""
+	if s.state.Failure != nil && !s.state.Failure.CanContinue {
+		previous := *s.state.Failure
+		s.state.Failure.CanContinue = true
+		s.state.Failure.Advice = "Model settings changed. Test the connection, then review the conversation before continuing."
+		if err := writeJSON(s.receiptFile(s.state.ActiveID), runReceipt{Runtime: s.state.Runtime, Failure: s.state.Failure}); err != nil {
+			s.state.Failure = &previous
+			s.changedLocked()
+			return fmt.Errorf("settings saved, but task status could not be updated: %w", err)
+		}
+	}
 	s.changedLocked()
 	return nil
+}
+
+func validatedConfig(input ConfigInput, current savedConfig) (savedConfig, error) {
+	base := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return savedConfig{}, errors.New("Enter an HTTP or HTTPS API base URL without credentials, query, or fragment")
+	}
+	modelID := strings.TrimSpace(input.Model)
+	if _, err := resolveModel(modelID, base); err != nil {
+		return savedConfig{}, err
+	}
+	next := savedConfig{BaseURL: base, Model: modelID, APIKey: current.APIKey, Appearance: current.Appearance}
+	if input.APIKey != "" {
+		next.APIKey = strings.TrimSpace(input.APIKey)
+	}
+	if input.ClearAPIKey {
+		next.APIKey = ""
+	}
+	return next, nil
 }
 
 func (s *Service) AddWorkspace(path string) (Workspace, error) {
@@ -320,6 +346,7 @@ func (s *Service) CreateConversation(workspaceID string) (Conversation, error) {
 		return Conversation{}, err
 	}
 	s.state.Messages = []Message{}
+	s.state.Runtime, s.state.Failure = RuntimeStatus{}, nil
 	s.state.Error = ""
 	s.changedLocked()
 	return conversation, nil
@@ -349,6 +376,10 @@ func (s *Service) OpenConversation(id string) error {
 func (s *Service) Send(text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.sendLocked(text)
+}
+
+func (s *Service) sendLocked(text string) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
@@ -392,9 +423,21 @@ func (s *Service) Send(text string) error {
 		return err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	previousRuntime, previousFailure := s.state.Runtime, s.state.Failure
 	s.runCancel = cancel
 	s.runDone = make(chan struct{})
 	s.state.Running = true
+	s.state.Failure = nil
+	s.state.Runtime.Phase, s.state.Runtime.Model, s.state.Runtime.ContextWindow = "starting", model.Id, model.ContextWindow
+	s.state.Runtime.UpdatedAt = timestamp()
+	if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: s.state.Runtime}); err != nil {
+		s.state.Running = false
+		s.state.Runtime, s.state.Failure = previousRuntime, previousFailure
+		cancel()
+		s.runCancel = nil
+		close(s.runDone)
+		return err
+	}
 	s.aborting = false
 	s.clearQueueLocked()
 	s.queueClosing = false
@@ -516,9 +559,16 @@ func (s *Service) Close() {
 	}
 	s.closed = true
 	cancel, done, mcpCancel := s.runCancel, s.runDone, s.mcpConnectCancel
+	probeCancel, probeDone := s.probeCancel, s.probeDone
 	s.clearQueueLocked()
 	s.queueClosing = true
 	s.mu.Unlock()
+	if probeCancel != nil {
+		probeCancel()
+	}
+	if probeDone != nil {
+		<-probeDone
+	}
 	if mcpCancel != nil {
 		mcpCancel()
 	}
@@ -554,8 +604,22 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		}
 		s.mu.Lock()
 		if manager != nil {
+			s.updateRuntimeLocked(manager)
 			s.state.Messages = messagesFrom(manager)
 			_ = manager.Close()
+		}
+		if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, codingagent.ErrAgentAborted) {
+			s.state.Failure = classifyFailure(runErr, s.state.Runtime.Phase)
+			s.state.Runtime.Phase = "error"
+		} else if ctx.Err() != nil || errors.Is(runErr, codingagent.ErrAgentAborted) {
+			s.state.Runtime.Phase = "stopped"
+			s.state.Failure = &Failure{Kind: "stopped", Message: "You stopped this task.", Advice: "Completed actions remain in place. Review before continuing.", CanContinue: true}
+		} else {
+			s.state.Runtime.Phase = "complete"
+		}
+		s.state.Runtime.UpdatedAt = timestamp()
+		if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: s.state.Runtime, Failure: s.state.Failure}); err != nil {
+			s.state.Error = "Task history was saved, but run status could not be saved: " + err.Error()
 		}
 		s.session, s.runCancel = nil, nil
 		s.state.Running = false
@@ -629,7 +693,7 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		Model: codingagent.ModelOptions{Model: model, ThinkingLevel: thinking,
 			APIKey: func(context.Context, string) (string, error) { return config.APIKey, nil }},
 		Resources: codingagent.ResourceOptions{Cwd: workspace.Path, SystemPrompt: deskPrompt(mode)},
-		Policy:    compactionPolicy(model, config.APIKey),
+		Policy:    s.observedCompactionPolicy(model, config.APIKey),
 		OnProviderStreamEvent: func(data any, _ *aitypes.Model) error {
 			s.appendProviderText(data)
 			return ctx.Err()
@@ -640,6 +704,9 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 	}
 	s.mu.Lock()
 	s.session = session
+	s.state.Runtime.Phase = "working"
+	s.updateRuntimeLocked(manager)
+	s.changedLocked()
 	s.mu.Unlock()
 	unsubscribe := session.Subscribe(func(event codingagent.SessionEvent) {
 		s.observe(event, manager)
@@ -697,17 +764,30 @@ func (s *Service) observe(event codingagent.SessionEvent, manager *codingagent.S
 	switch event.Type {
 	case codingagent.SessionEventMessageEnd:
 		s.state.Messages = messagesFrom(manager)
+		s.updateRuntimeLocked(manager)
+		s.state.Runtime.Phase = "working"
 		s.observeQueuedMessageLocked(event)
+		if err := writeJSON(s.receiptFile(s.state.ActiveID), runReceipt{Runtime: s.state.Runtime}); err != nil {
+			s.state.Error = "Run status could not be saved: " + err.Error()
+		}
 	case codingagent.SessionEventAgentEnd:
 		s.queueClosing = true
 	case codingagent.SessionEventAutoRetryStart:
+		s.state.Runtime.Phase = "retrying"
 		s.queueClosing = false
 		s.queueReady = true
 		s.queueDispatched = map[string]bool{}
 		s.dispatchQueueLocked()
+	case codingagent.SessionEventAutoRetryEnd:
+		s.state.Runtime.Phase = "working"
 	case codingagent.SessionEventToolExecutionStart:
+		s.state.Runtime.Phase = "tool"
 		s.state.Messages = append(s.state.Messages, Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, Text: "Running…", Status: "running"})
 	case codingagent.SessionEventToolExecutionEnd:
+		s.state.Runtime.Phase = "working"
+		if event.IsError {
+			s.state.Runtime.ToolFailures++
+		}
 		for i := range s.state.Messages {
 			if s.state.Messages[i].ID == "tool-"+event.ToolCallID {
 				s.state.Messages[i].Status = "done"
@@ -839,10 +919,13 @@ func (s *Service) loadMessagesLocked(id string) error {
 	}
 	if manager == nil {
 		s.state.Messages = []Message{}
-		return nil
+		return s.loadRuntimeLocked(id)
 	}
 	defer manager.Close()
 	s.state.Messages = messagesFrom(manager)
+	if err := s.loadRuntimeLocked(id); err != nil {
+		return err
+	}
 	if index := s.conversationIndexLocked(id); index >= 0 {
 		s.state.Conversations[index].Title = latestSessionTitle(manager, s.state.Conversations[index].Title)
 	}
@@ -856,6 +939,9 @@ func (s *Service) sessionFile(id string) string {
 func (s *Service) idleLocked() error {
 	if s.closed {
 		return errors.New("Pith Desk has closed")
+	}
+	if s.probeCancel != nil {
+		return errors.New("Wait for the connection test to finish or cancel it")
 	}
 	if s.state.Running {
 		return errors.New("Stop the current task before changing the conversation or settings")

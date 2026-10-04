@@ -83,3 +83,26 @@ build, Mac ARM64 application packaging, and ad-hoc signature verification
 passed. CGO-disabled builds also passed for Intel Mac and Linux amd64/arm64.
 These cross-builds establish compilation only; they do not add native runtime
 coverage for those targets.
+
+## Release and run-status checks
+
+- Test unsaved model settings: success must confirm streaming and a tool call,
+  while the existing settings and conversation remain unchanged. Try an invalid
+  key, an unavailable model, an endpoint without tools and Cancel test.
+- Expand run status; verify provider token usage, retry/compaction transitions
+  and restored totals after restarting. Cost must not appear as a guessed bill.
+- Stop a task and use Review and continue. Check history is available and the
+  old user request is not appended again. No task resumes without a user action.
+- Save diagnostics and inspect its JSON. Confirm it contains no prompts, file
+  data, endpoint URL, local paths, API/MCP keys or raw provider error bodies.
+  Cancel must not trigger a WebView download.
+- Run `npm run release:preview`; verify both architectures and CGO-disabled
+  metadata, archive extraction and dependency notices. Actual Developer ID
+  signing/notarization requires credentials and a separate native acceptance.
+
+The 2026-10-04 release follow-up passed an isolated Mac ARM64 native launch
+using the universal preview bundle: restored interruption notice, explicit
+continuation, cumulative usage, successful tool-call connection probe, rejected
+key guidance, native diagnostic save, JSON inspection and Save cancellation.
+No production configuration or live model credentials were used. Intel Mac
+runtime and real Developer ID notarization remain unverified.

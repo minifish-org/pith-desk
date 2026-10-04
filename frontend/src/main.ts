@@ -12,6 +12,9 @@ interface WorkspaceResources { workspaceId: string; instructions: { name: string
 interface MCPConnection { name: string; type: 'http' | 'stdio'; url?: string; command?: string; args: string[]; envKeys?: string[]; enabled: boolean; hasBearerToken: boolean; status: 'disconnected' | 'connecting' | 'connected' | 'error'; toolCount: number; error?: string }
 interface Message { id: string; role: string; text: string; toolName?: string; status?: string }
 interface Approval { id: string; toolName: string; args: unknown; warning?: string }
+interface RunUsage { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
+interface RuntimeStatus { phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
+interface Failure { kind: string; message: string; advice: string; canContinue: boolean }
 interface State {
   settings: { baseUrl: string; model: string; hasApiKey: boolean; appearance?: AppearanceMode };
   workspaces: Workspace[];
@@ -22,6 +25,8 @@ interface State {
   running: boolean;
   pendingApproval?: Approval | null;
   error?: string | null;
+  runtime?: RuntimeStatus;
+  failure?: Failure | null;
 }
 
 const tokenMeta = document.querySelector<HTMLMetaElement>('meta[name="desk-token"]');
@@ -48,6 +53,7 @@ let selectedWorkspaceId = '';
 let snapshotLoaded = false;
 let connection: 'connecting' | 'connected' | 'reconnecting' = 'connecting';
 let requestBusy = false;
+let connectionProbe: AbortController | null = null;
 let localError = '';
 let messagesSignature = '';
 let renderedActiveId: string | null = null;
@@ -127,6 +133,8 @@ $('app').innerHTML = `
     <div class="composer-region">
       <div id="approval" class="approval-region"></div>
       <div id="inline-error" class="inline-error" role="alert" hidden></div>
+      <section id="task-failure" class="task-failure" role="status" hidden></section>
+      <details id="run-status" class="run-status" hidden><summary id="run-status-summary"></summary><div id="run-status-details"></div></details>
       <section id="queued-messages" class="queued-messages" aria-label="Pending messages" aria-live="polite" hidden></section>
       <form id="composer-form" class="composer">
         <textarea id="composer-input" rows="1" placeholder="Ask Pith to help with your work…" aria-label="Message Pith"></textarea>
@@ -217,8 +225,9 @@ function render(): void {
   renderApproval();
   renderArtifacts();
   renderQueue();
+  renderRuntime();
   const error = localError || state.error || '';
-  $('inline-error').hidden = !error;
+  $('inline-error').hidden = !error || (!localError && !!state.failure);
   $('inline-error').textContent = error;
   $('connection-dot').className = `status-dot ${connection}`;
   $('connection-text').textContent = connection === 'connected' ? 'Local service connected' : connection === 'reconnecting' ? 'Reconnecting to local service' : 'Connecting to local service';
@@ -233,6 +242,37 @@ function render(): void {
   $<HTMLButtonElement>('stop-button').disabled = requestBusy;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-idle-action]')) button.disabled = requestBusy || state.running;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = requestBusy;
+}
+
+function renderRuntime(): void {
+  const status = state.runtime;
+  $('run-status').hidden = !status?.model;
+  if (status?.model) {
+    const phases: Record<string, string> = { starting: 'Starting', working: 'Working', tool: 'Using a tool', retrying: 'Retrying model request', compacting: 'Summarizing context', complete: 'Finished', stopped: 'Stopped', interrupted: 'Interrupted', error: 'Needs attention' };
+    const n = (value: number) => new Intl.NumberFormat().format(Math.round(value || 0));
+    $('run-status-summary').textContent = `${state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'} · ${status.model} · ${n(status.usage.total)} tokens`;
+    $('run-status-details').innerHTML = `<dl><dt>Session input / output</dt><dd>${n(status.usage.input)} / ${n(status.usage.output)}</dd><dt>Cache read / write</dt><dd>${n(status.usage.cacheRead)} / ${n(status.usage.cacheWrite)}</dd><dt>Estimated conversation context</dt><dd>~${n(status.contextTokens)} / ${n(status.contextWindow)} tokens</dd><dt>Context summaries</dt><dd>${n(status.compactions)}</dd><dt>Tool failures recorded</dt><dd>${n(status.toolFailures)}</dd><dt>Cost</dt><dd>Not reported by this compatible endpoint</dd></dl><p>Tokens come from Pith session records. Context is an estimate of conversation messages; system instructions and tool schemas also take space. Requests without usage reports and summarization requests may not be included. This is not a provider bill.</p>`;
+  }
+  const failure = state.failure;
+  $('task-failure').hidden = !failure || state.running;
+  $('task-failure').innerHTML = failure && !state.running ? `<strong>${escape(failure.message)}</strong><p>${escape(failure.advice)}</p><div>${failure.canContinue ? '<button class="secondary-button" type="button" data-action="continue" data-idle-action>Review and continue</button>' : '<button class="secondary-button" type="button" data-action="settings">Check model settings</button>'}<button class="text-button" type="button" data-action="diagnostics">Save diagnostics</button></div>` : '';
+}
+
+async function exportDiagnostics(): Promise<void> {
+  if (requestBusy) return;
+  requestBusy = true;
+  render();
+  try {
+    const result = await request<{ native: boolean }>('/api/diagnostics', {});
+    if (!result.native) {
+      const response = await fetch('/api/diagnostics', { headers: headers(), credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Diagnostic export failed.');
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = 'pith-desk-diagnostics.json'; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  } catch (error) { localError = error instanceof Error ? error.message : String(error); }
+  finally { requestBusy = false; render(); }
 }
 
 function renderHistory(): void {
@@ -641,7 +681,9 @@ async function saveMCP(): Promise<void> {
 function openSettings(): void {
   closeSidebar();
   const appearanceSection = `<section class="appearance-settings" aria-labelledby="appearance-title"><div><h3 id="appearance-title">Appearance</h3><p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p></div><label class="sr-only" for="appearance-mode">Appearance</label><select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select><div id="appearance-error" class="form-error" role="alert"></div></section>`;
-  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect DeepSeek or an OpenAI-compatible provider.<br>Your key is kept by the local Pith service.</p><form id="settings-form"><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1" autocomplete="off" /></div><label class="field-label" for="model-name">Model</label><input id="model-name" name="model" required value="${escape(state.settings.model || 'deepseek-flash')}" placeholder="deepseek-flash" autocomplete="off" /><label class="field-label" for="api-key">API key ${state.settings.hasApiKey ? '<span class="configured-badge">Configured</span>' : ''}</label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p>${state.settings.hasApiKey ? '<button class="remove-key" id="remove-key" type="button">Remove saved API key</button>' : ''}<div id="settings-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" type="submit">Save settings</button></div></form>`;
+  connectionProbe?.abort();
+  connectionProbe = null;
+  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect DeepSeek or an OpenAI-compatible provider.<br>Your key is kept by the local Pith service.</p><form id="settings-form"><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1" autocomplete="off" /></div><label class="field-label" for="model-name">Model</label><input id="model-name" name="model" required value="${escape(state.settings.model || 'deepseek-flash')}" placeholder="deepseek-flash" autocomplete="off" /><label class="field-label" for="api-key">API key ${state.settings.hasApiKey ? '<span class="configured-badge">Configured</span>' : ''}</label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p>${state.settings.hasApiKey ? '<button class="remove-key" id="remove-key" type="button">Remove saved API key</button>' : ''}<div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-idle-action>Test connection</button><p class="field-hint">Sends a small model request to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" type="submit">Save settings</button></div></form>`;
   renderAppearance();
   $<HTMLDialogElement>('settings-dialog').showModal();
   const originalForm = $<HTMLFormElement>('settings-form');
@@ -652,9 +694,41 @@ function openSettings(): void {
     $('appearance-error').textContent = '';
     if (!await mutate('/api/appearance', { mode }) && isCurrent()) $('appearance-error').textContent = localError;
   });
+  $('test-connection').addEventListener('click', async () => {
+    if (connectionProbe) { connectionProbe.abort(); return; }
+    if (state.running || requestBusy || !originalForm.reportValidity()) return;
+    const controller = new AbortController();
+    connectionProbe = controller;
+    const form = new FormData(originalForm);
+    const payload = { baseUrl: String(form.get('baseUrl') || '').trim(), model: String(form.get('model') || '').trim(), apiKey: String(form.get('apiKey') || '').trim() };
+    const button = $<HTMLButtonElement>('test-connection');
+    button.textContent = 'Cancel test';
+    $<HTMLButtonElement>('save-settings').disabled = true;
+    $('connection-test-result').textContent = 'Testing streaming and tool calling…';
+    try {
+      const response = await fetch('/api/test-connection', { method: 'POST', headers: headers(true), body: JSON.stringify(payload), signal: controller.signal, credentials: 'same-origin' });
+      const result = await response.json();
+      if (!isCurrent() || connectionProbe !== controller) return;
+      if (!response.ok) throw new Error(result.error || 'Connection test failed.');
+      $('connection-test-result').textContent = result.message;
+      $('connection-test-result').className = result.ok ? 'test-success' : 'form-error';
+    } catch (error) {
+      if (isCurrent() && connectionProbe === controller) {
+        $('connection-test-result').textContent = controller.signal.aborted ? 'Test cancelled.' : error instanceof Error ? error.message : String(error);
+        $('connection-test-result').className = 'form-error';
+      }
+    } finally {
+      if (connectionProbe === controller) { connectionProbe = null; if (isCurrent()) { button.textContent = 'Test connection'; $<HTMLButtonElement>('save-settings').disabled = false; } }
+    }
+  });
+  originalForm.addEventListener('input', (event) => {
+    if ((event.target as HTMLElement).id === 'appearance-mode') return;
+    connectionProbe?.abort();
+    $('connection-test-result').textContent = '';
+  });
   $('settings-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (requestBusy) return;
+    if (requestBusy || connectionProbe) return;
     const form = new FormData(event.currentTarget as HTMLFormElement);
     const apiKey = String(form.get('apiKey') || '').trim();
     const payload = { baseUrl: String(form.get('baseUrl')).trim(), model: String(form.get('model')).trim(), ...(apiKey ? { apiKey } : {}) };
@@ -770,6 +844,8 @@ document.addEventListener('click', async (event) => {
   switch (target.dataset.action) {
     case 'new': await newConversation(); break;
     case 'settings': openSettings(); break;
+    case 'continue': if (!state.running && state.activeId && state.failure?.canContinue) await mutate('/api/continue', { id: state.activeId }); break;
+    case 'diagnostics': await exportDiagnostics(); break;
     case 'workspace': openWorkspace(); break;
     case 'resources': openResources(); break;
     case 'connections': openConnections(); break;
@@ -836,7 +912,7 @@ document.addEventListener('keydown', (event) => {
 for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
   if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => { fullAccessTargetId = null; });
   dialog.addEventListener('close', () => {
-    if (dialog.id === 'settings-dialog') { const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; }
+    if (dialog.id === 'settings-dialog') { connectionProbe?.abort(); connectionProbe = null; const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; }
     if (dialog.id === 'connections-dialog') { mcpRequest++; const key = document.getElementById('mcp-token') as HTMLInputElement | null; if (key) key.value = ''; const env = document.getElementById('mcp-env') as HTMLTextAreaElement | null; if (env) env.value = ''; }
     if (dialog.id === 'resources-dialog') resourcesRequest++;
   });

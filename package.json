@@ -12,7 +12,9 @@
     "preview": "npm run build:ui && CGO_ENABLED=0 go run ./cmd/pith-desk --preview",
     "build": "npm run build:ui && mygo build -skip-build-command -skip-dmg -skip-notarize",
     "build:mac": "npm run build:ui && mygo build -skip-build-command -platform darwin/universal -skip-dmg -skip-notarize",
-    "check": "npm run build:ui && CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go vet ./..."
+    "check": "npm run build:ui && CGO_ENABLED=0 go test ./... && CGO_ENABLED=0 go vet ./...",
+    "release:preview": "node --experimental-strip-types scripts/package-release.ts",
+    "release:signed": "node --experimental-strip-types scripts/package-release.ts --signed"
   },
   "devDependencies": {
     "mygo-cli": "0.2.1"

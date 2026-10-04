@@ -10,12 +10,12 @@ This first version supports text conversations, workspace folders, streamed answ
 
 ## Try it
 
-There is no downloadable release yet. Build from source using the instructions below, then open the application bundle.
+Download the experimental Mac universal package from [Releases](https://github.com/minifish-org/pith-desk/releases). It includes Apple Silicon and Intel binaries. The current preview is ad-hoc signed and **not notarized**; see the release notes for macOS opening instructions and tested platforms. Building from source remains an option for development.
 
 On macOS, open the built **Pith Desk.app**. You do not need Go, Node.js or npm to run the packaged application.
 
 1. Choose a workspace folder.
-2. Open Settings and enter your model endpoint, model ID and API key.
+2. Open Settings and enter your model endpoint, model ID and API key. Use **Test connection** to check streaming and tool calling, then Save settings. Testing sends one small model request, does not save the form, and never accesses workspace files or executes tools.
 3. Create a conversation and ask the agent to inspect or change files in that folder.
 4. Review the tool name and arguments before approving a file change or command. You can change the permission mode beside the message box. Use Stop to cancel a running task.
 
@@ -41,6 +41,14 @@ The choice is saved for that conversation and survives restarting the app. It do
 ### Continue a running task
 
 While Pith is working, use **Add instruction** to steer it after the current assistant turn, or **Queue next task** to submit a follow-up when it would otherwise finish. These use Pith's existing steering and follow-up queues. The pending list shows messages waiting to be consumed. Stop cancels the task and clears its pending messages; they are not carried into a later task or another conversation.
+
+### Run status and recovery
+
+Expand the status line above the composer to see the running model, Pith session token usage, estimated conversation context, context summary count and recorded tool failures. Model retries and context summarization have their own status. Conversation context excludes system instructions and tool schemas; usage may omit provider requests without usage reports and summaries. Cost is explicitly not reported for compatible endpoints, rather than estimated from catalog prices. These numbers are not a provider bill.
+
+Failures show guidance for credentials, unknown models, incompatible endpoints, network interruptions, rate limits, summarization and local errors. **Review and continue** sends an explicit new instruction using the existing Pith transcript. It does not replay the original task or automatically restart actions after a crash. Review already completed or uncertain external actions first. After changing model settings, test the connection before continuing.
+
+Run metadata is saved beside the sessions. After an interrupted shutdown, the conversation is marked for review when reopened. Settings and failure cards offer **Save diagnostics** through a native save dialog. The JSON contains version/platform information, counts, usage and failure category; it excludes prompts, transcript text, file contents, local paths, endpoint URLs, tool arguments and credentials.
 
 ### Conversations and files
 
@@ -114,7 +122,7 @@ This is an experimental local desktop product. It has no computer-control tools,
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 
-Pith Desk targets macOS and Linux. Windows is not supported. Native application testing and the current CI workflow cover Mac ARM64; Linux and Intel Mac runtime testing and public release packages are still pending. For end users, downloadable application packages are the intended delivery path; building from source is a development option. No public download release or automatic updater is available yet.
+Pith Desk targets macOS and Linux. Windows is not supported. Native application testing and the current CI workflow cover Mac ARM64; Linux and Intel Mac runtime testing and public release packages are still pending. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Preview downloads use manual replacement of the app bundle; no automatic updater is available. See [release packaging and signing](docs/RELEASING.md).
 
 CGO-disabled cross-builds have passed for Linux on amd64 and arm64. This establishes compilation only. Linux needs GTK3 and WebKitGTK at runtime; CGO-disabled builds do not remove these system WebView dependencies.
 

@@ -43,12 +43,12 @@ func featureRequest(t *testing.T, s *Server, method, path string, body any, auth
 
 func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 	s := testServer(t)
-	for _, path := range []string{"/api/resources", "/api/artifacts", "/api/mcp", "/api/export"} {
+	for _, path := range []string{"/api/resources", "/api/artifacts", "/api/mcp", "/api/export", "/api/diagnostics"} {
 		if status, _, _ := featureRequest(t, s, "GET", path, nil, false); status != 401 {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
 	}
-	for _, path := range []string{"/api/export", "/api/queue", "/api/rename", "/api/archive", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect"} {
+	for _, path := range []string{"/api/export", "/api/queue", "/api/rename", "/api/archive", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
 		if status, _, _ := featureRequest(t, s, "POST", path, map[string]any{}, false); status != 401 {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
@@ -180,5 +180,34 @@ func TestMCPHTTPConfigurationDoesNotReturnBearerToken(t *testing.T) {
 	}
 	if status, body, _ := featureRequest(t, s, "POST", "/api/mcp/remove", map[string]string{"name": "notes"}, true); status != 200 {
 		t.Fatalf("MCP remove: %d %s", status, body)
+	}
+}
+
+func TestDiagnosticsNativeSaveAndPreviewRemainExplicit(t *testing.T) {
+	s := testServer(t)
+	status, body, _ := featureRequest(t, s, "POST", "/api/diagnostics", map[string]any{}, true)
+	if status != 200 || !strings.Contains(body, `"native":false`) {
+		t.Fatalf("preview route: %d %s", status, body)
+	}
+	status, body, header := featureRequest(t, s, "GET", "/api/diagnostics", nil, true)
+	if status != 200 || !json.Valid([]byte(body)) || !strings.Contains(header.Get("Content-Disposition"), "diagnostics.json") {
+		t.Fatalf("bad download: %d %s", status, body)
+	}
+	called := false
+	s.SetDiagnosticsAction(func(data string) error {
+		called = true
+		if !json.Valid([]byte(data)) {
+			t.Fatal("invalid diagnostic")
+		}
+		return nil
+	})
+	status, body, _ = featureRequest(t, s, "POST", "/api/diagnostics", map[string]any{}, true)
+	if status != 200 || !called || !strings.Contains(body, `"native":true`) {
+		t.Fatal("native cancellation/success fell back to browser")
+	}
+	s.SetDiagnosticsAction(func(string) error { return errors.New("Save failed") })
+	status, body, _ = featureRequest(t, s, "POST", "/api/diagnostics", map[string]any{}, true)
+	if status != 400 || !strings.Contains(body, "Save failed") {
+		t.Fatal("native diagnostic save failure was hidden")
 	}
 }

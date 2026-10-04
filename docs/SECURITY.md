@@ -33,3 +33,21 @@ MCP servers are external programs or services selected by the user. They have th
 Generated-file Open and Reveal actions accept only successful recorded write/edit results that still resolve to regular files inside the workspace. Resource actions accept only instruction and skill files discovered by Pith, including inherited instruction files. Both paths exclude private application storage; arbitrary model-generated links do not gain native file access. Opening a file invokes its system-associated application and does not serve it as web content.
 
 Markdown exports use a native save dialog in the desktop app, or an authenticated download in browser preview. They may include local file contents and tool results, so keep them with the same care as the original conversation. Archiving changes the desktop catalog only and does not delete a transcript.
+
+## Connection checks and diagnostics
+
+Test connection sends a small tool-calling probe through Pith's compatible
+provider adapter. It uses the form values and, when blank, the existing saved
+key for the same endpoint. Testing a changed endpoint requires an explicit key;
+the hidden saved key is not forwarded to a new address. It does not save settings, load instructions or execute tools. Tests can
+be cancelled; closing the application cancels an outstanding probe. Provider
+response bodies are not included in the result; failures use fixed guidance.
+
+Diagnostics use an explicit metadata allowlist rather than transcript redaction.
+No conversation text, titles, file contents, paths, endpoint URLs, raw errors,
+tool arguments or keys are exported. Session token totals and aggregate counts
+are included. Native saves require a destination chosen by the user.
+
+Task continuation is a user-initiated new prompt over persisted history. It does
+not promise exactly-once execution of external effects, roll back changes or
+automatically resume a crashed task. Review uncertain effects before continuing.
