@@ -2,7 +2,7 @@
 
 A local desktop workspace for getting things done with an AI agent. Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native window. The interface is TypeScript. The product is a separate repository; it does not fork or modify the agent SDK.
 
-This first version supports text conversations, a workspace folder, streamed answers, file tools, explicit approval for changes and commands, and conversation history. DeepSeek Flash is the default model. An OpenAI-compatible Chat Completions endpoint with tool calling can also be configured, using a compatible model ID from Pith's catalog.
+This first version supports text conversations, a workspace folder, streamed answers, file tools, conversation permissions, and conversation history. DeepSeek Flash is the default model. An OpenAI-compatible Chat Completions endpoint with tool calling can also be configured, using a compatible model ID from Pith's catalog.
 
 ## Try it
 
@@ -11,11 +11,26 @@ On macOS, open the built **Pith Desk.app**. You do not need Go, Node.js or npm t
 1. Choose a workspace folder.
 2. Open Settings and enter your model endpoint, model ID and API key.
 3. Create a conversation and ask the agent to inspect or change files in that folder.
-4. Review the tool name and arguments before approving a file change or command. Use Stop to cancel a running task.
+4. Review the tool name and arguments before approving a file change or command. You can change the permission mode beside the message box. Use Stop to cancel a running task.
 
 For a safe first task, choose an empty test folder and ask: “Create a short welcome.md that explains what you can do in this workspace.”
 
 The application saves settings and conversation data in your user configuration directory (`~/Library/Application Support/Pith Desk` on macOS). The key is stored in a private local file, not in the frontend, URLs or the repository. This version does not use macOS Keychain.
+
+### Appearance
+
+Open **Settings → Appearance** to choose **Light**, **Dark**, or **Follow system**. Light uses a porcelain background with an indigo accent; Dark uses graphite with an ice-blue accent. Follow system is the default and responds to changes in your operating system's appearance while the app is open. Manual choices override the system until you select Follow system again.
+
+Appearance changes apply immediately, including during an agent task, and are saved in the local settings file for the next launch. Native window controls follow the same preference. Model settings and conversation permissions are independent of appearance.
+
+### Conversation permissions
+
+Each new conversation starts with **Ask before changes**. Reads and searches can run without a prompt; file changes and commands need a decision.
+
+- **Allow workspace changes** lets file tools create and edit files inside the selected workspace without asking each time. Commands still need approval. A file-change approval card also offers **Always allow workspace changes** for that conversation.
+- **Full access** also lets commands run without individual approval. Choosing this mode requires explicit confirmation because commands can access your user's files and network beyond the workspace. There is no operating-system sandbox.
+
+The choice is saved for that conversation and survives restarting the app. It does not apply to other conversations. Change back to **Ask before changes** to require approval for future changes; revoking permission does not undo an action already executing.
 
 ## Develop
 
@@ -66,6 +81,10 @@ The Go service owns each agent run. Closing a browser subscription does not end 
 This is an experimental local desktop product. It has no computer-control tools, image attachments, plugin marketplace, scheduled jobs, enterprise account system or automatic updates yet. Durable is available in the pinned Pith library, but this UI currently uses its normal coding-agent sessions.
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
+
+Pith Desk targets macOS and Linux. Windows is not supported. Native application testing and the current CI workflow cover Mac ARM64; Linux and Intel Mac runtime testing and public release packages are still pending. For end users, downloadable application packages are the intended delivery path; building from source is a development option. No public download release or automatic updater is available yet.
+
+CGO-disabled cross-builds have passed for Linux on amd64 and arm64. This establishes compilation only. Linux needs GTK3 and WebKitGTK at runtime; CGO-disabled builds do not remove these system WebView dependencies.
 
 The interface draws on the workspace-and-conversation layout of DeepSeek Harness, but uses its own host and Pith SDK integration. It does not load Harness plugins or copy its application runtime.
 

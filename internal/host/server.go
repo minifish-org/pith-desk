@@ -34,9 +34,12 @@ type Server struct {
 	cancel   context.CancelFunc
 	mu       sync.Mutex
 	clients  map[chan []byte]struct{}
+
+	appearanceMu      sync.Mutex
+	appearanceChanged func(desk.AppearanceMode)
 }
 
-func Start(service *desk.Service, picker func() (string, error)) (*Server, error) {
+func Start(service *desk.Service, picker func() (string, error), appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -58,6 +61,9 @@ func Start(service *desk.Service, picker func() (string, error)) (*Server, error
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{URL: "http://" + ln.Addr().String(), listener: ln, token: hex.EncodeToString(key[:]), service: service, picker: picker, files: http.FileServer(http.FS(web)), index: index, ctx: ctx, cancel: cancel, clients: make(map[chan []byte]struct{})}
+	if len(appearanceChanged) > 0 {
+		s.appearanceChanged = appearanceChanged[0]
+	}
 	s.server = &http.Server{Handler: http.HandlerFunc(s.serve), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() { _ = s.server.Serve(ln) }()
 	go s.broadcast()
@@ -121,7 +127,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(strings.ReplaceAll(string(s.index), "__DESK_TOKEN__", s.token)))
+			index := strings.ReplaceAll(string(s.index), "__DESK_TOKEN__", s.token)
+			index = strings.ReplaceAll(index, "__DESK_APPEARANCE__", string(s.service.Snapshot().Settings.Appearance))
+			_, _ = w.Write([]byte(index))
 			return
 		}
 		// Only the trusted built assets are served. Workspace files are never web roots.
@@ -180,6 +188,20 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		if err = decode(&in); err == nil {
 			err = s.service.Configure(in)
 		}
+	case "/api/appearance":
+		var in struct {
+			Mode desk.AppearanceMode `json:"mode"`
+		}
+		if err = decode(&in); err == nil {
+			// Serialize persisted changes and the native theme update so two
+			// concurrent requests cannot leave the window on an older mode.
+			s.appearanceMu.Lock()
+			err = s.service.SetAppearance(in.Mode)
+			if err == nil && s.appearanceChanged != nil {
+				s.appearanceChanged(in.Mode)
+			}
+			s.appearanceMu.Unlock()
+		}
 	case "/api/workspaces":
 		var in struct {
 			Path string `json:"path"`
@@ -212,11 +234,20 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.service.Abort()
 	case "/api/approval":
 		var in struct {
-			ID    string `json:"id"`
-			Allow bool   `json:"allow"`
+			ID          string `json:"id"`
+			Allow       bool   `json:"allow"`
+			AlwaysAllow bool   `json:"alwaysAllow,omitempty"`
 		}
 		if err = decode(&in); err == nil {
-			err = s.service.DecideApproval(in.ID, in.Allow)
+			err = s.service.DecideApprovalWithScope(in.ID, in.Allow, in.AlwaysAllow)
+		}
+	case "/api/permissions":
+		var in struct {
+			ID   string              `json:"id"`
+			Mode desk.PermissionMode `json:"mode"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.SetPermissionMode(in.ID, in.Mode)
 		}
 	case "/api/pick-workspace":
 		if s.picker == nil {

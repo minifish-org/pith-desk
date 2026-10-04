@@ -26,9 +26,10 @@ import (
 )
 
 type Settings struct {
-	BaseURL   string `json:"baseUrl"`
-	Model     string `json:"model"`
-	HasAPIKey bool   `json:"hasApiKey"`
+	BaseURL    string         `json:"baseUrl"`
+	Model      string         `json:"model"`
+	HasAPIKey  bool           `json:"hasApiKey"`
+	Appearance AppearanceMode `json:"appearance"`
 }
 
 // An empty APIKey preserves the saved key. ClearAPIKey explicitly removes it.
@@ -46,10 +47,37 @@ type Workspace struct {
 }
 
 type Conversation struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	WorkspaceID string `json:"workspaceId"`
-	UpdatedAt   string `json:"updatedAt"`
+	ID             string         `json:"id"`
+	Title          string         `json:"title"`
+	WorkspaceID    string         `json:"workspaceId"`
+	UpdatedAt      string         `json:"updatedAt"`
+	PermissionMode PermissionMode `json:"permissionMode"`
+}
+
+type PermissionMode string
+
+const (
+	PermissionAsk            PermissionMode = "ask"
+	PermissionWorkspaceWrite PermissionMode = "workspace-write"
+	PermissionFullAccess     PermissionMode = "full-access"
+)
+
+func validPermissionMode(mode PermissionMode) bool {
+	return mode == PermissionAsk || mode == PermissionWorkspaceWrite || mode == PermissionFullAccess
+}
+
+func normalizedPermissionMode(mode PermissionMode) PermissionMode {
+	if !validPermissionMode(mode) {
+		return PermissionAsk
+	}
+	return mode
+}
+
+func (mode PermissionMode) allows(tool string) bool {
+	if mode == PermissionFullAccess {
+		return tool == "write_file" || tool == "edit_file" || tool == "run_command"
+	}
+	return mode == PermissionWorkspaceWrite && (tool == "write_file" || tool == "edit_file")
 }
 
 type Message struct {
@@ -79,9 +107,10 @@ type State struct {
 }
 
 type savedConfig struct {
-	BaseURL string `json:"baseUrl"`
-	Model   string `json:"model"`
-	APIKey  string `json:"apiKey,omitempty"`
+	BaseURL    string         `json:"baseUrl"`
+	Model      string         `json:"model"`
+	APIKey     string         `json:"apiKey,omitempty"`
+	Appearance AppearanceMode `json:"appearance"`
 }
 
 type catalogState struct {
@@ -96,11 +125,13 @@ type Service struct {
 	config       savedConfig
 	state        State
 	closed       bool
+	aborting     bool
 	changes      chan struct{}
 	runCancel    context.CancelFunc
 	runDone      chan struct{}
 	session      *codingagent.AgentSession
 	approval     chan bool
+	approvalCtx  context.Context
 	approvalGate chan struct{}
 	dataLock     *flock.Flock
 	closeDone    chan struct{}
@@ -139,11 +170,12 @@ func New(dataDir string) (*Service, error) {
 	}
 	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), approvalGate: make(chan struct{}, 1),
 		dataLock: dataLock, closeDone: make(chan struct{}),
-		config: savedConfig{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash"},
+		config: savedConfig{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", Appearance: AppearanceSystem},
 		state:  State{Workspaces: []Workspace{}, Conversations: []Conversation{}, Messages: []Message{}}}
 	if err := readJSON(filepath.Join(abs, "settings.json"), &s.config); err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
+	s.config.Appearance = normalizedAppearance(s.config.Appearance)
 	var saved catalogState
 	if err := readJSON(filepath.Join(abs, "catalog.json"), &saved); err != nil {
 		return nil, fmt.Errorf("load conversations: %w", err)
@@ -153,6 +185,9 @@ func New(dataDir string) (*Service, error) {
 	}
 	if saved.Conversations != nil {
 		s.state.Conversations = saved.Conversations
+		for i := range s.state.Conversations {
+			s.state.Conversations[i].PermissionMode = normalizedPermissionMode(s.state.Conversations[i].PermissionMode)
+		}
 	}
 	s.state.ActiveID = saved.ActiveID
 	s.refreshSettingsLocked()
@@ -199,7 +234,7 @@ func (s *Service) Configure(input ConfigInput) error {
 	if _, err := resolveModel(modelID, base); err != nil {
 		return err
 	}
-	next := savedConfig{BaseURL: base, Model: modelID, APIKey: s.config.APIKey}
+	next := savedConfig{BaseURL: base, Model: modelID, APIKey: s.config.APIKey, Appearance: s.config.Appearance}
 	if input.APIKey != "" {
 		next.APIKey = strings.TrimSpace(input.APIKey)
 	}
@@ -255,7 +290,7 @@ func (s *Service) CreateConversation(workspaceID string) (Conversation, error) {
 	if _, ok := s.workspaceLocked(workspaceID); !ok {
 		return Conversation{}, errors.New("Select a workspace first")
 	}
-	conversation := Conversation{ID: newID(), Title: "New conversation", WorkspaceID: workspaceID, UpdatedAt: timestamp()}
+	conversation := Conversation{ID: newID(), Title: "New conversation", WorkspaceID: workspaceID, UpdatedAt: timestamp(), PermissionMode: PermissionAsk}
 	oldActive := s.state.ActiveID
 	s.state.Conversations = append(s.state.Conversations, conversation)
 	s.state.ActiveID = conversation.ID
@@ -337,6 +372,7 @@ func (s *Service) Send(text string) error {
 	s.runCancel = cancel
 	s.runDone = make(chan struct{})
 	s.state.Running = true
+	s.aborting = false
 	s.state.Error = ""
 	s.changedLocked()
 	go s.run(ctx, s.runDone, conversation.ID, workspace, s.config, model, text)
@@ -346,6 +382,14 @@ func (s *Service) Send(text string) error {
 func (s *Service) Abort() {
 	s.mu.Lock()
 	cancel, session := s.runCancel, s.session
+	if s.state.Running {
+		s.aborting = true
+		// The SDK propagates cancellation to tool contexts asynchronously.
+		// Invalidate the UI action immediately so a reply after Abort cannot
+		// create a lasting grant before that propagation completes.
+		s.state.PendingApproval, s.approval, s.approvalCtx = nil, nil, nil
+		s.changedLocked()
+	}
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -356,16 +400,83 @@ func (s *Service) Abort() {
 }
 
 func (s *Service) DecideApproval(id string, allow bool) error {
+	return s.DecideApprovalWithScope(id, allow, false)
+}
+
+// SetPermissionMode changes only the active conversation. The saved catalog
+// must succeed before a pending action or a future tool call gets the grant.
+func (s *Service) SetPermissionMode(id string, mode PermissionMode) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || s.state.PendingApproval == nil || s.state.PendingApproval.ID != id || s.approval == nil {
-		return errors.New("This approval is no longer pending")
+	if s.closed {
+		return errors.New("Pith Desk has closed")
 	}
-	s.approval <- allow
-	s.approval = nil // Prevent a second reply from blocking or changing the decision.
-	s.state.PendingApproval = nil
+	if id != s.state.ActiveID || s.conversationIndexLocked(id) < 0 {
+		return errors.New("Change permissions for the active conversation only")
+	}
+	if !validPermissionMode(mode) {
+		return errors.New("Choose ask, workspace-write, or full-access permissions")
+	}
+	if err := s.persistPermissionModeLocked(id, mode); err != nil {
+		return err
+	}
+	if s.state.PendingApproval != nil && mode.allows(s.state.PendingApproval.ToolName) && s.approval != nil {
+		s.resolveApprovalLocked(true)
+	}
 	s.changedLocked()
 	return nil
+}
+
+func (s *Service) DecideApprovalWithScope(id string, allow, alwaysAllow bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Validate before writing any permission. A stale/canceled browser request
+	// must never turn into a lasting grant for another pending action.
+	if s.closed || s.aborting || s.state.PendingApproval == nil || s.state.PendingApproval.ID != id || s.approval == nil || (s.approvalCtx != nil && s.approvalCtx.Err() != nil) {
+		return errors.New("This approval is no longer pending")
+	}
+	if alwaysAllow {
+		if !allow {
+			return errors.New("Approve the action to allow future workspace changes")
+		}
+		if tool := s.state.PendingApproval.ToolName; tool != "write_file" && tool != "edit_file" {
+			return errors.New("Always allow applies to workspace file changes; use the permission selector for full access")
+		}
+		if err := s.persistPermissionModeLocked(s.state.ActiveID, PermissionWorkspaceWrite); err != nil {
+			return err
+		}
+	}
+	s.resolveApprovalLocked(allow)
+	s.changedLocked()
+	return nil
+}
+
+func (s *Service) persistPermissionModeLocked(id string, mode PermissionMode) error {
+	index := s.conversationIndexLocked(id)
+	if index < 0 {
+		return errors.New("Conversation not found")
+	}
+	previous := s.state.Conversations[index].PermissionMode
+	s.state.Conversations[index].PermissionMode = mode
+	if err := s.persistCatalogLocked(); err != nil {
+		s.state.Conversations[index].PermissionMode = previous
+		return err
+	}
+	return nil
+}
+
+func (s *Service) permissionModeLocked() PermissionMode {
+	if index := s.conversationIndexLocked(s.state.ActiveID); index >= 0 {
+		return normalizedPermissionMode(s.state.Conversations[index].PermissionMode)
+	}
+	return PermissionAsk
+}
+
+func (s *Service) resolveApprovalLocked(allow bool) {
+	s.approval <- allow // Each decision channel is buffered and answered once.
+	s.approval = nil    // Prevent a second reply from blocking or changing the decision.
+	s.approvalCtx = nil
+	s.state.PendingApproval = nil
 }
 
 func (s *Service) Close() {
@@ -415,7 +526,9 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		}
 		s.session, s.runCancel = nil, nil
 		s.state.Running = false
+		s.aborting = false
 		s.state.PendingApproval, s.approval = nil, nil
+		s.approvalCtx = nil
 		if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, codingagent.ErrAgentAborted) {
 			s.state.Error = redact(runErr.Error(), config.APIKey)
 		}
@@ -448,11 +561,14 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 	if model.Reasoning {
 		thinking = agenttypes.ThinkingHigh
 	}
+	s.mu.Lock()
+	mode := s.permissionModeLocked()
+	s.mu.Unlock()
 	session, runErr = codingagent.CreateAgentSession(codingagent.SessionOptions{
 		Cwd: workspace.Path, Manager: manager, Tools: registry,
 		Model: codingagent.ModelOptions{Model: model, ThinkingLevel: thinking,
 			APIKey: func(context.Context, string) (string, error) { return config.APIKey, nil }},
-		Resources: codingagent.ResourceOptions{Cwd: workspace.Path, SystemPrompt: deskPrompt},
+		Resources: codingagent.ResourceOptions{Cwd: workspace.Path, SystemPrompt: deskPrompt(mode)},
 		Policy:    compactionPolicy(model, config.APIKey),
 		OnProviderStreamEvent: func(data any, _ *aitypes.Model) error {
 			s.appendProviderText(data)
@@ -472,13 +588,24 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 	_, runErr = session.Prompt(ctx, text)
 }
 
-const deskPrompt = `You are Pith Desk, a personal assistant working with the user's selected folder.
+func deskPrompt(mode PermissionMode) string {
+	permission := "Ask is selected: write_file, edit_file, and run_command request user approval."
+	switch normalizedPermissionMode(mode) {
+	case PermissionWorkspaceWrite:
+		permission = "Workspace changes is selected: write_file and edit_file are allowed inside the workspace; run_command requests user approval."
+	case PermissionFullAccess:
+		permission = "Full access is selected: workspace file changes and run_command are allowed without individual approval. Commands have the user's OS account permissions and can access files or networks beyond the workspace."
+	}
+	return `You are Pith Desk, a personal assistant working with the user's selected folder.
 Help the user read, organize, edit, and create useful files. Use the available tools to complete tasks.
 Use read_file, grep_files, find_files, and list_files to inspect the workspace.
-Use write_file for new files and edit_file for existing content. These actions require user approval.
-Use run_command only when file tools cannot complete the task. It requires explicit approval and runs with the user's OS permissions, without an OS sandbox.
+Use write_file for new files and edit_file for existing content. File tools stay inside the selected workspace in every permission mode.
+Use run_command only when file tools cannot complete the task. It runs with the user's OS permissions, without an OS sandbox.
 Do not attempt to read credentials or private application settings. Never claim a file was changed before its tool succeeds.
-Explain results concisely and name any files created or changed.`
+Explain results concisely and name any files created or changed.
+The user can change permissions during a task; tools enforce the current selection. At the start of this task:
+` + permission
+}
 
 func compactionPolicy(model *aitypes.Model, apiKey string) codingagent.RunPolicy {
 	return codingagent.RunPolicy{
@@ -680,7 +807,7 @@ func (s *Service) conversationIndexLocked(id string) int {
 }
 
 func (s *Service) refreshSettingsLocked() {
-	s.state.Settings = Settings{BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: s.config.APIKey != ""}
+	s.state.Settings = Settings{BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: s.config.APIKey != "", Appearance: s.config.Appearance}
 }
 
 func (s *Service) persistCatalogLocked() error {

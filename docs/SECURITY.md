@@ -16,7 +16,9 @@ Conversation content and tool results are sent to the endpoint you configure. Re
 
 ## Tool approvals
 
-File operations are checked against the selected canonical workspace path, including symlink resolution. Changes and commands require a user decision before execution. A denied tool call can be reported to the agent; cancellation wakes pending approval waits.
+File operations are checked against the selected canonical workspace path, including symlink resolution. New conversations use **Ask before changes**: changes and commands require a user decision before execution, while reads and searches do not. A denied tool call can be reported to the agent; cancellation wakes pending approval waits.
+
+Permission choices are stored per conversation. **Allow workspace changes** automatically permits `write_file` and `edit_file` after their workspace path checks; it does not authorize commands. **Full access** additionally permits `run_command` without asking. The interface requires explicit confirmation before enabling Full access and explains its host-account access. Neither mode bypasses the file-tool path checks. Changing a mode can resolve a matching pending approval; returning to Ask before changes applies to future calls, not actions already executing. Restarting the application retains the selected mode, and new conversations still start with Ask before changes.
 
 **Command approval grants the command normal host-account access.** It is not confined by the file-tool path checks. The command environment is restricted to essentials and does not inherit the model key, but the command can still read your user's files, invoke other programs or access the network. Stopping a task cannot undo a file change or an external command effect that already happened.
 

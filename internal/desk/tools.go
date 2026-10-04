@@ -349,17 +349,25 @@ func (s *Service) requestApproval(ctx context.Context, call codingagent.ToolCall
 	}
 	decision := make(chan bool, 1)
 	s.mu.Lock()
-	if s.closed || ctx.Err() != nil {
+	if s.closed || s.aborting || ctx.Err() != nil {
 		s.mu.Unlock()
 		return context.Canceled
 	}
+	// A previous call may have waited in the gate while the user changed mode.
+	// Recheck under the service lock immediately before creating an approval.
+	if s.permissionModeLocked().allows(call.Name) {
+		s.mu.Unlock()
+		return ctx.Err()
+	}
 	s.state.PendingApproval, s.approval = approval, decision
+	s.approvalCtx = ctx
 	s.changedLocked()
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		if s.state.PendingApproval != nil && s.state.PendingApproval.ID == approval.ID {
 			s.state.PendingApproval, s.approval = nil, nil
+			s.approvalCtx = nil
 			s.changedLocked()
 		}
 		s.mu.Unlock()

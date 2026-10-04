@@ -3,11 +3,13 @@ import DOMPurify from 'dompurify';
 import './style.css';
 
 interface Workspace { id: string; name: string; path: string }
-interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number }
+type AppearanceMode = 'system' | 'light' | 'dark';
+type PermissionMode = 'ask' | 'workspace-write' | 'full-access';
+interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number; permissionMode?: PermissionMode }
 interface Message { id: string; role: string; text: string; toolName?: string; status?: string }
 interface Approval { id: string; toolName: string; args: unknown; warning?: string }
 interface State {
-  settings: { baseUrl: string; model: string; hasApiKey: boolean };
+  settings: { baseUrl: string; model: string; hasApiKey: boolean; appearance?: AppearanceMode };
   workspaces: Workspace[];
   conversations: Conversation[];
   activeId: string | null;
@@ -22,8 +24,19 @@ const tokenValue = tokenMeta?.content ?? '';
 const token = tokenValue === '__DESK_TOKEN__' ? '' : tokenValue;
 tokenMeta?.remove();
 
+const systemAppearance = window.matchMedia('(prefers-color-scheme: dark)');
+const appearanceMode = (value: unknown): AppearanceMode => value === 'light' || value === 'dark' ? value : 'system';
+const initialAppearance = appearanceMode(document.documentElement.dataset.appearance);
+
+function applyAppearance(mode: AppearanceMode): void {
+  document.documentElement.dataset.appearance = mode;
+  document.documentElement.dataset.theme = mode === 'system' ? (systemAppearance.matches ? 'dark' : 'light') : mode;
+}
+
+applyAppearance(initialAppearance);
+
 let state: State = {
-  settings: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', hasApiKey: false },
+  settings: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', hasApiKey: false, appearance: initialAppearance },
   workspaces: [], conversations: [], activeId: null, messages: [], running: false,
 };
 let selectedWorkspaceId = '';
@@ -36,6 +49,7 @@ let renderedActiveId: string | null = null;
 let approvalSignature = '';
 let eventSocket: WebSocket | null = null;
 let disposed = false;
+let fullAccessTargetId: string | null = null;
 
 const paths: Record<string, string> = {
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -89,15 +103,19 @@ $('app').innerHTML = `
       <form id="composer-form" class="composer">
         <textarea id="composer-input" rows="1" placeholder="Ask Pith to help with your work…" aria-label="Message Pith"></textarea>
         <div class="composer-toolbar">
-          <button type="button" class="workspace-chip" data-action="workspace">${icon('folder')}<span id="composer-workspace">Select workspace</span>${icon('down')}</button>
+          <div class="composer-context">
+            <button type="button" class="workspace-chip" data-action="workspace">${icon('folder')}<span id="composer-workspace">Select workspace</span>${icon('down')}</button>
+            <label class="permission-control" id="permission-control">${icon('shield')}<span class="sr-only">Conversation permissions</span><select id="permission-mode" aria-describedby="permission-description"><option value="ask">Ask before changes</option><option value="workspace-write">Allow workspace changes</option><option value="full-access">Full access</option></select>${icon('down')}</label>
+          </div>
           <div class="composer-actions"><span class="keyboard-hint">↵ to send</span><button id="send-button" class="send-button" type="submit" aria-label="Send message">${icon('arrow')}</button><button id="stop-button" class="stop-button" type="button" data-action="stop" aria-label="Stop agent" hidden>${icon('stop')}<span>Stop</span></button></div>
         </div>
       </form>
-      <p class="composer-note">Pith can read and edit files in your workspace. Review changes and tool requests.</p>
+      <p class="composer-note" id="permission-description">Pith can read workspace files. Changes and commands require your approval.</p>
     </div>
   </main>
   <dialog id="settings-dialog" class="modal"><div id="settings-content"></div></dialog>
   <dialog id="workspace-dialog" class="modal"><div id="workspace-content"></div></dialog>
+  <dialog id="permissions-dialog" class="modal permission-modal" aria-labelledby="full-access-title"><div id="permissions-content"></div></dialog>
 `;
 
 const input = $<HTMLTextAreaElement>('composer-input');
@@ -106,6 +124,11 @@ const chatScroll = $('chat-scroll');
 function selectedWorkspace(): Workspace | undefined {
   const conversation = state.conversations.find((entry) => entry.id === state.activeId);
   return state.workspaces.find((entry) => entry.id === (conversation?.workspaceId || selectedWorkspaceId)) ?? state.workspaces[0];
+}
+
+function activePermissionMode(): PermissionMode {
+  const mode = state.conversations.find((entry) => entry.id === state.activeId)?.permissionMode;
+  return mode === 'workspace-write' || mode === 'full-access' ? mode : 'ask';
 }
 
 function renderMarkdown(value: string): string {
@@ -127,6 +150,7 @@ function renderMarkdown(value: string): string {
 }
 
 function render(): void {
+  renderAppearance();
   const workspace = selectedWorkspace();
   if (workspace) selectedWorkspaceId = workspace.id;
   const activeConversation = state.conversations.find((entry) => entry.id === state.activeId);
@@ -134,6 +158,7 @@ function render(): void {
   $('conversation-label').textContent = activeConversation?.title || 'New conversation';
   $('composer-workspace').textContent = workspace?.name ?? 'Select workspace';
   $('model-label').textContent = state.settings.model || 'Choose a model';
+  renderPermissions();
   $('workspace-list').innerHTML = state.workspaces.length ? state.workspaces.map((entry) => `
     <button class="workspace-item ${entry.id === workspace?.id ? 'selected' : ''}" data-workspace="${escape(entry.id)}" title="${escape(entry.path)}">${icon('folder')}<span>${escape(entry.name)}</span>${entry.id === workspace?.id ? '<span class="workspace-active-dot"></span>' : ''}</button>`).join('') : `
     <button class="workspace-item empty-workspace" data-action="workspace">${icon('folder')}<span>Add a workspace</span></button>`;
@@ -169,6 +194,16 @@ function render(): void {
   $<HTMLButtonElement>('stop-button').disabled = requestBusy;
 }
 
+function renderAppearance(): void {
+  const mode = appearanceMode(state.settings.appearance);
+  applyAppearance(mode);
+  const selector = document.getElementById('appearance-mode') as HTMLSelectElement | null;
+  if (selector) {
+    selector.value = mode;
+    selector.disabled = requestBusy || !snapshotLoaded;
+  }
+}
+
 function renderWelcome(workspace?: Workspace): void {
   const ready = !!workspace && state.settings.hasApiKey;
   $('welcome').innerHTML = `
@@ -200,7 +235,44 @@ function renderApproval(): void {
   if (signature === approvalSignature) return;
   approvalSignature = signature;
   const warning = approval?.warning || (approval?.toolName === 'run_command' ? 'This command runs with your normal computer permissions. It may access or change files outside this workspace.' : '');
-  $('approval').innerHTML = approval ? `<section class="approval-card" aria-label="Tool approval required"><div class="approval-heading">${icon('shield')}<div><strong>Pith needs your permission</strong><span>Review this action before it runs.</span></div><span class="approval-badge">${escape(approval.toolName)}</span></div>${warning ? `<p class="approval-warning">${escape(warning)}</p>` : ''}<pre>${escape(typeof approval.args === 'string' ? approval.args : JSON.stringify(approval.args, null, 2))}</pre><div class="approval-actions"><button class="secondary-button" data-approval="deny" ${requestBusy ? 'disabled' : ''}>Deny</button><button class="primary-button" data-approval="allow" ${requestBusy ? 'disabled' : ''}>${icon('check')}Allow this action</button></div></section>` : '';
+  const canAlwaysAllow = approval?.toolName === 'write_file' || approval?.toolName === 'edit_file';
+  $('approval').innerHTML = approval ? `<section class="approval-card" aria-label="Tool approval required"><div class="approval-heading">${icon('shield')}<div><strong>Pith needs your permission</strong><span>Review this action before it runs.</span></div><span class="approval-badge">${escape(approval.toolName)}</span></div>${warning ? `<p class="approval-warning">${escape(warning)}</p>` : ''}<pre>${escape(typeof approval.args === 'string' ? approval.args : JSON.stringify(approval.args, null, 2))}</pre>${canAlwaysAllow ? '<p class="approval-scope">Workspace permission applies to this conversation. Commands still need approval.</p>' : ''}<div class="approval-actions"><button class="secondary-button" data-approval="deny" ${requestBusy ? 'disabled' : ''}>Deny</button>${canAlwaysAllow ? `<button class="secondary-button always-allow-button" data-approval="always" ${requestBusy ? 'disabled' : ''}>Always allow workspace changes</button>` : ''}<button class="primary-button" data-approval="allow" ${requestBusy ? 'disabled' : ''}>${icon('check')}Allow this action</button></div></section>` : '';
+  for (const button of $('approval').querySelectorAll<HTMLButtonElement>('[data-approval]')) button.dataset.approvalId = approval?.id || '';
+}
+
+function renderPermissions(): void {
+  const mode = activePermissionMode();
+  const selector = $<HTMLSelectElement>('permission-mode');
+  selector.value = mode;
+  selector.disabled = !snapshotLoaded || !state.activeId || requestBusy;
+  $('permission-control').classList.toggle('full-access', mode === 'full-access');
+  const descriptions: Record<PermissionMode, string> = {
+    ask: 'Pith can read workspace files. Changes and commands require your approval.',
+    'workspace-write': 'Workspace file changes are allowed in this conversation. Commands still require approval.',
+    'full-access': 'Full access: commands can use your files and network beyond this workspace. There is no OS sandbox.',
+  };
+  $('permission-description').textContent = descriptions[mode];
+  $('permission-description').classList.toggle('full-access-note', mode === 'full-access');
+  const dialog = $<HTMLDialogElement>('permissions-dialog');
+  if (dialog.open && fullAccessTargetId !== state.activeId) {
+    dialog.close();
+    localError = 'The active conversation changed. Choose its permissions again.';
+  }
+  const confirm = document.getElementById('enable-full-access') as HTMLButtonElement | null;
+  if (confirm) confirm.disabled = requestBusy || !fullAccessTargetId || fullAccessTargetId !== state.activeId;
+}
+
+function confirmFullAccess(id: string): void {
+  fullAccessTargetId = id;
+  const conversation = state.conversations.find((entry) => entry.id === id);
+  $('permissions-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">CONVERSATION PERMISSIONS</span><h2 id="full-access-title">Enable full access?</h2></div><button class="quiet-icon" data-close="permissions-dialog" aria-label="Cancel full access">${icon('close')}</button></div><p class="modal-description">Give Pith permission to run all tools without asking in <strong>${escape(conversation?.title || 'this conversation')}</strong>.</p><div class="full-access-explanation">${icon('shield')}<div><strong>This is access to your computer account.</strong><p>Commands can read, change, or delete files outside the workspace and access the network with your normal operating system permissions. There is no OS sandbox.</p></div></div><p class="permission-revoke-note">This applies only to the current conversation and stays enabled across app restarts until you revoke it. To revoke it, choose “Ask before changes” or “Allow workspace changes” in the composer.</p><div id="permissions-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="permissions-dialog">Cancel</button><button class="primary-button full-access-confirm" id="enable-full-access" type="button">Enable full access</button></div>`;
+  $<HTMLDialogElement>('permissions-dialog').showModal();
+  $('enable-full-access').addEventListener('click', async () => {
+    const targetId = fullAccessTargetId;
+    if (!targetId || targetId !== state.activeId || requestBusy) return;
+    if (await mutate('/api/permissions', { id: targetId, mode: 'full-access' })) $<HTMLDialogElement>('permissions-dialog').close();
+    else if ($<HTMLDialogElement>('permissions-dialog').open) $('permissions-error').textContent = localError;
+  });
 }
 
 function setState(next: State): void {
@@ -274,8 +346,15 @@ async function send(): Promise<void> {
 
 function openSettings(): void {
   closeSidebar();
-  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Model settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div><p class="modal-description">Connect DeepSeek or an OpenAI-compatible provider.<br>Your key is kept by the local Pith service.</p><form id="settings-form"><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1" autocomplete="off" /></div><label class="field-label" for="model-name">Model</label><input id="model-name" name="model" required value="${escape(state.settings.model || 'deepseek-flash')}" placeholder="deepseek-flash" autocomplete="off" /><label class="field-label" for="api-key">API key ${state.settings.hasApiKey ? '<span class="configured-badge">Configured</span>' : ''}</label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p>${state.settings.hasApiKey ? '<button class="remove-key" id="remove-key" type="button">Remove saved API key</button>' : ''}<div id="settings-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" type="submit">Save settings</button></div></form>`;
+  const appearanceSection = `<section class="appearance-settings" aria-labelledby="appearance-title"><div><h3 id="appearance-title">Appearance</h3><p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p></div><label class="sr-only" for="appearance-mode">Appearance</label><select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select><div id="appearance-error" class="form-error" role="alert"></div></section>`;
+  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect DeepSeek or an OpenAI-compatible provider.<br>Your key is kept by the local Pith service.</p><form id="settings-form"><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1" autocomplete="off" /></div><label class="field-label" for="model-name">Model</label><input id="model-name" name="model" required value="${escape(state.settings.model || 'deepseek-flash')}" placeholder="deepseek-flash" autocomplete="off" /><label class="field-label" for="api-key">API key ${state.settings.hasApiKey ? '<span class="configured-badge">Configured</span>' : ''}</label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p>${state.settings.hasApiKey ? '<button class="remove-key" id="remove-key" type="button">Remove saved API key</button>' : ''}<div id="settings-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" type="submit">Save settings</button></div></form>`;
+  renderAppearance();
   $<HTMLDialogElement>('settings-dialog').showModal();
+  $<HTMLSelectElement>('appearance-mode').addEventListener('change', async (event) => {
+    const mode = appearanceMode((event.currentTarget as HTMLSelectElement).value);
+    $('appearance-error').textContent = '';
+    if (!await mutate('/api/appearance', { mode })) $('appearance-error').textContent = localError;
+  });
   $('settings-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget as HTMLFormElement);
@@ -351,7 +430,18 @@ document.addEventListener('click', async (event) => {
     else await newConversation(id);
     closeSidebar(); return;
   }
-  if (target.dataset.approval && state.pendingApproval) { await mutate('/api/approval', { id: state.pendingApproval.id, allow: target.dataset.approval === 'allow' }); return; }
+  if (target.dataset.approval && state.pendingApproval) {
+    const approval = state.pendingApproval;
+    if (target.dataset.approvalId !== approval.id) {
+      localError = 'This tool request has changed. Review the current request before allowing it.';
+      render();
+      return;
+    }
+    const alwaysAllow = target.dataset.approval === 'always';
+    if (alwaysAllow && approval.toolName !== 'write_file' && approval.toolName !== 'edit_file') return;
+    await mutate('/api/approval', { id: approval.id, allow: target.dataset.approval !== 'deny', ...(alwaysAllow ? { alwaysAllow: true } : {}) });
+    return;
+  }
   switch (target.dataset.action) {
     case 'new': await newConversation(); break;
     case 'settings': openSettings(); break;
@@ -364,6 +454,14 @@ document.addEventListener('click', async (event) => {
 $('sidebar-scrim').addEventListener('click', closeSidebar);
 $('composer-form').addEventListener('submit', (event) => { event.preventDefault(); void send(); });
 input.addEventListener('input', () => { resizeComposer(); render(); });
+$<HTMLSelectElement>('permission-mode').addEventListener('change', async (event) => {
+  const mode = (event.currentTarget as HTMLSelectElement).value as PermissionMode;
+  const id = state.activeId;
+  renderPermissions();
+  if (!id || requestBusy || mode === activePermissionMode()) return;
+  if (mode === 'full-access') confirmFullAccess(id);
+  else await mutate('/api/permissions', { id, mode });
+});
 input.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void send(); }
 });
@@ -371,6 +469,7 @@ document.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); void newConversation(); }
 });
 for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
+  if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => { fullAccessTargetId = null; });
   dialog.addEventListener('close', () => { const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; });
   dialog.addEventListener('click', (event) => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } });
 }
@@ -423,5 +522,8 @@ async function streamEvents(): Promise<void> {
 }
 
 window.addEventListener('beforeunload', () => { disposed = true; eventSocket?.close(); });
+systemAppearance.addEventListener('change', () => {
+  if (appearanceMode(state.settings.appearance) === 'system') applyAppearance('system');
+});
 render();
 void refresh().catch((error) => { localError = error instanceof Error ? error.message : String(error); render(); }).finally(() => { void streamEvents(); });

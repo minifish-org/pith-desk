@@ -72,6 +72,13 @@ func runPreview(dataDir string) error {
 }
 
 func runDesktop(dataDir string) error {
+	// Keep native window state with the selected application data, including
+	// isolated test instances started with --data-dir.
+	dataDir, err := filepath.Abs(dataDir)
+	if err != nil {
+		return fmt.Errorf("resolve application data directory: %w", err)
+	}
+	mygo.App.SetPath(mygo.PathUserData, dataDir)
 	var service *desk.Service
 	var server *host.Server
 	var startupErr error
@@ -84,6 +91,9 @@ func runDesktop(dataDir string) error {
 			mygo.App.Quit()
 			return
 		}
+		// Native controls, the WebView's media query, and its initial background
+		// use the same saved override as the frontend.
+		mygo.Theme.SetSource(mygo.ThemeSource(service.Snapshot().Settings.Appearance))
 		pickDirectory := func() (string, error) {
 			// Dialog.Open forwards native UI work to the main thread itself.
 			// Calling this blocking method inside RunOnMain would be unnecessary.
@@ -98,7 +108,9 @@ func runDesktop(dataDir string) error {
 			}
 			return paths[0], nil
 		}
-		server, startupErr = host.Start(service, pickDirectory)
+		server, startupErr = host.Start(service, pickDirectory, func(mode desk.AppearanceMode) {
+			mygo.Theme.SetSource(mygo.ThemeSource(mode))
+		})
 		if startupErr != nil {
 			mygo.App.Quit()
 			return
@@ -107,7 +119,7 @@ func runDesktop(dataDir string) error {
 			Title: "Pith Desk", URL: server.URL,
 			Width: 1320, Height: 860, MinWidth: 900, MinHeight: 600,
 			TitleBarStyle:   mygo.TitleBarDefault,
-			BackgroundColor: "#151719", StateKey: "main",
+			BackgroundColor: "light-dark(#F7F8FB, #17191C)", StateKey: "main",
 		})
 		window.Store(win)
 		appURL, _ := url.Parse(server.URL)
@@ -130,7 +142,7 @@ func runDesktop(dataDir string) error {
 	})
 	// Closing the last window quits the app by default. Cleanup also covers
 	// Cmd+Q and termination signals, and releases pending Agent work.
-	err := mygo.App.Run()
+	err = mygo.App.Run()
 	if service != nil {
 		service.Close()
 	}
