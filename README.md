@@ -2,7 +2,7 @@
 
 A local desktop workspace for getting things done with an AI agent. Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native window. The interface is TypeScript. The product is a separate repository; it does not fork or modify the agent SDK.
 
-This first version supports text and image conversations, workspace folders, streamed answers, file tools, conversation permissions, workspace instructions and skills, and optional MCP connections. DeepSeek Flash is the default model. An OpenAI-compatible Chat Completions endpoint with tool calling can also be configured, using a compatible model ID from Pith's catalog.
+This first version supports text and image conversations, workspace folders, streamed answers, file tools, conversation permissions, workspace instructions and skills, and optional MCP connections. DeepSeek Flash is the default model. Provider selection, model capabilities, thinking levels and native request adapters come from Pith’s SDK. API-key connections include DeepSeek, OpenAI, Anthropic, Google, Mistral and compatible providers in its catalog.
 
 ![Pith Desk on macOS showing a workspace conversation, a tool result, and a generated Markdown file](docs/images/pith-desk-macos.png)
 
@@ -18,13 +18,41 @@ favicon for the browser preview.
 On macOS, open the built **Pith Desk.app**. You do not need Go, Node.js or npm to run the packaged application.
 
 1. Choose a workspace folder.
-2. Open Settings and enter your model endpoint, model ID and API key. Use **Test connection** to check streaming and tool calling, then Save settings. Testing sends one small model request, does not save the form, and never accesses workspace files or executes tools.
-3. Create a conversation and ask the agent to inspect or change files in that folder.
+2. Open Settings, choose a provider and enter its API key. The default endpoint is filled in automatically; **Advanced connection settings** lets you override it. Use **Test connection** to check streaming and tool calling using that provider’s last selected model or Pith’s default, then Save settings. Testing sends one small model request, does not save the form, and never accesses workspace files or executes tools.
+3. Choose a model and thinking effort beside the message box. Create a conversation and ask the agent to inspect or change files in that folder.
 4. Review the tool name and arguments before approving a file change or command. You can change the permission mode beside the message box. Use Stop to cancel a running task.
 
 For a safe first task, choose an empty test folder and ask: “Create a short welcome.md that explains what you can do in this workspace.”
 
 The application saves settings and conversation data in your user configuration directory (`~/Library/Application Support/Pith Desk` on macOS). The key is stored in a private local file, not in the frontend, URLs or the repository. This version does not use macOS Keychain.
+
+### Providers, models and thinking effort
+
+**Settings** manages API-key connections. Choose a provider and save its key. API base URL is prefilled and hidden under
+**Advanced connection settings** for proxies and custom services. Saving another
+provider’s connection does not change the active conversation model. Pith supplies the catalog, input
+capabilities, context/output limits, and supported thinking levels. The model
+list is the catalog bundled with the pinned Pith SDK, **not** a live list of
+models authorized for your account. Updating the SDK updates this catalog.
+The endpoint override must speak the selected model's native protocol.
+
+The model button beside the composer opens a searchable
+picker for configured providers. The thinking selector only shows levels that
+Pith says the selected model supports, including `max` when available. Models
+with no reasoning support hide that control. Changes apply to the next task;
+stop a running task before changing its model or effort. The run details record
+the provider and effort actually selected for that task.
+
+Each provider retains its own endpoint, key and last selection. Switching
+providers restores those settings. Changing an endpoint requires entering the
+key again: a saved credential is never silently forwarded to a new address.
+The previous single-provider settings load automatically, retaining the key and
+its original thinking default. Loading does not rewrite the settings file.
+
+Agent requests, connection probes and context summaries all use Pith's native
+adapters. Desk does not implement separate OpenAI, Anthropic or Google clients.
+The UI currently supports API-key/token connections; OAuth login and cloud
+credential setups such as Bedrock, Vertex and Azure are not exposed here.
 
 ### Appearance
 
@@ -47,7 +75,7 @@ While Pith is working, use **Add instruction** to steer it after the current ass
 
 ### Run status and recovery
 
-Expand the status line above the composer to see the running model, Pith session token usage, estimated conversation context, context summary count and recorded tool failures. Model retries and context summarization have their own status. Conversation context excludes system instructions and tool schemas; usage may omit provider requests without usage reports and summaries. Cost is explicitly not reported for compatible endpoints, rather than estimated from catalog prices. These numbers are not a provider bill.
+Expand the status line above the composer to see the running model, Pith session token usage, estimated conversation context, context summary count and recorded tool failures. Model retries and context summarization have their own status. Conversation context excludes system instructions and tool schemas; usage may omit provider requests without usage reports and summaries. This client does not display cost estimates from catalog prices. These numbers are not a provider bill.
 
 Failures show guidance for credentials, unknown models, incompatible endpoints, network interruptions, rate limits, summarization and local errors. **Review and continue** sends an explicit new instruction using the existing Pith transcript. It does not replay the original task or automatically restart actions after a crash. Review already completed or uncertain external actions first. After changing model settings, test the connection before continuing.
 
@@ -55,7 +83,13 @@ Run metadata is saved beside the sessions. After an interrupted shutdown, the co
 
 ### Conversations and files
 
-Search conversation titles in the sidebar. Use the conversation actions to rename, archive, restore, or export a conversation as Markdown. Desktop exports open a native save dialog so you can choose the destination. Archived conversations stay readable and can be restored before continuing. Titles are recorded through Pith's session API; the desktop catalog indexes them. Archiving preserves the session files.
+The sidebar groups conversations under their workspace folders. Expand or collapse a folder, or use its new-conversation button to start a chat in that workspace. Search conversation titles across workspaces. Each conversation's `…` menu can rename, export or permanently delete that conversation without opening it first. Desktop exports open a native save dialog so you can choose the destination. Titles are recorded through Pith's session API; the desktop catalog indexes them.
+
+**Delete conversation** permanently removes its local session history, image attachments and run receipt. **Remove workspace**, in the folder's `…` menu, unlinks the folder and deletes all its conversations and related application data. Both require confirmation and are blocked while a task is running. Workspace folders and their files—including files created by Pith and exported documents—are never deleted. There is no archive or restore feature. Removing a folder leaves no dangling conversations.
+
+Deletion intent is saved before the catalog changes. If cleanup is interrupted, Pith Desk retries committed deletions on startup; uncommitted requests leave their conversation data intact. Cleanup errors are reported and never treated as a successful deletion.
+
+Press `⌘N` (`Ctrl+N` on Linux) to start a conversation in the current workspace.
 
 After a task finishes, successful file writes and edits appear as generated-file cards. **Open** uses the default application; **Reveal** shows the file in your file manager. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview shows paths but native file actions require the desktop app.
 
@@ -95,7 +129,7 @@ for image-capable models. Markdown exports mark image attachments but do not
 embed their bytes.
 
 Image support is included in the
-[`v0.1.0-rc.5` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.5).
+[`v0.1.0-rc.6` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.6).
 
 
 ## Develop

@@ -48,7 +48,7 @@ func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
 	}
-	for _, path := range []string{"/api/export", "/api/queue", "/api/rename", "/api/archive", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
+	for _, path := range []string{"/api/export", "/api/queue", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
 		if status, _, _ := featureRequest(t, s, "POST", path, map[string]any{}, false); status != 401 {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
@@ -113,15 +113,52 @@ func TestConversationFeatureHTTPAndMarkdownDownload(t *testing.T) {
 	if status, body, _ := featureRequest(t, s, "POST", "/api/rename", map[string]any{"id": conversation.ID, "title": "Research notes"}, true); status != 200 {
 		t.Fatalf("rename: %d %s", status, body)
 	}
-	if status, body, _ := featureRequest(t, s, "POST", "/api/archive", map[string]any{"id": conversation.ID, "archived": true}, true); status != 200 {
-		t.Fatalf("archive: %d %s", status, body)
-	}
 	status, markdown, headers := featureRequest(t, s, "GET", "/api/export?id="+url.QueryEscape(conversation.ID), nil, true)
 	if status != 200 || !strings.Contains(markdown, "Research notes") || !strings.HasPrefix(headers.Get("Content-Type"), "text/markdown") || !strings.Contains(headers.Get("Content-Disposition"), "attachment") {
 		t.Fatalf("export did not deliver named Markdown: %d %s %v", status, markdown, headers)
 	}
 	if status, _, _ := featureRequest(t, s, "POST", "/api/queue", map[string]any{"id": conversation.ID, "text": "Later", "mode": "steer"}, true); status != 400 {
 		t.Fatal("queue accepted without an active task")
+	}
+}
+
+func TestDeleteAndRemoveHTTPKeepWorkspaceFilesAndRejectStaleConfirmation(t *testing.T) {
+	s := testServer(t)
+	workspace, err := s.service.AddWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.service.CreateConversation(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.service.CreateConversation(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _, _ := featureRequest(t, s, "POST", "/api/remove-workspace", map[string]any{"id": workspace.ID}, true); status != 400 {
+		t.Fatal("workspace removal accepted without a reviewed count")
+	}
+	if status, _, _ := featureRequest(t, s, "POST", "/api/remove-workspace", map[string]any{"id": workspace.ID, "conversationCount": 1}, true); status != 400 {
+		t.Fatal("stale workspace removal accepted")
+	}
+	if status, body, _ := featureRequest(t, s, "POST", "/api/delete-conversation", map[string]any{"id": first.ID}, true); status != 200 {
+		t.Fatalf("delete: %d %s", status, body)
+	}
+	if st := s.service.Snapshot(); len(st.Conversations) != 1 || st.ActiveID != second.ID {
+		t.Fatal("HTTP delete removed wrong conversation")
+	}
+	if status, _, _ := featureRequest(t, s, "GET", "/api/export?id="+first.ID, nil, true); status != 400 {
+		t.Fatal("deleted conversation remained exportable")
+	}
+	if status, body, _ := featureRequest(t, s, "POST", "/api/remove-workspace", map[string]any{"id": workspace.ID, "conversationCount": 1}, true); status != 200 {
+		t.Fatalf("remove: %d %s", status, body)
+	}
+	if st := s.service.Snapshot(); len(st.Workspaces) != 0 || len(st.Conversations) != 0 || st.ActiveID != "" {
+		t.Fatal("HTTP removal left dangling conversations")
+	}
+	if status, _, _ := featureRequest(t, s, "POST", "/api/archive", map[string]any{"id": first.ID}, true); status != 404 {
+		t.Fatal("obsolete archive endpoint still exists")
 	}
 }
 

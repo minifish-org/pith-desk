@@ -12,7 +12,7 @@ import (
 	"time"
 
 	agenttypes "github.com/minifish-org/pith/packages/agent/types"
-	"github.com/minifish-org/pith/packages/ai/api"
+	"github.com/minifish-org/pith/packages/ai"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
@@ -30,6 +30,8 @@ type RunUsage struct {
 }
 
 type RuntimeStatus struct {
+	Provider      string   `json:"provider,omitempty"`
+	ThinkingLevel string   `json:"thinkingLevel,omitempty"`
 	Phase         string   `json:"phase"`
 	Model         string   `json:"model"`
 	Usage         RunUsage `json:"usage"`
@@ -68,7 +70,7 @@ func classifyFailure(err error, phase string) *Failure {
 	case phase == "compacting":
 		f.Kind, f.Message, f.Advice = "compaction", "Context summarization failed.", "History is preserved. Check the model connection before continuing."
 	case strings.Contains(text, "400") || strings.Contains(text, "unsupported") || strings.Contains(text, "invalid request"):
-		f.Kind, f.Message, f.Advice, f.CanContinue = "compatibility", "The endpoint rejected the request format.", "Use a compatible Chat Completions endpoint with streaming and tool calling.", false
+		f.Kind, f.Message, f.Advice, f.CanContinue = "compatibility", "The endpoint rejected the request format.", "Check the provider, model and API endpoint in Settings.", false
 	case errors.As(err, &provider):
 		f.Kind, f.Message, f.Advice = "provider", "The provider could not complete the task.", "Test the connection or check the provider, then review and continue."
 	}
@@ -165,10 +167,7 @@ func (s *Service) TestConnection(ctx context.Context, input ConfigInput) (Connec
 		s.mu.Unlock()
 		return ConnectionTest{}, errors.New("Enter an API key to test the connection")
 	}
-	if strings.TrimSpace(input.APIKey) == "" && config.BaseURL != s.config.BaseURL {
-		s.mu.Unlock()
-		return ConnectionTest{}, errors.New("Enter the key explicitly when testing a different endpoint; the saved key is not sent to a new address")
-	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	s.probeCancel, s.probeDone = cancel, done
@@ -180,18 +179,18 @@ func (s *Service) TestConnection(ctx context.Context, input ConfigInput) (Connec
 		s.mu.Unlock()
 		close(done)
 	}()
-	model, _ := resolveModel(config.Model, config.BaseURL)
+	model, _ := resolveConfiguredModel(config)
 	started := time.Now()
 	// This budget is only for the tiny connectivity probe, not agent tasks.
 	maxTokens, retries := 256, 0
-	off := aitypes.ThinkingLevel("off")
+	probeThinking := aitypes.ThinkingLevel(ai.ClampThinkingLevel(*model, aitypes.ModelThinkingLevel("off")))
 	options := &aitypes.SimpleStreamOptions{StreamOptions: aitypes.StreamOptions{
-		ProviderRequestOptions: aitypes.ProviderRequestOptions{APIKey: &config.APIKey, Signal: ctx.Done(), MaxRetries: &retries}, MaxTokens: &maxTokens}, Reasoning: &off}
+		ProviderRequestOptions: aitypes.ProviderRequestOptions{APIKey: &config.APIKey, Signal: ctx.Done(), MaxRetries: &retries}, MaxTokens: &maxTokens}, Reasoning: &probeThinking}
 	transcript := aitypes.NormalizeContext(aitypes.Context{
 		Messages: []aitypes.Message{aitypes.NewUserMessageVariant(aitypes.NewUserMessage("Call connection_check with ok=true. Do not write an explanation.", float64(time.Now().UnixMilli())))},
 		Tools:    []aitypes.Tool{{Name: "connection_check", Description: "Confirm that tool calling works. This probe has no effects.", Input: aitypes.JSONSchemaToolInput(json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`))}},
 	})
-	stream := api.OpenAICompletionsApi().StreamSimple(model, transcript, options)
+	stream := providerStream(model, transcript, options)
 	message, err := stream.Result(ctx)
 	result := ConnectionTest{DurationMs: time.Since(started).Milliseconds()}
 	if ctx.Err() != nil {
@@ -222,7 +221,7 @@ func (s *Service) TestConnection(ctx context.Context, input ConfigInput) (Connec
 	result.OK = result.ToolCalling
 	result.Kind, result.Message = "connected", "Streaming and tool calling succeeded. Settings have not been saved."
 	if !result.ToolCalling {
-		result.Kind, result.Message = "tool-calling", "The endpoint replied, but tool calling was not confirmed. Check that the model supports Chat Completions tools."
+		result.Kind, result.Message = "tool-calling", "The endpoint replied, but tool calling was not confirmed. Check that the selected model supports tool calling."
 	}
 	return result, nil
 }

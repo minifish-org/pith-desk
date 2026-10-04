@@ -18,7 +18,7 @@ func TestAppearancePersistsWithoutLosingProviderConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Provider configuration must also retain the independently saved theme.
-	if err := s.Configure(ConfigInput{BaseURL: "http://127.0.0.1:2/v1", Model: "deepseek-v4-pro"}); err != nil {
+	if err := s.Configure(ConfigInput{BaseURL: "http://127.0.0.1:2/v1", Model: "deepseek-v4-pro", APIKey: "fixture-private-key"}); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

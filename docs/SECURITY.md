@@ -10,7 +10,7 @@ These controls address access from other websites. They do not protect against m
 
 ## Model credentials and data
 
-Settings and session files are stored locally. API credentials are kept in a private local settings file; this release does not use Keychain. Public state contains only a `hasApiKey` flag. Credentials are not returned to the frontend or included in command-tool environments. MCP bearer tokens and explicit environment overrides are stored separately in private `mcp.json`; public configuration exposes only whether a token is present and the saved environment key names. Avoid selecting the application data directory as a workspace.
+Settings and session files are stored locally. API credentials are kept in a private local settings file; this release does not use Keychain. Public state and model catalogs expose only a `hasApiKey` flag for credentials. Each provider retains a separate saved connection; its key is reused only for the same provider and endpoint. Changing the endpoint clears the active key unless a new key is entered explicitly. Credentials are not returned to the frontend or included in command-tool environments. MCP bearer tokens and explicit environment overrides are stored separately in private `mcp.json`; public configuration exposes only whether a token is present and the saved environment key names. Avoid selecting the application data directory as a workspace.
 
 Conversation content and tool results are sent to the endpoint you configure. Reading a workspace file can therefore disclose its contents to that model provider. Use a test folder first and select workspaces deliberately.
 
@@ -32,13 +32,13 @@ MCP servers are external programs or services selected by the user. They have th
 
 Generated-file Open and Reveal actions accept only successful recorded write/edit results that still resolve to regular files inside the workspace. Resource actions accept only instruction and skill files discovered by Pith, including inherited instruction files. Both paths exclude private application storage; arbitrary model-generated links do not gain native file access. Opening a file invokes its system-associated application and does not serve it as web content.
 
-Markdown exports use a native save dialog in the desktop app, or an authenticated download in browser preview. They may include local file contents and tool results, so keep them with the same care as the original conversation. Archiving changes the desktop catalog only and does not delete a transcript.
+Markdown exports use a native save dialog in the desktop app, or an authenticated download in browser preview. They may include local file contents and tool results, so keep them with the same care as the original conversation. Deleting a conversation does not remove previously exported documents.
 
 ## Connection checks and diagnostics
 
-Test connection sends a small tool-calling probe through Pith's compatible
+Test connection sends a small tool-calling probe through Pith's selected
 provider adapter. It uses the form values and, when blank, the existing saved
-key for the same endpoint. Testing a changed endpoint requires an explicit key;
+key for the same provider and endpoint. Testing a changed endpoint requires an explicit key;
 the hidden saved key is not forwarded to a new address. It does not save settings, load instructions or execute tools. Tests can
 be cancelled; closing the application cancels an outstanding probe. Provider
 response bodies are not included in the result; failures use fixed guidance.
@@ -51,3 +51,20 @@ are included. Native saves require a destination chosen by the user.
 Task continuation is a user-initiated new prompt over persisted history. It does
 not promise exactly-once execution of external effects, roll back changes or
 automatically resume a crashed task. Review uncertain effects before continuing.
+
+## Deleting local application data
+
+Conversation deletion removes only its session transcript (including inline images)
+and run receipt. Workspace removal also removes its catalog association and all
+its conversations. Neither operation deletes workspace files or exported documents.
+The API requires the same loopback host, origin and bearer-token checks as other
+mutations, and rejects changes while a task is running or a connection probe is
+active. Workspace removal checks the conversation count shown in the confirmation.
+
+Filesystem cleanup uses Go's `os.Root` to stay inside the private application data
+directory and never recursively removes unexpected directories. A persisted
+delete-intent journal allows startup to finish committed cleanup after an
+interruption. The catalog decides whether a deletion committed; referenced
+conversations are preserved. Disk errors are surfaced and the journal is retained
+until cleanup completes. User copies, exports and backups are outside this scope;
+this is logical file deletion, not secure erasure of storage media.

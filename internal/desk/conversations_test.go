@@ -46,7 +46,7 @@ func appendFeatureMessage(t *testing.T, manager *codingagent.SessionManager, mes
 	}
 }
 
-func TestConversationNamesArchivesAndExportsUsePithSession(t *testing.T) {
+func TestConversationNamesAndExportsUsePithSession(t *testing.T) {
 	s, workspace, conversation, dataDir := productFeatureService(t)
 	if err := s.RenameConversation(conversation.ID, "  Notes\nfor tomorrow  "); err != nil {
 		t.Fatal(err)
@@ -67,12 +67,6 @@ func TestConversationNamesArchivesAndExportsUsePithSession(t *testing.T) {
 	appendFeatureMessage(t, manager, aitypes.NewAssistantMessageVariant(assistant))
 	appendFeatureMessage(t, manager, aitypes.NewToolResultMessageVariant(aitypes.NewToolResultMessage("call", "write_file", []aitypes.ContentBlock{aitypes.TextBlock("Output with ``` inside")}, false, 3)))
 	manager.Close()
-	if err := s.ArchiveConversation(conversation.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	if !s.Snapshot().Conversations[0].Archived || s.Snapshot().ActiveID != conversation.ID {
-		t.Fatal("archive lost the readable active conversation")
-	}
 	exported, err := s.ExportConversation(conversation.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -88,14 +82,8 @@ func TestConversationNamesArchivesAndExportsUsePithSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	if !reopened.Snapshot().Conversations[0].Archived {
-		t.Fatal("archive did not survive restart")
-	}
-	if err := reopened.ArchiveConversation(conversation.ID, false); err != nil {
-		t.Fatal(err)
-	}
-	if reopened.Snapshot().Conversations[0].Archived {
-		t.Fatal("restore failed")
+	if reopened.Snapshot().Conversations[0].Title != "Notes for tomorrow" {
+		t.Fatal("session title did not survive restart")
 	}
 }
 
@@ -181,15 +169,18 @@ func TestCanonicalRenameSurvivesCatalogSaveFailure(t *testing.T) {
 }
 
 func TestConversationOperationsRejectActiveRun(t *testing.T) {
-	s, _, conversation, _ := productFeatureService(t)
+	s, workspace, conversation, _ := productFeatureService(t)
 	s.mu.Lock()
 	s.state.Running = true
 	s.mu.Unlock()
 	if err := s.RenameConversation(conversation.ID, "blocked"); err == nil {
 		t.Fatal("rename during run accepted")
 	}
-	if err := s.ArchiveConversation(conversation.ID, true); err == nil {
-		t.Fatal("archive during run accepted")
+	if err := s.DeleteConversation(conversation.ID); err == nil {
+		t.Fatal("delete during run accepted")
+	}
+	if err := s.RemoveWorkspace(workspace.ID, 1); err == nil {
+		t.Fatal("workspace removal during run accepted")
 	}
 	if _, err := s.ExportConversation(conversation.ID); err == nil {
 		t.Fatal("export during run accepted")

@@ -15,7 +15,7 @@ tests: local provider and MCP fixtures exercise the actual pinned Pith APIs.
 
 The tests cover queue consumption and cancellation, completion races, private
 MCP settings and explicit process environments, MCP cancellation and reconnect,
-canonical session titles, archive/restore, Markdown exports, resource discovery,
+canonical session titles, deletion/recovery, Markdown exports, resource discovery,
 generated-file evidence, and authenticated native actions. Existing workspace
 and permission tests remain part of the suite.
 
@@ -28,8 +28,18 @@ workspace. Keep its model and connection settings separate from everyday data.
 1. Open Workspace resources. Check AGENTS.md and a skill in
    `.pi/skills/<name>/SKILL.md`. Inspect the instruction preview and Reveal a file.
    Create instructions in an empty workspace; an existing AGENTS.md must survive.
-2. Rename a conversation, search its title, archive it, and restore it. Archived
-   conversations remain readable but cannot accept a new task until restored.
+2. Create two workspaces with multiple conversations. Check the folder tree,
+   collapse/expand, search and each folder's new-conversation button. Use an
+   inactive chat's `…` menu to rename, export and delete it without switching
+   the active chat. Cancel deletion first and verify data stays intact; then
+   confirm and inspect that its session and run files are gone. Delete an active
+   chat and check messages, attachments, usage and queued drafts clear.
+   Use a folder's `…` menu to remove the workspace. Verify the confirmation names
+   the folder and conversation count, and removal leaves no chats for that
+   workspace. All original workspace files must remain unchanged. Re-add the
+   folder: old conversations must not return. Restart and repeat the checks.
+   Check menu keyboard access and Escape/outside-click dismissal. Running tasks
+   must block deletion, workspace removal and switching conversations.
 3. Configure an HTTP or installed stdio MCP server. Connect and inspect the tool
    count. Check that saved tokens/environment values are not filled back into the
    form. In Ask before changes, an MCP call must require its own approval.
@@ -40,11 +50,35 @@ workspace. Keep its model and connection settings separate from everyday data.
    Failed writes, missing files, and files outside the workspace must not appear.
 6. Export Markdown. Save it through the native dialog, inspect its title/messages/
    tool results, and test Cancel. Cancel must not start a browser download.
-7. Quit and reopen normally. Check saved titles, archive state, permissions,
+7. Quit and reopen normally. Check saved titles, deletion results, permissions,
    connection configuration, and generated files. Connections are re-established
    explicitly or when the next task starts.
 
 ## Latest verification
+
+On 2026-10-05, the delete/remove implementation passed the CGO-disabled project
+tests and vet checks, plus race checks. An isolated browser preview verified
+cancel/confirm on inactive and active conversations, draft/image clearing,
+workspace cascade removal (including an empty folder), and removal of the final
+workspace. A second client added a chat while confirmation was open: removal
+was rejected until its updated count was reviewed. On-disk checks confirmed
+transcripts were gone and both workspace folders/files remained intact. A
+backend restart and re-adding the same folder did not resurrect old chats.
+The intentionally rejected stale request returned HTTP 400; no JavaScript
+errors were observed. No live model calls or production data were used.
+
+Deletion tests cover transcripts with image attachments, run receipts, active/inactive
+state, workspace cascade removal, stale confirmation counts, failed catalog writes,
+interrupted cleanup recovery and filesystem containment. Historical checks below
+include the previous archive UI; archive/restore has since been removed.
+
+On 2026-10-05, an isolated browser preview of the ARM64 bundle verified the
+workspace tree with two temporary folders and multiple chats: creating a chat
+in a different workspace, collapsing/expanding folders, title search, and
+rename/archive/restore/export of an inactive conversation without switching the
+active chat. Menu keyboard navigation, Escape and outside-click dismissal
+passed. A backend process restart preserved titles, archive state and the active
+workspace. Light/dark layouts were inspected; no live model calls were made.
 
 On 2026-10-04, the automated checks and Mac ARM64 packaging passed. An isolated
 native app used a local streaming provider and HTTP MCP fixture to verify title
@@ -132,3 +166,39 @@ For manual acceptance, also paste a screenshot or drag multiple supported
 images onto the composer, check removal and mixed text/image input, and test
 a text-only model. A rejected upload must keep the draft and leave the
 existing history unchanged. Diagnostics must not include image bytes.
+
+## Provider and model selection
+
+Offline fixtures exercise the native OpenAI Responses, Anthropic Messages, and
+Google Generative AI routes for an agent task, a tool-call connection probe, and
+context summarization. DeepSeek fixtures inspect outgoing requests for `low`,
+`high`, `max`, and `off`; this verifies that the selected effort reaches Pith's
+adapter rather than merely changing the UI. The full catalog and credentials
+are not copied into streaming frontend snapshots.
+
+Tests also cover authenticated catalog/selection routes, detached capability
+arrays, legacy settings loading, per-provider selection and key restoration,
+endpoint key isolation, invalid thinking levels, failed saves and restart.
+These are protocol fixtures, not live provider-account acceptance tests.
+
+Manual UI checks:
+
+1. Load legacy DeepSeek settings. Confirm the saved key is still configured and
+   the old `high` default remains selected.
+2. Open the model picker, search a model ID, change models and select effort.
+   Confirm unsupported effort values disappear and image guidance follows the
+   selected model. Reload: the selection should remain.
+3. In Settings, change providers. Confirm the endpoint updates inside the
+   collapsed Advanced connection settings and another provider’s key is never
+   filled into the password field. Settings must have no model/effort controls
+   and the top bar must have no duplicate model picker. Saving an inactive
+   provider must leave the current model and effort unchanged.
+4. Save two provider connections and switch between them with the composer
+   picker. Confirm each saved selection/key is restored without re-entering it.
+5. Expand Advanced connection settings and change the endpoint. Confirm the key becomes required again. Cancel and
+   reopen Settings: saved configuration must be unchanged.
+6. During a task, model/effort selection must be disabled. A direct mutation
+   must also be rejected by the service, including during a connection probe.
+
+The development browser check uses its own data directory and fixture keys;
+no live provider request or user settings are needed.

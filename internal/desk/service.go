@@ -9,37 +9,41 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gofrs/flock"
 	agenttypes "github.com/minifish-org/pith/packages/agent/types"
-	"github.com/minifish-org/pith/packages/ai/api"
-	"github.com/minifish-org/pith/packages/ai/catalog"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
 
 type Settings struct {
+	Provider         string         `json:"provider"`
+	ModelName        string         `json:"modelName"`
+	ThinkingLevel    string         `json:"thinkingLevel"`
+	ThinkingLevels   []string       `json:"thinkingLevels"`
 	BaseURL          string         `json:"baseUrl"`
 	Model            string         `json:"model"`
+	HasConnections   bool           `json:"hasConnections"`
 	HasAPIKey        bool           `json:"hasApiKey"`
 	Appearance       AppearanceMode `json:"appearance"`
 	SupportsImages   bool           `json:"supportsImages"`
 	ImageUploadLimit int            `json:"imageUploadLimit"`
 }
 
-// An empty APIKey preserves the saved key. ClearAPIKey explicitly removes it.
+// An empty APIKey preserves only the same provider/endpoint key.
+// ClearAPIKey explicitly removes that provider’s saved key.
 type ConfigInput struct {
-	BaseURL     string `json:"baseUrl"`
-	Model       string `json:"model"`
-	APIKey      string `json:"apiKey,omitempty"`
-	ClearAPIKey bool   `json:"clearApiKey,omitempty"`
+	Provider      string `json:"provider"`
+	ThinkingLevel string `json:"thinkingLevel"`
+	BaseURL       string `json:"baseUrl"`
+	Model         string `json:"model"`
+	APIKey        string `json:"apiKey,omitempty"`
+	ClearAPIKey   bool   `json:"clearApiKey,omitempty"`
 }
 
 type Workspace struct {
@@ -54,7 +58,6 @@ type Conversation struct {
 	WorkspaceID    string         `json:"workspaceId"`
 	UpdatedAt      string         `json:"updatedAt"`
 	PermissionMode PermissionMode `json:"permissionMode"`
-	Archived       bool           `json:"archived"`
 }
 
 type PermissionMode string
@@ -114,10 +117,13 @@ type State struct {
 }
 
 type savedConfig struct {
-	BaseURL    string         `json:"baseUrl"`
-	Model      string         `json:"model"`
-	APIKey     string         `json:"apiKey,omitempty"`
-	Appearance AppearanceMode `json:"appearance"`
+	Provider      string                     `json:"provider"`
+	ThinkingLevel string                     `json:"thinkingLevel"`
+	Connections   map[string]savedConnection `json:"connections,omitempty"`
+	BaseURL       string                     `json:"baseUrl"`
+	Model         string                     `json:"model"`
+	APIKey        string                     `json:"apiKey,omitempty"`
+	Appearance    AppearanceMode             `json:"appearance"`
 }
 
 type catalogState struct {
@@ -197,6 +203,7 @@ func New(dataDir string) (*Service, error) {
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
 	s.config.Appearance = normalizedAppearance(s.config.Appearance)
+	s.config = normalizedConfig(s.config)
 	if err := readJSON(filepath.Join(abs, "mcp.json"), &s.mcpConfigs); err != nil {
 		return nil, fmt.Errorf("load MCP settings: %w", err)
 	}
@@ -214,6 +221,9 @@ func New(dataDir string) (*Service, error) {
 		}
 	}
 	s.state.ActiveID = saved.ActiveID
+	if err := s.cleanupDeletionsLocked(); err != nil {
+		return nil, fmt.Errorf("finish deleting local conversation data: %w", err)
+	}
 	if err := s.reconcileSessionTitlesLocked(); err != nil {
 		s.state.Error = err.Error()
 	}
@@ -235,6 +245,7 @@ func (s *Service) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := s.state
+	out.Settings.ThinkingLevels = append([]string{}, s.state.Settings.ThinkingLevels...)
 	out.Workspaces = append([]Workspace{}, s.state.Workspaces...)
 	out.Conversations = append([]Conversation{}, s.state.Conversations...)
 	out.Messages = append([]Message{}, s.state.Messages...)
@@ -267,13 +278,18 @@ func (s *Service) Configure(input ConfigInput) error {
 	if err != nil {
 		return err
 	}
+	return s.saveConfigLocked(next)
+}
+
+func (s *Service) saveConfigLocked(next savedConfig) error {
+	affectsActive := s.config.Provider != next.Provider || s.config.Model != next.Model || s.config.ThinkingLevel != next.ThinkingLevel || s.config.BaseURL != next.BaseURL || s.config.APIKey != next.APIKey
 	if err := writeJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
 		return err
 	}
 	s.config = next
 	s.refreshSettingsLocked()
 	s.state.Error = ""
-	if s.state.Failure != nil && !s.state.Failure.CanContinue {
+	if affectsActive && s.state.Failure != nil && !s.state.Failure.CanContinue {
 		previous := *s.state.Failure
 		s.state.Failure.CanContinue = true
 		s.state.Failure.Advice = "Model settings changed. Test the connection, then review the conversation before continuing."
@@ -285,26 +301,6 @@ func (s *Service) Configure(input ConfigInput) error {
 	}
 	s.changedLocked()
 	return nil
-}
-
-func validatedConfig(input ConfigInput, current savedConfig) (savedConfig, error) {
-	base := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
-	u, err := url.Parse(base)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return savedConfig{}, errors.New("Enter an HTTP or HTTPS API base URL without credentials, query, or fragment")
-	}
-	modelID := strings.TrimSpace(input.Model)
-	if _, err := resolveModel(modelID, base); err != nil {
-		return savedConfig{}, err
-	}
-	next := savedConfig{BaseURL: base, Model: modelID, APIKey: current.APIKey, Appearance: current.Appearance}
-	if input.APIKey != "" {
-		next.APIKey = strings.TrimSpace(input.APIKey)
-	}
-	if input.ClearAPIKey {
-		next.APIKey = ""
-	}
-	return next, nil
 }
 
 func (s *Service) AddWorkspace(path string) (Workspace, error) {
@@ -402,9 +398,6 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 		return errors.New("Create a conversation first")
 	}
 	conversation := s.state.Conversations[index]
-	if conversation.Archived {
-		return errors.New("Restore this archived conversation before continuing")
-	}
 	workspace, ok := s.workspaceLocked(conversation.WorkspaceID)
 	if !ok {
 		return errors.New("The conversation's workspace is missing")
@@ -416,7 +409,7 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 	if s.config.APIKey == "" {
 		return errors.New("Save a model API key in Settings first")
 	}
-	model, err := resolveModel(s.config.Model, s.config.BaseURL)
+	model, err := resolveConfiguredModel(s.config)
 	if err != nil {
 		return err
 	}
@@ -446,6 +439,7 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 	s.state.Running = true
 	s.state.Failure = nil
 	s.state.Runtime.Phase, s.state.Runtime.Model, s.state.Runtime.ContextWindow = "starting", model.Id, model.ContextWindow
+	s.state.Runtime.Provider, s.state.Runtime.ThinkingLevel = s.config.Provider, s.config.ThinkingLevel
 	s.state.Runtime.UpdatedAt = timestamp()
 	if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: s.state.Runtime}); err != nil {
 		s.state.Running = false
@@ -699,10 +693,7 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 	if runErr != nil {
 		return
 	}
-	var thinking agenttypes.ThinkingLevel = agenttypes.ThinkingOff
-	if model.Reasoning {
-		thinking = agenttypes.ThinkingHigh
-	}
+	thinking := agenttypes.ThinkingLevel(config.ThinkingLevel)
 	s.mu.Lock()
 	mode := s.permissionModeLocked()
 	s.mu.Unlock()
@@ -769,7 +760,7 @@ func compactionPolicy(model *aitypes.Model, apiKey string) codingagent.RunPolicy
 					request = *options
 				}
 				request.APIKey = &apiKey
-				return api.OpenAICompletionsApi().StreamSimple(m, transcript, &request)
+				return providerStream(m, transcript, &request)
 			}
 			return codingagent.GenerateSummary(ctx, messages, model, codingagent.DefaultCompactionPolicy.ReserveTokens, stream, nil, nil)
 		},
@@ -902,33 +893,6 @@ func blockText(blocks []aitypes.ContentBlock) string {
 	return text.String()
 }
 
-func resolveModel(id, baseURL string) (*aitypes.Model, error) {
-	var selected *aitypes.Model
-	if entry, ok := catalog.DEEPSEEK_MODELS[id]; ok {
-		copy := entry.Model
-		selected = &copy
-	} else {
-		providers := make([]string, 0, len(catalog.MODELS))
-		for provider := range catalog.MODELS {
-			providers = append(providers, string(provider))
-		}
-		sort.Strings(providers)
-		for _, provider := range providers {
-			models := catalog.MODELS[aitypes.ProviderId(provider)]
-			if entry, ok := models[id]; ok && entry.Model.Api == aitypes.ApiOpenAICompletions {
-				copy := entry.Model
-				selected = &copy
-				break
-			}
-		}
-	}
-	if selected == nil {
-		return nil, fmt.Errorf("Model %q is not in Pith's compatible model catalog; use deepseek-flash or another catalog model", id)
-	}
-	selected.BaseUrl = baseURL
-	return codingagent.ResolveModel(codingagent.ModelOptions{Model: selected})
-}
-
 func (s *Service) loadMessagesLocked(id string) error {
 	if s.conversationIndexLocked(id) < 0 {
 		return errors.New("Conversation not found")
@@ -988,8 +952,16 @@ func (s *Service) conversationIndexLocked(id string) int {
 }
 
 func (s *Service) refreshSettingsLocked() {
-	model, _ := resolveModel(s.config.Model, s.config.BaseURL)
-	s.state.Settings = Settings{BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: s.config.APIKey != "", Appearance: s.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
+	model, _ := resolveConfiguredModel(s.config)
+	name := s.config.Model
+	if model != nil {
+		name = model.Name
+	}
+	hasConnections := false
+	for _, connection := range s.config.Connections {
+		hasConnections = hasConnections || connection.APIKey != ""
+	}
+	s.state.Settings = Settings{HasConnections: hasConnections, Provider: s.config.Provider, ModelName: name, ThinkingLevel: s.config.ThinkingLevel, ThinkingLevels: thinkingLevels(model), BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: s.config.APIKey != "", Appearance: s.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
 }
 
 func (s *Service) persistCatalogLocked() error {

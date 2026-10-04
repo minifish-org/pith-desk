@@ -1,9 +1,20 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-This preview adds the Pith Desk application icon for Finder and the Dock, plus
-a matching browser favicon. It uses the same four-part mark as the interface.
-The browser favicon is now served by the local host; the previous `rc.4`
-preview returned 404 for that asset while its native application icon worked.
+This preview simplifies model setup and workspace navigation:
+
+- Configure provider connections in Settings. Default API URLs are filled in;
+  endpoint overrides live under advanced settings. Saved credentials stay
+  separate for each provider and endpoint.
+- Choose a model and its supported thinking effort in the message composer.
+  Models, capabilities and protocol adapters come from the Pith SDK.
+- Conversations appear beneath their workspace folders. Each folder has a
+  new-conversation button; conversation menus offer rename, export and delete.
+- Delete a conversation to remove its saved history, image attachments and run
+  records. Remove a workspace to unlink it and delete all its conversations.
+  Both actions require confirmation and leave workspace files and exported
+  documents untouched. Archive/restore is no longer offered.
+- Duplicate workspace/model controls and the Local badge are removed. Connection
+  status appears only while reconnecting.
 
 This preview includes model connection checks, session token/context status,
 failure guidance, explicit task continuation and metadata-only diagnostic

@@ -54,6 +54,8 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 		w.Header().Set("Content-Type", mime)
 		_, _ = w.Write(data)
 		return true
+	case "/api/models":
+		value, err = s.service.Models(r.URL.Query().Get("provider"))
 	case "/api/resources":
 		value, err = s.service.Resources(r.URL.Query().Get("workspaceId"))
 	case "/api/artifacts":
@@ -91,6 +93,30 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, decode func(any) error) bool {
 	var err error
 	switch r.URL.Path {
+	case "/api/provider-config":
+		var in desk.ProviderConnectionInput
+		if err = decode(&in); err == nil {
+			err = s.service.ConfigureProvider(in)
+		}
+	case "/api/test-provider-connection":
+		var in desk.ProviderConnectionInput
+		if err = decode(&in); err == nil {
+			var result desk.ConnectionTest
+			result, err = s.service.TestProviderConnection(r.Context(), in)
+			if err == nil {
+				_ = json.NewEncoder(w).Encode(result)
+				return true
+			}
+		}
+	case "/api/model-selection":
+		var in struct {
+			Provider      string `json:"provider"`
+			Model         string `json:"model"`
+			ThinkingLevel string `json:"thinkingLevel"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.SelectModel(in.Provider, in.Model, in.ThinkingLevel)
+		}
 	case "/api/test-connection":
 		var in desk.ConfigInput
 		if err = decode(&in); err == nil {
@@ -161,13 +187,24 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		if err = decode(&in); err == nil {
 			err = s.service.RenameConversation(in.ID, in.Title)
 		}
-	case "/api/archive":
+	case "/api/delete-conversation":
 		var in struct {
-			ID       string `json:"id"`
-			Archived bool   `json:"archived"`
+			ID string `json:"id"`
 		}
 		if err = decode(&in); err == nil {
-			err = s.service.ArchiveConversation(in.ID, in.Archived)
+			err = s.service.DeleteConversation(in.ID)
+		}
+	case "/api/remove-workspace":
+		var in struct {
+			ID                string `json:"id"`
+			ConversationCount *int   `json:"conversationCount"`
+		}
+		if err = decode(&in); err == nil {
+			if in.ConversationCount == nil {
+				err = errors.New("Review the workspace's conversation count before removing it")
+			} else {
+				err = s.service.RemoveWorkspace(in.ID, *in.ConversationCount)
+			}
 		}
 	case "/api/create-instructions":
 		var in struct {

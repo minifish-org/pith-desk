@@ -42,7 +42,7 @@ func ensureSessionTitle(manager *codingagent.SessionManager, fallback string) er
 	return err
 }
 
-// Reconcile every cached name, including inactive/archived conversations. The
+// Reconcile every cached name, including inactive conversations. The
 // session record wins after a catalog write failure; no transcript is rewritten
 // or opened merely to create a missing session. Corrupt files remain isolated.
 func (s *Service) reconcileSessionTitlesLocked() error {
@@ -105,30 +105,6 @@ func (s *Service) RenameConversation(id, title string) error {
 	if err := s.persistCatalogLocked(); err != nil {
 		return fmt.Errorf("Conversation name was saved, but its index could not be updated: %w", err)
 	}
-	return nil
-}
-
-func (s *Service) ArchiveConversation(id string, archived bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
-		return err
-	}
-	index := s.conversationIndexLocked(id)
-	if index < 0 {
-		return errors.New("Conversation not found")
-	}
-	if s.state.Conversations[index].Archived == archived {
-		return nil
-	}
-	previous := s.state.Conversations[index]
-	s.state.Conversations[index].Archived = archived
-	s.state.Conversations[index].UpdatedAt = timestamp()
-	if err := s.persistCatalogLocked(); err != nil {
-		s.state.Conversations[index] = previous
-		return err
-	}
-	s.changedLocked()
 	return nil
 }
 

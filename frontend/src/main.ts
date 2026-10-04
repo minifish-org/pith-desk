@@ -5,7 +5,7 @@ import './style.css';
 interface Workspace { id: string; name: string; path: string }
 type AppearanceMode = 'system' | 'light' | 'dark';
 type PermissionMode = 'ask' | 'workspace-write' | 'full-access';
-interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number; permissionMode?: PermissionMode; archived?: boolean }
+interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number; permissionMode?: PermissionMode }
 interface QueuedMessage { id: string; text: string; mode: 'steer' | 'follow-up'; imageCount?: number }
 interface Artifact { path: string; name: string }
 interface WorkspaceResources { workspaceId: string; instructions: { name: string; path: string; content: string }[]; skills: { name: string; path: string; description: string }[]; diagnostics: string[] }
@@ -16,10 +16,13 @@ interface DraftImage extends ImageInput { id: string; name: string; size: number
 interface Message { id: string; role: string; text: string; toolName?: string; status?: string; images?: MessageImage[] }
 interface Approval { id: string; toolName: string; args: unknown; warning?: string }
 interface RunUsage { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
-interface RuntimeStatus { phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
+interface RuntimeStatus { provider?: string; thinkingLevel?: string; phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
 interface Failure { kind: string; message: string; advice: string; canContinue: boolean }
+interface ProviderChoice { id: string; name: string; baseUrl: string; hasApiKey: boolean; model?: string; thinkingLevel?: string }
+interface ModelChoice { id: string; name: string; provider: string; api: string; supportsImages: boolean; contextWindow: number; maxTokens: number; thinkingLevels: string[] }
+interface ModelCatalog { providers: ProviderChoice[]; models: ModelChoice[]; source: string }
 interface State {
-  settings: { baseUrl: string; model: string; hasApiKey: boolean; appearance?: AppearanceMode; supportsImages?: boolean; imageUploadLimit?: number };
+  settings: { provider?: string; modelName?: string; thinkingLevel?: string; thinkingLevels?: string[]; baseUrl: string; model: string; hasApiKey: boolean; hasConnections?: boolean; appearance?: AppearanceMode; supportsImages?: boolean; imageUploadLimit?: number };
   workspaces: Workspace[];
   conversations: Conversation[];
   activeId: string | null;
@@ -64,8 +67,13 @@ let approvalSignature = '';
 let eventSocket: WebSocket | null = null;
 let disposed = false;
 let fullAccessTargetId: string | null = null;
-let historyArchived = false;
 let historySearch = '';
+const expandedWorkspaces = new Set<string>();
+let historySignature = '';
+let historyFilterSignature = '';
+let historyActiveId: string | null | undefined;
+let menuConversationId: string | null = null;
+let menuWorkspaceId: string | null = null;
 let artifacts: Artifact[] = [];
 let artifactsError = '';
 let artifactsLoading = false;
@@ -103,6 +111,7 @@ const paths: Record<string, string> = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18Z"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
   more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  compose: '<path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7"/><path d="m16 3 5 5-10 10-5 1 1-5Z"/>',
   plug: '<path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M8 8V5M16 8V5"/>',
 };
 const icon = (name: string, className = '') => `<svg class="icon ${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? paths.chat}</svg>`;
@@ -112,27 +121,23 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getEl
 
 $('app').innerHTML = `
   <aside class="sidebar" id="sidebar">
-    <a class="brand" href="#" aria-label="Pith Desk home">${logo}<span>Pith<span class="brand-light"> Desk</span></span><span class="beta-tag">LOCAL</span></a>
-    <button class="new-conversation" data-action="new">${icon('plus')}<span>New conversation</span><kbd>⌘ N</kbd></button>
-    <div class="sidebar-section-label">WORKSPACE <button class="quiet-icon" data-action="workspace" aria-label="Manage workspaces">${icon('plus')}</button></div>
-    <div id="workspace-list" class="workspace-list"></div>
-    <div class="sidebar-section-label history-label">CONVERSATIONS</div>
+    <a class="brand" href="#" aria-label="Pith Desk home">${logo}<span>Pith<span class="brand-light"> Desk</span></span></a>
+    <div class="sidebar-section-label">WORKSPACES <button class="quiet-icon" data-action="workspace" aria-label="Manage workspaces">${icon('plus')}</button></div>
     <label class="history-search">${icon('search')}<span class="sr-only">Search conversation titles</span><input id="history-search" type="search" placeholder="Search conversations" autocomplete="off" /></label>
-    <div class="history-filters" aria-label="Conversation list"><button id="history-active" type="button" data-history-filter="active" aria-pressed="true">Active</button><button id="history-archived" type="button" data-history-filter="archived" aria-pressed="false">Archived</button></div>
-    <nav id="history-list" class="history-list" aria-label="Conversation history"></nav>
+    <nav id="history-list" class="history-list" aria-label="Workspaces and conversations"></nav>
     <div class="sidebar-bottom">
       <button class="settings-button" data-action="resources">${icon('file')}<span>Workspace resources</span></button>
       <button class="settings-button" data-action="connections">${icon('plug')}<span>Connections</span></button>
       <button class="settings-button" data-action="settings">${icon('settings')}<span>Settings</span></button>
-      <div class="local-status"><span id="connection-dot" class="status-dot connecting"></span><span id="connection-text">Connecting to local service</span></div>
+      <div id="connection-status" class="local-status" role="status" hidden><span class="status-dot reconnecting" aria-hidden="true"></span><span>Reconnecting…</span></div>
     </div>
   </aside>
+  <div id="conversation-menu" class="sidebar-conversation-menu" role="menu" hidden></div>
   <div class="sidebar-scrim" id="sidebar-scrim"></div>
   <main class="main">
     <header class="topbar">
       <button class="quiet-icon mobile-menu" data-action="menu" aria-label="Open sidebar">${icon('menu')}</button>
       <div class="breadcrumb">${icon('folder')}<span id="workspace-label">No workspace</span>${icon('chevron', 'breadcrumb-chevron')}<span class="breadcrumb-current" id="conversation-label">New conversation</span></div>
-      <div class="topbar-actions"><button class="model-pill" data-action="settings"><span class="model-indicator"></span><span id="model-label">deepseek-flash</span>${icon('down')}</button><details id="conversation-menu" class="conversation-menu"><summary aria-label="Conversation actions">${icon('more')}</summary><div class="conversation-actions"><button data-action="rename" data-conversation-action>Rename</button><button id="archive-conversation" data-action="archive" data-conversation-action>Archive</button><button data-action="export" data-conversation-action>Export Markdown</button></div></details></div>
     </header>
     <section id="chat-scroll" class="chat-scroll" aria-label="Conversation">
       <div id="welcome" class="welcome"></div>
@@ -152,20 +157,21 @@ $('app').innerHTML = `
         <div class="composer-toolbar">
           <div class="composer-context">
             <button id="attach-images" type="button" class="quiet-icon attach-images" data-action="attach-images" aria-label="Attach images" title="Attach images">${icon('image')}</button>
-            <button type="button" class="workspace-chip" data-action="workspace">${icon('folder')}<span id="composer-workspace">Select workspace</span>${icon('down')}</button>
             <label class="permission-control" id="permission-control">${icon('shield')}<span class="sr-only">Conversation permissions</span><select id="permission-mode" aria-describedby="permission-description"><option value="ask">Ask before changes</option><option value="workspace-write">Allow workspace changes</option><option value="full-access">Full access</option></select>${icon('down')}</label>
             <label class="queue-control" id="queue-control" hidden><span class="sr-only">Send while Pith is running</span><select id="queue-mode"><option value="steer">Add instruction</option><option value="follow-up">Queue next task</option></select></label>
           </div>
-          <div class="composer-actions"><span class="keyboard-hint">↵ to send</span><button id="send-button" class="send-button" type="submit" aria-label="Send message">${icon('arrow')}</button><button id="stop-button" class="stop-button" type="button" data-action="stop" aria-label="Stop agent" hidden>${icon('stop')}<span>Stop</span></button></div>
+          <div class="composer-actions"><button id="composer-model" type="button" class="composer-model" data-action="model" data-idle-action aria-label="Choose model">Choose model</button><label class="composer-thinking"><span class="sr-only">Thinking effort</span><select id="composer-thinking" aria-label="Thinking effort"></select></label><button id="send-button" class="send-button" type="submit" aria-label="Send message">${icon('arrow')}</button><button id="stop-button" class="stop-button" type="button" data-action="stop" aria-label="Stop agent" hidden>${icon('stop')}<span>Stop</span></button></div>
         </div>
       </form>
       <p id="image-guidance" class="composer-note image-guidance" hidden></p>
       <p class="composer-note" id="permission-description">Pith can read workspace files. Changes and commands require your approval.</p>
     </div>
   </main>
+  <dialog id="model-dialog" class="modal model-modal" aria-labelledby="model-title"><div id="model-content"></div></dialog>
   <dialog id="settings-dialog" class="modal"><div id="settings-content"></div></dialog>
   <dialog id="workspace-dialog" class="modal"><div id="workspace-content"></div></dialog>
   <dialog id="permissions-dialog" class="modal permission-modal" aria-labelledby="full-access-title"><div id="permissions-content"></div></dialog>
+  <dialog id="delete-dialog" class="modal" aria-labelledby="delete-title"><div id="delete-content"></div></dialog>
   <dialog id="rename-dialog" class="modal" aria-labelledby="rename-title"><div id="rename-content"></div></dialog>
   <dialog id="resources-dialog" class="modal feature-modal" aria-labelledby="resources-title"><div id="resources-content"></div></dialog>
   <dialog id="connections-dialog" class="modal feature-modal" aria-labelledby="connections-title"><div id="connections-content"></div></dialog>
@@ -209,16 +215,19 @@ function render(): void {
   const activeConversation = state.conversations.find((entry) => entry.id === state.activeId);
   $('workspace-label').textContent = workspace?.name ?? 'No workspace';
   $('conversation-label').textContent = activeConversation?.title || 'New conversation';
-  $('composer-workspace').textContent = workspace?.name ?? 'Select workspace';
-  $('model-label').textContent = state.settings.model || 'Choose a model';
+  $('composer-model').textContent = state.settings.modelName || state.settings.model || 'Choose model';
+  $('composer-model').title = `${state.settings.provider || 'deepseek'} / ${state.settings.model}`;
+  const effort = $<HTMLSelectElement>('composer-thinking');
+  const levels = state.settings.thinkingLevels || ['off'];
+  effort.innerHTML = levels.map((level) => `<option value="${escape(level)}">${escape(thinkingLabel(level))}</option>`).join('');
+  effort.value = state.settings.thinkingLevel || 'off';
+  effort.disabled = state.running || requestBusy || levels.length < 2;
+  effort.parentElement!.hidden = levels.length < 2;
   renderPermissions();
-  $('workspace-list').innerHTML = state.workspaces.length ? state.workspaces.map((entry) => `
-    <button class="workspace-item ${entry.id === workspace?.id ? 'selected' : ''}" data-workspace="${escape(entry.id)}" title="${escape(entry.path)}">${icon('folder')}<span>${escape(entry.name)}</span>${entry.id === workspace?.id ? '<span class="workspace-active-dot"></span>' : ''}</button>`).join('') : `
-    <button class="workspace-item empty-workspace" data-action="workspace">${icon('folder')}<span>Add a workspace</span></button>`;
   renderHistory();
-  $('conversation-menu').hidden = !activeConversation;
-  $('archive-conversation').textContent = activeConversation?.archived ? 'Restore' : 'Archive';
-  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-conversation-action]')) button.disabled = requestBusy || !activeConversation || state.running;
+  const menuConversation = state.conversations.find((entry) => entry.id === menuConversationId);
+  const menuWorkspace = state.workspaces.find((entry) => entry.id === menuWorkspaceId);
+  if ((!menuConversation && !menuWorkspace) || state.running || requestBusy) closeConversationMenu();
 
   const hasMessages = state.messages.length > 0;
   $('welcome').hidden = hasMessages;
@@ -244,16 +253,15 @@ function render(): void {
   const error = localError || state.error || '';
   $('inline-error').hidden = !error || (!localError && !!state.failure);
   $('inline-error').textContent = error;
-  $('connection-dot').className = `status-dot ${connection}`;
-  $('connection-text').textContent = connection === 'connected' ? 'Local service connected' : connection === 'reconnecting' ? 'Reconnecting to local service' : 'Connecting to local service';
+  $('connection-status').hidden = connection !== 'reconnecting';
   $('stop-button').hidden = !state.running;
   $('queue-control').hidden = !state.running;
   $('send-button').hidden = false;
-  $<HTMLButtonElement>('send-button').disabled = !snapshotLoaded || requestBusy || readingImages || (!input.value.trim() && !draftImages.length) || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey || !!activeConversation?.archived;
+  $<HTMLButtonElement>('send-button').disabled = !snapshotLoaded || requestBusy || readingImages || (!input.value.trim() && !draftImages.length) || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey;
   $<HTMLSelectElement>('queue-mode').disabled = requestBusy;
   const queuedMode = $<HTMLSelectElement>('queue-mode').value;
   $('send-button').setAttribute('aria-label', state.running ? queuedMode === 'follow-up' ? 'Queue next task' : 'Add instruction' : 'Send message');
-  input.placeholder = !snapshotLoaded ? 'Connecting to Pith…' : activeConversation?.archived ? 'Restore this conversation to send a message' : !state.settings.hasApiKey ? 'Connect your model in Settings to get started' : !workspace ? 'Choose a workspace to get started' : state.running ? queuedMode === 'follow-up' ? 'Describe the next task to run afterward…' : 'Add an instruction for the current task…' : 'Ask Pith to help with your work…';
+  input.placeholder = !snapshotLoaded ? 'Connecting to Pith…' : !state.settings.hasApiKey ? state.settings.hasConnections ? 'Choose a model beside the message box' : 'Connect a provider in Settings to get started' : !workspace ? 'Choose a workspace to get started' : state.running ? queuedMode === 'follow-up' ? 'Describe the next task to run afterward…' : 'Add an instruction for the current task…' : 'Ask Pith to help with your work…';
   $<HTMLButtonElement>('stop-button').disabled = requestBusy;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-idle-action]')) button.disabled = requestBusy || state.running;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = requestBusy;
@@ -266,7 +274,7 @@ function renderRuntime(): void {
     const phases: Record<string, string> = { starting: 'Starting', working: 'Working', tool: 'Using a tool', retrying: 'Retrying model request', compacting: 'Summarizing context', complete: 'Finished', stopped: 'Stopped', interrupted: 'Interrupted', error: 'Needs attention' };
     const n = (value: number) => new Intl.NumberFormat().format(Math.round(value || 0));
     $('run-status-summary').textContent = `${state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'} · ${status.model} · ${n(status.usage.total)} tokens`;
-    $('run-status-details').innerHTML = `<dl><dt>Session input / output</dt><dd>${n(status.usage.input)} / ${n(status.usage.output)}</dd><dt>Cache read / write</dt><dd>${n(status.usage.cacheRead)} / ${n(status.usage.cacheWrite)}</dd><dt>Estimated conversation context</dt><dd>~${n(status.contextTokens)} / ${n(status.contextWindow)} tokens</dd><dt>Context summaries</dt><dd>${n(status.compactions)}</dd><dt>Tool failures recorded</dt><dd>${n(status.toolFailures)}</dd><dt>Cost</dt><dd>Not reported by this compatible endpoint</dd></dl><p>Tokens come from Pith session records. Context is an estimate of conversation messages; system instructions and tool schemas also take space. Requests without usage reports and summarization requests may not be included. This is not a provider bill.</p>`;
+    $('run-status-details').innerHTML = `<dl>${status.provider ? `<dt>Provider</dt><dd>${escape(status.provider)}</dd>` : ''}${status.thinkingLevel ? `<dt>Thinking effort</dt><dd>${escape(status.thinkingLevel)}</dd>` : ''}<dt>Session input / output</dt><dd>${n(status.usage.input)} / ${n(status.usage.output)}</dd><dt>Cache read / write</dt><dd>${n(status.usage.cacheRead)} / ${n(status.usage.cacheWrite)}</dd><dt>Estimated conversation context</dt><dd>~${n(status.contextTokens)} / ${n(status.contextWindow)} tokens</dd><dt>Context summaries</dt><dd>${n(status.compactions)}</dd><dt>Tool failures recorded</dt><dd>${n(status.toolFailures)}</dd><dt>Cost</dt><dd>Not included in this client</dd></dl><p>Tokens come from Pith session records. Context is an estimate of conversation messages; system instructions and tool schemas also take space. Requests without usage reports and summarization requests may not be included. This is not a provider bill.</p>`;
   }
   const failure = state.failure;
   $('task-failure').hidden = !failure || state.running;
@@ -291,11 +299,114 @@ async function exportDiagnostics(): Promise<void> {
 }
 
 function renderHistory(): void {
-  $('history-active').setAttribute('aria-pressed', String(!historyArchived));
-  $('history-archived').setAttribute('aria-pressed', String(historyArchived));
+  if (historyActiveId !== state.activeId) {
+    const active = state.conversations.find((entry) => entry.id === state.activeId);
+    if (active) expandedWorkspaces.add(active.workspaceId);
+    historyActiveId = state.activeId;
+  }
   const search = historySearch.trim().toLocaleLowerCase();
-  const conversations = state.conversations.filter((entry) => !!entry.archived === historyArchived && (entry.title || 'Untitled conversation').toLocaleLowerCase().includes(search)).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  $('history-list').innerHTML = conversations.length ? conversations.map((entry) => `<button class="history-item ${entry.id === state.activeId ? 'active' : ''}" data-conversation="${escape(entry.id)}" title="${escape(entry.title || 'Untitled conversation')}">${icon('chat')}<span>${escape(entry.title || 'Untitled conversation')}</span></button>`).join('') : `<p class="history-empty">${search ? 'No matching conversations.' : historyArchived ? 'No archived conversations.' : 'A little space for<br>your next good idea.'}</p>`;
+  const conversations = state.conversations.filter((entry) => (entry.title || 'Untitled conversation').toLocaleLowerCase().includes(search)).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const filterSignature = search;
+  if (filterSignature !== historyFilterSignature) {
+    if (search) for (const entry of conversations) expandedWorkspaces.add(entry.workspaceId);
+    historyFilterSignature = filterSignature;
+  }
+  const signature = JSON.stringify([state.workspaces, state.conversations, state.activeId, selectedWorkspace()?.id, historySearch, [...expandedWorkspaces], state.running, requestBusy]);
+  if (signature === historySignature) return;
+  historySignature = signature;
+  const disabled = state.running || requestBusy ? 'disabled' : '';
+  $('history-list').innerHTML = state.workspaces.map((workspace) => {
+    const children = conversations.filter((entry) => entry.workspaceId === workspace.id);
+    if (search && !children.length) return '';
+    const expanded = expandedWorkspaces.has(workspace.id);
+    const selected = workspace.id === selectedWorkspace()?.id;
+    return `<section class="workspace-group" aria-label="${escape(workspace.name)}"><div class="workspace-heading ${selected ? 'selected' : ''}"><button class="workspace-toggle" data-toggle-workspace="${escape(workspace.id)}" aria-expanded="${expanded}" aria-controls="workspace-children-${escape(workspace.id)}" title="${escape(workspace.path)}">${icon('chevron', 'workspace-chevron')}${icon('folder')}<span>${escape(workspace.name)}</span></button><button id="workspace-actions-${escape(workspace.id)}" class="quiet-icon workspace-more" data-workspace-menu="${escape(workspace.id)}" aria-label="Actions for workspace ${escape(workspace.name)}" aria-haspopup="menu" aria-expanded="${workspace.id === menuWorkspaceId}" ${disabled}>${icon('more')}</button><button class="quiet-icon workspace-new" data-new-workspace="${escape(workspace.id)}" aria-label="New conversation in ${escape(workspace.name)}" title="New conversation" ${disabled}>${icon('compose')}</button></div><div class="workspace-children" id="workspace-children-${escape(workspace.id)}" ${expanded ? '' : 'hidden'}>${children.map((entry) => `<div class="history-row ${entry.id === state.activeId ? 'active' : ''}"><button class="history-item" data-conversation="${escape(entry.id)}" ${entry.id === state.activeId ? 'aria-current="page"' : ''} title="${escape(entry.title || 'Untitled conversation')}" ${disabled}><span>${escape(entry.title || 'Untitled conversation')}</span></button><button id="conversation-actions-${escape(entry.id)}" class="quiet-icon history-more" data-conversation-menu="${escape(entry.id)}" aria-label="Actions for ${escape(entry.title || 'Untitled conversation')}" aria-haspopup="menu" aria-expanded="${entry.id === menuConversationId}" ${disabled}>${icon('more')}</button></div>`).join('') || `<p class="workspace-empty">No conversations yet</p>`}</div></section>`;
+  }).join('') + (!state.workspaces.length ? `<button class="workspace-item empty-workspace" data-action="workspace">${icon('folder')}<span>Add a workspace</span></button>` : search && !conversations.length ? '<p class="history-empty">No matching conversations.</p>' : '');
+}
+
+function closeConversationMenu(restoreFocus = false): void {
+  const triggerID = menuConversationId ? `conversation-actions-${menuConversationId}` : menuWorkspaceId ? `workspace-actions-${menuWorkspaceId}` : '';
+  menuConversationId = null;
+  menuWorkspaceId = null;
+  $('conversation-menu').hidden = true;
+  if (triggerID) {
+    const trigger = document.getElementById(triggerID);
+    trigger?.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) trigger?.focus();
+  }
+}
+
+function openConversationMenu(id: string, trigger: HTMLElement): void {
+  if (state.running || requestBusy) return;
+  const conversation = state.conversations.find((entry) => entry.id === id);
+  if (!conversation) return;
+  const alreadyOpen = menuConversationId === id;
+  closeConversationMenu();
+  if (alreadyOpen) return;
+  menuConversationId = id;
+  trigger.setAttribute('aria-expanded', 'true');
+  const menu = $('conversation-menu');
+  menu.setAttribute('aria-label', 'Conversation actions');
+  menu.innerHTML = '<button role="menuitem" data-action="rename">Rename</button><button role="menuitem" data-action="export">Export Markdown</button><button role="menuitem" class="destructive-menu-item" data-action="delete-conversation">Delete conversation</button>';
+  positionContextMenu(trigger);
+}
+
+function openWorkspaceMenu(id: string, trigger: HTMLElement): void {
+  if (state.running || requestBusy || !state.workspaces.some((entry) => entry.id === id)) return;
+  const alreadyOpen = menuWorkspaceId === id;
+  closeConversationMenu();
+  if (alreadyOpen) return;
+  menuWorkspaceId = id;
+  trigger.setAttribute('aria-expanded', 'true');
+  const menu = $('conversation-menu');
+  menu.setAttribute('aria-label', 'Workspace actions');
+  menu.innerHTML = '<button role="menuitem" class="destructive-menu-item" data-action="remove-workspace">Remove workspace</button>';
+  positionContextMenu(trigger);
+}
+
+function positionContextMenu(trigger: HTMLElement): void {
+  const menu = $('conversation-menu');
+  menu.hidden = false;
+  const rect = trigger.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(rect.right, window.innerWidth - menu.offsetWidth - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8))}px`;
+  menu.querySelector<HTMLButtonElement>('button')?.focus();
+}
+
+function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
+  if (state.running || requestBusy) return;
+  const item = kind === 'workspace' ? state.workspaces.find((entry) => entry.id === id) : state.conversations.find((entry) => entry.id === id);
+  if (!item) return;
+  const count = state.conversations.filter((entry) => entry.workspaceId === id).length;
+  const name = 'name' in item ? item.name : item.title || 'Untitled conversation';
+  const action = kind === 'workspace' ? 'Remove workspace' : 'Delete conversation';
+  const description = kind === 'workspace'
+    ? `Remove <strong>${escape(name)}</strong> from Pith Desk and permanently delete its <strong>${count} ${count === 1 ? 'conversation' : 'conversations'}</strong>, including history, image attachments and run records?`
+    : `Permanently delete <strong>${escape(name)}</strong>, including its history, image attachments and run records?`;
+  $('delete-content').innerHTML = `${dialogHeading(`${action}?`, 'delete-title', 'delete-dialog', 'PERMANENT REMOVAL')}<p class="modal-description">${description}</p><p class="field-hint">The folder and its files stay on your computer, including files created by Pith. Deleted conversation data cannot be recovered from Pith Desk.</p><form id="delete-form"><div id="delete-error" class="form-error" role="alert"></div><div class="modal-footer"><button id="cancel-delete" type="button" class="secondary-button" data-close="delete-dialog">Cancel</button><button type="submit" class="danger-button" data-idle-action>${action}</button></div></form>`;
+  showDialog('delete-dialog');
+  $('cancel-delete').focus();
+  $('delete-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (state.running || requestBusy) return;
+    const activeWorkspace = selectedWorkspace()?.id;
+    const activeID = state.activeId;
+    const ok = await mutate(kind === 'workspace' ? '/api/remove-workspace' : '/api/delete-conversation', { id, ...(kind === 'workspace' ? { conversationCount: count } : {}) });
+    if (!ok) { $('delete-error').textContent = localError; return; }
+    $<HTMLDialogElement>('delete-dialog').close();
+    if (kind === 'workspace') {
+      expandedWorkspaces.delete(id);
+      if (selectedWorkspaceId === id) selectedWorkspaceId = '';
+      if (resourcesWorkspaceId === id) { resources = null; resourcesWorkspaceId = ''; resourcesRequest++; $<HTMLDialogElement>('resources-dialog').close(); }
+    }
+    if (activeID !== state.activeId || activeWorkspace !== selectedWorkspace()?.id) {
+      input.value = '';
+      clearDraftImages();
+      clearHistoryImages();
+      resizeComposer();
+    }
+    render();
+  });
 }
 
 function renderQueue(): void {
@@ -326,7 +437,7 @@ function renderWelcome(workspace?: Workspace): void {
     <p class="welcome-description">An agent that works alongside you, with your files<br class="desktop-break"> and the tools you choose.</p>
     ${!ready ? `<div class="setup-card">
       <div class="setup-card-heading">Make yourself at home <span>Two quick steps</span></div>
-      <button class="setup-step" data-action="settings"><span class="step-number ${state.settings.hasApiKey ? 'complete' : ''}">${state.settings.hasApiKey ? icon('check') : '1'}</span><span><strong>${state.settings.hasApiKey ? 'Model configured' : 'Connect your model'}</strong><small>${state.settings.hasApiKey ? escape(state.settings.model) : 'Bring your DeepSeek or compatible API key'}</small></span>${icon('chevron')}</button>
+      <button class="setup-step" data-action="${state.settings.hasConnections ? 'model' : 'settings'}"><span class="step-number ${state.settings.hasApiKey ? 'complete' : ''}">${state.settings.hasApiKey ? icon('check') : '1'}</span><span><strong>${state.settings.hasApiKey ? 'Model selected' : state.settings.hasConnections ? 'Choose a model' : 'Connect a provider'}</strong><small>${state.settings.hasApiKey ? escape(state.settings.modelName || state.settings.model) : state.settings.hasConnections ? 'Your provider connection is ready' : 'Bring your provider API key'}</small></span>${icon('chevron')}</button>
       <button class="setup-step" data-action="workspace"><span class="step-number ${workspace ? 'complete' : ''}">${workspace ? icon('check') : '2'}</span><span><strong>${workspace ? escape(workspace.name) : 'Choose a workspace'}</strong><small>${workspace ? escape(workspace.path) : 'A folder Pith can help you work in'}</small></span>${icon('chevron')}</button>
     </div>` : `<div class="welcome-workspace">${icon('folder')}<span>Working in <strong>${escape(workspace.name)}</strong></span><button class="text-button" data-action="workspace">Change</button></div>
     <div class="suggestions"><button data-prompt="Explore this workspace and give me a concise overview of its files.">${icon('file')}Explore my workspace</button><button data-prompt="Help me plan a task. Start by asking what I want to accomplish.">${icon('chat')}Think through a task</button><button data-prompt="I'd like help creating a document in this workspace. Ask me what it should cover.">${icon('plus')}Create something</button></div>`}
@@ -445,7 +556,8 @@ async function newConversation(workspaceId = selectedWorkspace()?.id): Promise<v
   if (!workspaceId) { openWorkspace(); return; }
   if (state.running) { localError = 'Stop the current run before starting another conversation.'; render(); return; }
   if (await mutate('/api/conversations', { workspaceId })) {
-    historyArchived = false;
+    expandedWorkspaces.add(workspaceId);
+    renderHistory();
     input.value = '';
     clearDraftImages();
     resizeComposer();
@@ -461,7 +573,6 @@ async function send(): Promise<void> {
   const submittedIds = new Set(draftImages.map((image) => image.id));
   if ((!text && !images.length) || requestBusy || readingImages) return;
   if (images.length && !state.settings.supportsImages) { localError = 'Choose an image-capable model in Settings, or remove the attachments.'; render(); return; }
-  if (state.conversations.find((entry) => entry.id === state.activeId)?.archived) return;
   if (state.running) { await queueMessage(text, draft, images, submittedIds); return; }
   if (!state.settings.hasApiKey) { openSettings(); return; }
   if (!selectedWorkspace()) { openWorkspace(); return; }
@@ -505,10 +616,9 @@ function showDialog(id: string): void {
   if (!dialog.open) dialog.showModal();
 }
 
-function openRename(): void {
-  const conversation = state.conversations.find((entry) => entry.id === state.activeId);
+function openRename(id = state.activeId): void {
+  const conversation = state.conversations.find((entry) => entry.id === id);
   if (!conversation || state.running) return;
-  const id = conversation.id;
   $('rename-content').innerHTML = `${dialogHeading('Rename conversation', 'rename-title', 'rename-dialog', 'CONVERSATION')}<form id="rename-form"><label class="field-label" for="conversation-title">Title</label><input id="conversation-title" name="title" value="${escape(conversation.title || '')}" required autocomplete="off" /><div id="rename-error" class="form-error" role="alert"></div><div class="modal-footer"><button type="button" class="secondary-button" data-close="rename-dialog">Cancel</button><button type="submit" class="primary-button" data-idle-action>Save title</button></div></form>`;
   showDialog('rename-dialog');
   $<HTMLInputElement>('conversation-title').select();
@@ -521,8 +631,8 @@ function openRename(): void {
   });
 }
 
-async function exportConversation(): Promise<void> {
-  const conversation = state.conversations.find((entry) => entry.id === state.activeId);
+async function exportConversation(id = state.activeId): Promise<void> {
+  const conversation = state.conversations.find((entry) => entry.id === id);
   if (!conversation || requestBusy || state.running) return;
   requestBusy = true;
   localError = '';
@@ -702,14 +812,100 @@ async function saveMCP(): Promise<void> {
   } catch (error) { if (isCurrent()) $('mcp-form-error').textContent = error instanceof Error ? error.message : String(error); }
 }
 
+function thinkingLabel(level: string): string {
+  return level === 'off' ? 'Thinking off' : `Thinking: ${level === 'xhigh' ? 'extra high' : level}`;
+}
+
+function modelEditorMarkup(prefix: string): string {
+  return `<label class="field-label" for="${prefix}-provider">Provider</label><select class="feature-select" id="${prefix}-provider" required disabled><option value="">Loading providers…</option></select><label class="field-label" for="${prefix}-search">Model</label><input id="${prefix}-search" type="search" placeholder="Search by model name or ID" autocomplete="off" /><label class="sr-only" for="${prefix}-model">Choose model</label><select id="${prefix}-model" class="model-list" size="6" required disabled></select><p id="${prefix}-capabilities" class="field-hint" aria-live="polite"></p><label class="field-label" id="${prefix}-thinking-label" for="${prefix}-thinking">Thinking effort</label><select id="${prefix}-thinking" class="feature-select" aria-describedby="${prefix}-capabilities" required></select><p class="field-hint">Models and capabilities come from the Pith SDK catalog. Availability depends on your provider account.</p>`;
+}
+
+function modelFormSelection(prefix: string): { provider: string; model: string; thinkingLevel: string } {
+  return { provider: $<HTMLSelectElement>(`${prefix}-provider`).value, model: $<HTMLSelectElement>(`${prefix}-model`).value, thinkingLevel: $<HTMLSelectElement>(`${prefix}-thinking`).value };
+}
+
+function setupModelEditor(prefix: string, catalog: ModelCatalog, configuredOnly: boolean): void {
+  const providers = configuredOnly ? catalog.providers.filter((entry) => entry.hasApiKey) : catalog.providers;
+  const providerSelect = $<HTMLSelectElement>(`${prefix}-provider`);
+  const modelSelect = $<HTMLSelectElement>(`${prefix}-model`);
+  const search = $<HTMLInputElement>(`${prefix}-search`);
+  const effort = $<HTMLSelectElement>(`${prefix}-thinking`);
+  providerSelect.innerHTML = providers.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}</option>`).join('');
+  providerSelect.disabled = providers.length === 0;
+  providerSelect.value = providers.some((entry) => entry.id === state.settings.provider) ? state.settings.provider! : providers[0]?.id || '';
+  let selected = '';
+  const capabilities = () => {
+    selected = modelSelect.value;
+    const model = catalog.models.find((entry) => entry.provider === providerSelect.value && entry.id === selected);
+    const previous = effort.value;
+    const levels = model?.thinkingLevels || ['off'];
+    effort.innerHTML = levels.map((level) => `<option value="${escape(level)}">${escape(thinkingLabel(level))}</option>`).join('');
+    effort.value = levels.includes(previous) ? previous : levels.includes('high') ? 'high' : levels.includes('medium') ? 'medium' : levels[0];
+    effort.disabled = levels.length < 2;
+    effort.hidden = levels.length < 2;
+    $(`${prefix}-thinking-label`).hidden = levels.length < 2;
+    $(`${prefix}-capabilities`).textContent = model ? `${model.supportsImages ? 'Text + images' : 'Text only'} · ${new Intl.NumberFormat('en').format(model.contextWindow)} context tokens · ${new Intl.NumberFormat('en').format(model.maxTokens)} max output tokens` : 'No matching models.';
+  };
+  const renderModels = () => {
+    const query = search.value.trim().toLowerCase();
+    const models = catalog.models.filter((entry) => entry.provider === providerSelect.value && (entry.id === selected || `${entry.name} ${entry.id}`.toLowerCase().includes(query)));
+    modelSelect.innerHTML = models.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)} — ${escape(entry.id)}</option>`).join('');
+    modelSelect.disabled = models.length === 0;
+    modelSelect.value = models.some((entry) => entry.id === selected) ? selected : models[0]?.id || '';
+    capabilities();
+  };
+  const chooseProvider = () => {
+    const provider = providers.find((entry) => entry.id === providerSelect.value);
+    if (!provider) return;
+    search.value = '';
+    selected = provider.model || (provider.id === state.settings.provider ? state.settings.model : '');
+    effort.innerHTML = `<option value="${escape(provider.thinkingLevel || state.settings.thinkingLevel || 'high')}"></option>`;
+    renderModels();
+  };
+  providerSelect.addEventListener('change', chooseProvider);
+  modelSelect.addEventListener('change', capabilities);
+  search.addEventListener('input', renderModels);
+  chooseProvider();
+}
+
+async function openModelPicker(): Promise<void> {
+  if (state.running || requestBusy) return;
+  if (!state.settings.hasConnections && !state.settings.hasApiKey) { openSettings(); return; }
+  $('model-content').innerHTML = `${dialogHeading('Choose a model', 'model-title', 'model-dialog', 'PITH MODEL CATALOG')}<form id="model-form">${modelEditorMarkup('picker')}<div id="model-error" class="form-error" role="alert"></div><div class="modal-footer"><button type="button" class="secondary-button" data-close="model-dialog">Cancel</button><button type="submit" class="primary-button" id="choose-model" disabled>Use model</button></div></form>`;
+  showDialog('model-dialog');
+  const form = $<HTMLFormElement>('model-form');
+  const isCurrent = () => $<HTMLDialogElement>('model-dialog').open && $('model-form') === form;
+  try {
+    const catalog = await request<ModelCatalog>('/api/models');
+    if (!isCurrent()) return;
+    if (!catalog.providers.some((entry) => entry.hasApiKey)) { $<HTMLDialogElement>('model-dialog').close(); openSettings(); return; }
+    setupModelEditor('picker', catalog, true);
+    $<HTMLButtonElement>('choose-model').disabled = state.running || requestBusy;
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (state.running || requestBusy) return;
+      if (await mutate('/api/model-selection', modelFormSelection('picker'))) $<HTMLDialogElement>('model-dialog').close();
+      else if (isCurrent()) $('model-error').textContent = localError;
+    });
+    $<HTMLInputElement>('picker-search').focus();
+  } catch (error) { if (isCurrent()) $('model-error').textContent = String(error); }
+}
+
+$<HTMLSelectElement>('composer-thinking').addEventListener('change', async (event) => {
+  if (state.running || requestBusy) { render(); return; }
+  const thinkingLevel = (event.currentTarget as HTMLSelectElement).value;
+  await mutate('/api/model-selection', { provider: state.settings.provider, model: state.settings.model, thinkingLevel });
+});
+
 function openSettings(): void {
   closeSidebar();
   const appearanceSection = `<section class="appearance-settings" aria-labelledby="appearance-title"><div><h3 id="appearance-title">Appearance</h3><p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p></div><label class="sr-only" for="appearance-mode">Appearance</label><select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select><div id="appearance-error" class="form-error" role="alert"></div></section>`;
   connectionProbe?.abort();
   connectionProbe = null;
-  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect DeepSeek or an OpenAI-compatible provider.<br>Your key is kept by the local Pith service.</p><form id="settings-form"><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1" autocomplete="off" /></div><label class="field-label" for="model-name">Model</label><input id="model-name" name="model" required value="${escape(state.settings.model || 'deepseek-flash')}" placeholder="deepseek-flash" autocomplete="off" /><label class="field-label" for="api-key">API key ${state.settings.hasApiKey ? '<span class="configured-badge">Configured</span>' : ''}</label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p>${state.settings.hasApiKey ? '<button class="remove-key" id="remove-key" type="button">Remove saved API key</button>' : ''}<div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-idle-action>Test connection</button><p class="field-hint">Sends a small model request to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" type="submit">Save settings</button></div></form>`;
+  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p><form id="settings-form"><label class="field-label" for="settings-provider">Provider</label><select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select><details id="provider-advanced" class="provider-advanced"><summary>Advanced connection settings</summary><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div><p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p></details><label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p><button class="remove-key" id="remove-key" type="button" hidden>Remove saved API key</button><div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-idle-action>Test connection</button><p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" type="submit">Save settings</button></div></form>`;
   renderAppearance();
   $<HTMLDialogElement>('settings-dialog').showModal();
+  let catalog: ModelCatalog | null = null;
   const originalForm = $<HTMLFormElement>('settings-form');
   const isCurrent = () => $<HTMLDialogElement>('settings-dialog').open && document.getElementById('settings-form') === originalForm;
   $<HTMLSelectElement>('appearance-mode').addEventListener('change', async (event) => {
@@ -718,19 +914,54 @@ function openSettings(): void {
     $('appearance-error').textContent = '';
     if (!await mutate('/api/appearance', { mode }) && isCurrent()) $('appearance-error').textContent = localError;
   });
+  const keyStatus = () => {
+    const provider = catalog?.providers.find((entry) => entry.id === $<HTMLSelectElement>('settings-provider').value);
+    const retained = !!provider?.hasApiKey && provider.baseUrl === $<HTMLInputElement>('base-url').value.trim().replace(/\/+$/, '');
+    $('key-status').textContent = retained ? 'Configured' : 'Not configured';
+    const key = $<HTMLInputElement>('api-key');
+    key.required = !retained;
+    key.placeholder = retained ? 'Leave blank to keep this provider’s key' : 'Paste this provider’s API key';
+    $('remove-key').hidden = !retained;
+  };
+  $<HTMLButtonElement>('save-settings').disabled = true;
+  void request<ModelCatalog>('/api/models').then((result) => {
+    if (!isCurrent()) return;
+    catalog = result;
+    const providerSelect = $<HTMLSelectElement>('settings-provider');
+    providerSelect.innerHTML = result.providers.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}${entry.hasApiKey ? ' · Configured' : ''}</option>`).join('');
+    providerSelect.disabled = false;
+    providerSelect.value = result.providers.some((entry) => entry.id === state.settings.provider) ? state.settings.provider! : result.providers[0]?.id || '';
+    const chooseProvider = (changed: boolean) => {
+      const provider = result.providers.find((entry) => entry.id === providerSelect.value);
+      if (!provider) return;
+      $<HTMLInputElement>('base-url').value = provider.baseUrl;
+      if (changed) {
+        $<HTMLInputElement>('api-key').value = '';
+        $<HTMLDetailsElement>('provider-advanced').open = false;
+        connectionProbe?.abort();
+        $('connection-test-result').textContent = '';
+      }
+      keyStatus();
+    };
+    providerSelect.addEventListener('change', () => chooseProvider(true));
+    chooseProvider(false);
+    $<HTMLButtonElement>('save-settings').disabled = state.running || requestBusy;
+  }).catch((error) => { if (isCurrent()) $('settings-error').textContent = String(error); });
+  $<HTMLInputElement>('base-url').addEventListener('input', keyStatus);
+  $<HTMLInputElement>('base-url').addEventListener('invalid', () => { $<HTMLDetailsElement>('provider-advanced').open = true; });
   $('test-connection').addEventListener('click', async () => {
     if (connectionProbe) { connectionProbe.abort(); return; }
-    if (state.running || requestBusy || !originalForm.reportValidity()) return;
+    if (state.running || requestBusy || !catalog || !originalForm.reportValidity()) return;
     const controller = new AbortController();
     connectionProbe = controller;
     const form = new FormData(originalForm);
-    const payload = { baseUrl: String(form.get('baseUrl') || '').trim(), model: String(form.get('model') || '').trim(), apiKey: String(form.get('apiKey') || '').trim() };
+    const payload = { provider: $<HTMLSelectElement>('settings-provider').value, baseUrl: String(form.get('baseUrl') || '').trim(), apiKey: String(form.get('apiKey') || '').trim() };
     const button = $<HTMLButtonElement>('test-connection');
     button.textContent = 'Cancel test';
     $<HTMLButtonElement>('save-settings').disabled = true;
     $('connection-test-result').textContent = 'Testing streaming and tool calling…';
     try {
-      const response = await fetch('/api/test-connection', { method: 'POST', headers: headers(true), body: JSON.stringify(payload), signal: controller.signal, credentials: 'same-origin' });
+      const response = await fetch('/api/test-provider-connection', { method: 'POST', headers: headers(true), body: JSON.stringify(payload), signal: controller.signal, credentials: 'same-origin' });
       const result = await response.json();
       if (!isCurrent() || connectionProbe !== controller) return;
       if (!response.ok) throw new Error(result.error || 'Connection test failed.');
@@ -752,21 +983,21 @@ function openSettings(): void {
   });
   $('settings-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (requestBusy || connectionProbe) return;
+    if (requestBusy || connectionProbe || !catalog) return;
     const form = new FormData(event.currentTarget as HTMLFormElement);
     const apiKey = String(form.get('apiKey') || '').trim();
-    const payload = { baseUrl: String(form.get('baseUrl')).trim(), model: String(form.get('model')).trim(), ...(apiKey ? { apiKey } : {}) };
+    const payload = { provider: $<HTMLSelectElement>('settings-provider').value, baseUrl: String(form.get('baseUrl')).trim(), ...(apiKey ? { apiKey } : {}) };
     $<HTMLButtonElement>('save-settings').disabled = true;
-    const saved = await mutate('/api/config', payload);
+    const saved = await mutate('/api/provider-config', payload);
     if (!isCurrent()) return;
     if (!saved) $('settings-error').textContent = localError;
     $<HTMLInputElement>('api-key').value = '';
     $<HTMLButtonElement>('save-settings').disabled = false;
-    if (saved) $<HTMLDialogElement>('settings-dialog').close();
+    if (saved) { $<HTMLDialogElement>('settings-dialog').close(); if (!state.settings.hasApiKey && state.settings.hasConnections) await openModelPicker(); }
   });
   document.getElementById('remove-key')?.addEventListener('click', async () => {
     if (requestBusy) return;
-    const removed = await mutate('/api/config', { baseUrl: state.settings.baseUrl, model: state.settings.model, clearApiKey: true });
+    const removed = await mutate('/api/provider-config', { provider: $<HTMLSelectElement>('settings-provider').value, baseUrl: $<HTMLInputElement>('base-url').value.trim(), clearApiKey: true });
     if (!isCurrent()) return;
     if (removed) $<HTMLDialogElement>('settings-dialog').close();
     else $('settings-error').textContent = localError;
@@ -912,12 +1143,23 @@ $('composer-form').addEventListener('drop', (event) => {
 function resizeComposer(): void { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
 
 document.addEventListener('click', async (event) => {
+  const clicked = event.target as HTMLElement;
+  if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand');
   if (!target) return;
+  if (target.dataset.conversationMenu) { openConversationMenu(target.dataset.conversationMenu, target); return; }
+  if (target.dataset.workspaceMenu) { openWorkspaceMenu(target.dataset.workspaceMenu, target); return; }
+  if (target.dataset.toggleWorkspace) {
+    const id = target.dataset.toggleWorkspace;
+    if (expandedWorkspaces.has(id)) expandedWorkspaces.delete(id); else expandedWorkspaces.add(id);
+    renderHistory();
+    document.querySelector<HTMLElement>(`[aria-controls="workspace-children-${CSS.escape(id)}"]`)?.focus();
+    return;
+  }
+  if (target.dataset.newWorkspace) { await newConversation(target.dataset.newWorkspace); return; }
   if (target.dataset.removeImage) { if (!requestBusy && !readingImages) { clearDraftImages(new Set([target.dataset.removeImage])); render(); } return; }
   if (target.dataset.close) { $<HTMLDialogElement>(target.dataset.close).close(); return; }
   if (target.classList.contains('brand')) { event.preventDefault(); input.focus(); return; }
-  if (target.dataset.historyFilter) { historyArchived = target.dataset.historyFilter === 'archived'; renderHistory(); return; }
   if (target.dataset.fileKind && target.dataset.filePath && target.dataset.fileOwner) {
     if (requestBusy || state.running) return;
     const kind = target.dataset.fileKind;
@@ -946,7 +1188,7 @@ document.addEventListener('click', async (event) => {
     if (state.running) { localError = 'Stop the current run before switching workspaces.'; render(); return; }
     selectedWorkspaceId = id;
     if (target.dataset.modalWorkspace) $<HTMLDialogElement>('workspace-dialog').close();
-    const conversation = state.conversations.filter((entry) => entry.workspaceId === id && !entry.archived).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+    const conversation = state.conversations.filter((entry) => entry.workspaceId === id).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
     if (conversation) await mutate('/api/open', { id: conversation.id });
     else await newConversation(id);
     closeSidebar(); return;
@@ -964,24 +1206,18 @@ document.addEventListener('click', async (event) => {
     return;
   }
   switch (target.dataset.action) {
-    case 'new': await newConversation(); break;
     case 'settings': openSettings(); break;
+    case 'model': await openModelPicker(); break;
     case 'continue': if (!state.running && state.activeId && state.failure?.canContinue) await mutate('/api/continue', { id: state.activeId }); break;
     case 'attach-images': if (!requestBusy && !readingImages) $<HTMLInputElement>('image-picker').click(); break;
     case 'diagnostics': await exportDiagnostics(); break;
     case 'workspace': openWorkspace(); break;
     case 'resources': openResources(); break;
     case 'connections': openConnections(); break;
-    case 'rename': $<HTMLDetailsElement>('conversation-menu').open = false; openRename(); break;
-    case 'archive': {
-      $<HTMLDetailsElement>('conversation-menu').open = false;
-      const conversation = state.conversations.find((entry) => entry.id === state.activeId);
-      if (!conversation || state.running) break;
-      const archived = !conversation.archived;
-      if (await mutate('/api/archive', { id: conversation.id, archived })) { historyArchived = archived; renderHistory(); }
-      break;
-    }
-    case 'export': $<HTMLDetailsElement>('conversation-menu').open = false; await exportConversation(); break;
+    case 'rename': { const id = menuConversationId; closeConversationMenu(); if (id) openRename(id); break; }
+    case 'delete-conversation': { const id = menuConversationId; closeConversationMenu(); if (id) openDeletion('conversation', id); break; }
+    case 'remove-workspace': { const id = menuWorkspaceId; closeConversationMenu(); if (id) openDeletion('workspace', id); break; }
+    case 'export': { const id = menuConversationId; closeConversationMenu(true); if (id) await exportConversation(id); break; }
     case 'refresh-resources': await loadResources(); break;
     case 'create-instructions':
       if (state.running || requestBusy) break;
@@ -1030,8 +1266,22 @@ input.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void send(); }
 });
 document.addEventListener('keydown', (event) => {
+  if (menuConversationId || menuWorkspaceId) {
+    if (event.key === 'Escape') { event.preventDefault(); closeConversationMenu(true); return; }
+    if (event.key === 'Tab') closeConversationMenu();
+    const buttons = [...$('conversation-menu').querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) && $('conversation-menu').contains(document.activeElement)) {
+      event.preventDefault();
+      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next]?.focus();
+      return;
+    }
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); void newConversation(); }
 });
+$('history-list').addEventListener('scroll', () => closeConversationMenu(), { passive: true });
+window.addEventListener('resize', () => closeConversationMenu());
 for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
   if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => { fullAccessTargetId = null; });
   dialog.addEventListener('close', () => {
