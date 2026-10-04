@@ -138,7 +138,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Only the trusted built assets are served. Workspace files are never web roots.
-		if strings.HasPrefix(r.URL.Path, "/assets/") || r.URL.Path == "/favicon.svg" {
+		if strings.HasPrefix(r.URL.Path, "/assets/") || r.URL.Path == "/icon.png" {
 			s.files.ServeHTTP(w, r)
 			return
 		}

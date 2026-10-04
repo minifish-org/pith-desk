@@ -2,6 +2,8 @@ Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
 This preview adds the Pith Desk application icon for Finder and the Dock, plus
 a matching browser favicon. It uses the same four-part mark as the interface.
+The browser favicon is now served by the local host; the previous `rc.4`
+preview returned 404 for that asset while its native application icon worked.
 
 This preview includes model connection checks, session token/context status,
 failure guidance, explicit task continuation and metadata-only diagnostic

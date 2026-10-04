@@ -2,8 +2,10 @@ package host
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
@@ -84,6 +86,9 @@ func TestLoopbackAuthenticationAndOrigin(t *testing.T) {
 		{"foreign origin", "/api/state", s.token, "https://example.com", "", 403},
 		{"rebound host", "/api/state", s.token, "", "evil.test", 403},
 		{"workspace not webroot", "/etc/passwd", "", "", "", 404},
+		{"icon foreign origin", "/icon.png", "", "https://example.com", "", 403},
+		{"icon rebound host", "/icon.png", "", "", "evil.test", 403},
+		{"icon source not webroot", "/resources/icon.svg", "", "", "", 404},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req, _ := http.NewRequest("GET", s.URL+tc.path, nil)
@@ -118,6 +123,29 @@ func TestLoopbackAuthenticationAndOrigin(t *testing.T) {
 	}
 	if !strings.Contains(resp.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
 		t.Fatal("missing framing restriction")
+	}
+}
+
+func TestBrowserIconIsServedFromEmbeddedAssets(t *testing.T) {
+	s := testServer(t)
+	if !strings.Contains(string(s.index), `href="/icon.png"`) {
+		t.Fatal("embedded HTML does not reference the application icon")
+	}
+	response, err := http.Get(s.URL + "/icon.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("favicon response: status=%d type=%q", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+	data, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width != 1024 || config.Height != 1024 {
+		t.Fatalf("favicon is not the 1024-pixel application icon: %+v, %v", config, err)
 	}
 }
 

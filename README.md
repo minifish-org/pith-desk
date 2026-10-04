@@ -95,7 +95,7 @@ for image-capable models. Markdown exports mark image attachments but do not
 embed their bytes.
 
 Image support is included in the
-[`v0.1.0-rc.4` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.4).
+[`v0.1.0-rc.5` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.5).
 
 
 ## Develop
