@@ -2,9 +2,11 @@
 
 A local desktop workspace for getting things done with an AI agent. Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native window. The interface is TypeScript. The product is a separate repository; it does not fork or modify the agent SDK.
 
-This first version supports text conversations, a workspace folder, streamed answers, file tools, conversation permissions, and conversation history. DeepSeek Flash is the default model. An OpenAI-compatible Chat Completions endpoint with tool calling can also be configured, using a compatible model ID from Pith's catalog.
+This first version supports text conversations, workspace folders, streamed answers, file tools, conversation permissions, workspace instructions and skills, and optional MCP connections. DeepSeek Flash is the default model. An OpenAI-compatible Chat Completions endpoint with tool calling can also be configured, using a compatible model ID from Pith's catalog.
 
 ## Try it
+
+There is no downloadable release yet. Build from source using the instructions below, then open the application bundle.
 
 On macOS, open the built **Pith Desk.app**. You do not need Go, Node.js or npm to run the packaged application.
 
@@ -28,13 +30,37 @@ Appearance changes apply immediately, including during an agent task, and are sa
 Each new conversation starts with **Ask before changes**. Reads and searches can run without a prompt; file changes and commands need a decision.
 
 - **Allow workspace changes** lets file tools create and edit files inside the selected workspace without asking each time. Commands still need approval. A file-change approval card also offers **Always allow workspace changes** for that conversation.
-- **Full access** also lets commands run without individual approval. Choosing this mode requires explicit confirmation because commands can access your user's files and network beyond the workspace. There is no operating-system sandbox.
+- **Full access** also lets commands and enabled MCP tools run without individual approval. Choosing this mode requires explicit confirmation because commands and external tools can access data beyond the workspace. There is no operating-system sandbox.
 
 The choice is saved for that conversation and survives restarting the app. It does not apply to other conversations. Change back to **Ask before changes** to require approval for future changes; revoking permission does not undo an action already executing.
 
+### Continue a running task
+
+While Pith is working, use **Add instruction** to steer it after the current assistant turn, or **Queue next task** to submit a follow-up when it would otherwise finish. These use Pith's existing steering and follow-up queues. The pending list shows messages waiting to be consumed. Stop cancels the task and clears its pending messages; they are not carried into a later task or another conversation.
+
+### Conversations and files
+
+Search conversation titles in the sidebar. Use the conversation actions to rename, archive, restore, or export a conversation as Markdown. Desktop exports open a native save dialog so you can choose the destination. Archived conversations stay readable and can be restored before continuing. Titles are recorded through Pith's session API; the desktop catalog indexes them. Archiving preserves the session files.
+
+After a task finishes, successful file writes and edits appear as generated-file cards. **Open** uses the default application; **Reveal** shows the file in your file manager. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview shows paths but native file actions require the desktop app.
+
+### Workspace instructions and skills
+
+Open **Workspace resources** to see the instruction files and skills discovered by Pith. Instructions include AGENTS.md or CLAUDE.md files discovered along the workspace's ancestor path. Project skills live in `.pi/skills`. Open or reveal these Markdown files to edit them with your own tools; changes are loaded on the next task. If the workspace has no AGENTS.md, **Create instructions** adds a starter file without overwriting an existing one.
+
+The application retains Pith's instruction and skill discovery. Skill references to the `read` tool are mapped in the desktop prompt to its guarded `read_file` tool. No separate skill engine or visual workflow builder is used.
+
+### MCP connections
+
+Open **Connections** to configure an HTTP endpoint or an installed local MCP server command. HTTP connections accept an optional bearer token; an empty token field preserves the saved token. Local commands accept an argument array and optional environment overrides as a JSON object of string values. Blank overrides preserve saved values; use the clear checkbox to remove them. Only saved variable names are displayed. Enable only the connections you want available, then connect explicitly or let the next task connect them. Connection status and tool counts appear in the dialog.
+
+Pith provides the MCP transports, tool discovery, and calls. Desk saves connection settings, selects enabled tools, and applies approvals. **Ask before changes** and **Allow workspace changes** both require approval for external MCP calls. **Full access** also authorizes tools from enabled connections. Connection changes and disconnects require the current task to finish or stop first.
+
+Tokens and environment overrides are saved in the private local `mcp.json` file and their values are never returned in public configuration responses. This client does not install MCP servers or bundle their Node/Python runtimes. OAuth login and a connector marketplace are outside this version's scope.
+
 ## Develop
 
-Requirements: Go 1.27.1 or later, Node.js 22.6 or later, npm, and macOS 12 or later for the first desktop target.
+Requirements: Go 1.27.1 or later, Node.js 22.12 or later, npm, and macOS 12 or later for the first desktop target.
 
 ```sh
 npm ci
@@ -76,6 +102,8 @@ Both Pith and MyGo are pinned in `go.mod`; the released application does not rel
 
 The Go service owns each agent run. Closing a browser subscription does not end a run; Stop and application shutdown cancel it explicitly. The frontend only renders snapshots and submits user actions.
 
+See [testing and native smoke checks](docs/TESTING.md) for verification and a short manual checklist.
+
 ## Current boundaries
 
 This is an experimental local desktop product. It has no computer-control tools, image attachments, plugin marketplace, scheduled jobs, enterprise account system or automatic updates yet. Durable is available in the pinned Pith library, but this UI currently uses its normal coding-agent sessions.
@@ -90,4 +118,4 @@ The interface draws on the workspace-and-conversation layout of DeepSeek Harness
 
 ## License
 
-See [LICENSE](LICENSE). Dependency notices are in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+Pith Desk is licensed under the [GNU Affero General Public License v3](LICENSE), consistent with its Pith dependency. Dependency notices are in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md). See [CONTRIBUTING.md](CONTRIBUTING.md) for development and contribution guidance, and [SECURITY.md](SECURITY.md) for private security reporting.

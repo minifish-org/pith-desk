@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.12"
   },
   "scripts": {
     "build:ui": "npm --prefix frontend run build",

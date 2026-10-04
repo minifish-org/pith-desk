@@ -1,0 +1,186 @@
+package host
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/minifish-org/pith-desk/internal/desk"
+)
+
+// SetFileActions connects verified local paths to the native shell. Browser
+// previews keep these callbacks unset; the HTTP host never executes commands.
+func (s *Server) SetFileActions(open, reveal func(string) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.openFile, s.revealFile = open, reveal
+}
+
+// SetExportAction lets the desktop choose a destination with its native save
+// dialog. Browser preview leaves this unset and uses the authenticated download.
+func (s *Server) SetExportAction(save func(string) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.exportMarkdown = save
+}
+
+// These handlers run only after the common host, origin and token checks.
+func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	var value any
+	var err error
+	switch r.URL.Path {
+	case "/api/resources":
+		value, err = s.service.Resources(r.URL.Query().Get("workspaceId"))
+	case "/api/artifacts":
+		value, err = s.service.Artifacts(r.URL.Query().Get("id"))
+	case "/api/mcp":
+		value = s.service.ListMCP()
+	case "/api/export":
+		var markdown string
+		markdown, err = s.service.ExportConversation(r.URL.Query().Get("id"))
+		if err == nil {
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="conversation.md"`)
+			_, _ = w.Write([]byte(markdown))
+			return true
+		}
+	default:
+		return false
+	}
+	if err != nil {
+		s.fail(w, err.Error(), http.StatusBadRequest)
+	} else {
+		_ = json.NewEncoder(w).Encode(value)
+	}
+	return true
+}
+
+func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, decode func(any) error) bool {
+	var err error
+	switch r.URL.Path {
+	case "/api/export":
+		var in struct {
+			ID string `json:"id"`
+		}
+		if err = decode(&in); err == nil {
+			var markdown string
+			markdown, err = s.service.ExportConversation(in.ID)
+			if err == nil {
+				s.mu.Lock()
+				save := s.exportMarkdown
+				s.mu.Unlock()
+				if save != nil {
+					err = save(markdown)
+				}
+				if err == nil {
+					_ = json.NewEncoder(w).Encode(map[string]bool{"native": save != nil})
+					return true
+				}
+			}
+		}
+	case "/api/queue":
+		var in struct {
+			ID   string `json:"id"`
+			Text string `json:"text"`
+			Mode string `json:"mode"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.QueueMessage(in.ID, in.Text, in.Mode)
+		}
+	case "/api/rename":
+		var in struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.RenameConversation(in.ID, in.Title)
+		}
+	case "/api/archive":
+		var in struct {
+			ID       string `json:"id"`
+			Archived bool   `json:"archived"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.ArchiveConversation(in.ID, in.Archived)
+		}
+	case "/api/create-instructions":
+		var in struct {
+			WorkspaceID string `json:"workspaceId"`
+		}
+		if err = decode(&in); err == nil {
+			var path string
+			path, err = s.service.CreateInstructions(in.WorkspaceID)
+			if err == nil {
+				_ = json.NewEncoder(w).Encode(map[string]string{"path": path})
+				return true
+			}
+		}
+	case "/api/file":
+		var in struct {
+			Kind        string `json:"kind"`
+			ID          string `json:"id,omitempty"`
+			WorkspaceID string `json:"workspaceId,omitempty"`
+			Path        string `json:"path"`
+			Action      string `json:"action"`
+		}
+		if err = decode(&in); err == nil {
+			var path string
+			switch in.Kind {
+			case "artifact":
+				path, err = s.service.ResolveArtifactFile(in.ID, in.Path)
+			case "resource":
+				path, err = s.service.ResolveResourceFile(in.WorkspaceID, in.Path)
+			default:
+				err = errors.New("Choose a generated file or a discovered workspace resource")
+			}
+			if err == nil {
+				s.mu.Lock()
+				open, reveal := s.openFile, s.revealFile
+				s.mu.Unlock()
+				switch in.Action {
+				case "open":
+					if open == nil {
+						err = errors.New("Open files in the desktop app; use the displayed path in browser preview")
+					} else {
+						err = open(path)
+					}
+				case "reveal":
+					if reveal == nil {
+						err = errors.New("Reveal files in the desktop app; use the displayed path in browser preview")
+					} else {
+						err = reveal(path)
+					}
+				default:
+					err = errors.New("Choose open or reveal")
+				}
+			}
+		}
+	case "/api/mcp/save":
+		var in desk.MCPInput
+		if err = decode(&in); err == nil {
+			err = s.service.SaveMCP(in)
+		}
+	case "/api/mcp/remove":
+		var in struct {
+			Name string `json:"name"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.RemoveMCP(in.Name)
+		}
+	case "/api/mcp/connect":
+		err = s.service.ConnectMCP(r.Context())
+	case "/api/mcp/disconnect":
+		err = s.service.DisconnectMCP()
+	default:
+		return false
+	}
+	if err != nil {
+		s.fail(w, err.Error(), http.StatusBadRequest)
+	} else {
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}
+	return true
+}

@@ -52,6 +52,7 @@ type Conversation struct {
 	WorkspaceID    string         `json:"workspaceId"`
 	UpdatedAt      string         `json:"updatedAt"`
 	PermissionMode PermissionMode `json:"permissionMode"`
+	Archived       bool           `json:"archived"`
 }
 
 type PermissionMode string
@@ -96,14 +97,15 @@ type Approval struct {
 }
 
 type State struct {
-	Settings        Settings       `json:"settings"`
-	Workspaces      []Workspace    `json:"workspaces"`
-	Conversations   []Conversation `json:"conversations"`
-	ActiveID        string         `json:"activeId"`
-	Messages        []Message      `json:"messages"`
-	Running         bool           `json:"running"`
-	PendingApproval *Approval      `json:"pendingApproval,omitempty"`
-	Error           string         `json:"error,omitempty"`
+	Settings        Settings        `json:"settings"`
+	Workspaces      []Workspace     `json:"workspaces"`
+	Conversations   []Conversation  `json:"conversations"`
+	ActiveID        string          `json:"activeId"`
+	Messages        []Message       `json:"messages"`
+	QueuedMessages  []QueuedMessage `json:"queuedMessages"`
+	Running         bool            `json:"running"`
+	PendingApproval *Approval       `json:"pendingApproval,omitempty"`
+	Error           string          `json:"error,omitempty"`
 }
 
 type savedConfig struct {
@@ -120,21 +122,31 @@ type catalogState struct {
 }
 
 type Service struct {
-	mu           sync.Mutex
-	dataDir      string
-	config       savedConfig
-	state        State
-	closed       bool
-	aborting     bool
-	changes      chan struct{}
-	runCancel    context.CancelFunc
-	runDone      chan struct{}
-	session      *codingagent.AgentSession
-	approval     chan bool
-	approvalCtx  context.Context
-	approvalGate chan struct{}
-	dataLock     *flock.Flock
-	closeDone    chan struct{}
+	mu               sync.Mutex
+	dataDir          string
+	config           savedConfig
+	state            State
+	closed           bool
+	aborting         bool
+	changes          chan struct{}
+	runCancel        context.CancelFunc
+	runDone          chan struct{}
+	session          *codingagent.AgentSession
+	approval         chan bool
+	approvalCtx      context.Context
+	approvalGate     chan struct{}
+	dataLock         *flock.Flock
+	closeDone        chan struct{}
+	queueReady       bool
+	queueClosing     bool
+	queueInitialSeen bool
+	queueDispatched  map[string]bool
+	externalTools    map[string]bool
+	mcpGate          chan struct{}
+	mcpConfigs       []savedMCP
+	mcpRuntime       *codingagent.MCPRuntime
+	mcpConnecting    bool
+	mcpConnectCancel context.CancelFunc
 }
 
 func New(dataDir string) (*Service, error) {
@@ -169,13 +181,17 @@ func New(dataDir string) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), approvalGate: make(chan struct{}, 1),
+		mcpGate: make(chan struct{}, 1), queueDispatched: map[string]bool{}, externalTools: map[string]bool{},
 		dataLock: dataLock, closeDone: make(chan struct{}),
 		config: savedConfig{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", Appearance: AppearanceSystem},
-		state:  State{Workspaces: []Workspace{}, Conversations: []Conversation{}, Messages: []Message{}}}
+		state:  State{Workspaces: []Workspace{}, Conversations: []Conversation{}, Messages: []Message{}, QueuedMessages: []QueuedMessage{}}}
 	if err := readJSON(filepath.Join(abs, "settings.json"), &s.config); err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
 	s.config.Appearance = normalizedAppearance(s.config.Appearance)
+	if err := readJSON(filepath.Join(abs, "mcp.json"), &s.mcpConfigs); err != nil {
+		return nil, fmt.Errorf("load MCP settings: %w", err)
+	}
 	var saved catalogState
 	if err := readJSON(filepath.Join(abs, "catalog.json"), &saved); err != nil {
 		return nil, fmt.Errorf("load conversations: %w", err)
@@ -190,6 +206,9 @@ func New(dataDir string) (*Service, error) {
 		}
 	}
 	s.state.ActiveID = saved.ActiveID
+	if err := s.reconcileSessionTitlesLocked(); err != nil {
+		s.state.Error = err.Error()
+	}
 	s.refreshSettingsLocked()
 	if saved.ActiveID != "" {
 		if err := s.loadMessagesLocked(saved.ActiveID); err != nil {
@@ -211,6 +230,7 @@ func (s *Service) Snapshot() State {
 	out.Workspaces = append([]Workspace{}, s.state.Workspaces...)
 	out.Conversations = append([]Conversation{}, s.state.Conversations...)
 	out.Messages = append([]Message{}, s.state.Messages...)
+	out.QueuedMessages = append([]QueuedMessage{}, s.state.QueuedMessages...)
 	if out.PendingApproval != nil {
 		approval := *out.PendingApproval
 		approval.Args = append(json.RawMessage(nil), approval.Args...)
@@ -341,6 +361,9 @@ func (s *Service) Send(text string) error {
 		return errors.New("Create a conversation first")
 	}
 	conversation := s.state.Conversations[index]
+	if conversation.Archived {
+		return errors.New("Restore this archived conversation before continuing")
+	}
 	workspace, ok := s.workspaceLocked(conversation.WorkspaceID)
 	if !ok {
 		return errors.New("The conversation's workspace is missing")
@@ -373,6 +396,8 @@ func (s *Service) Send(text string) error {
 	s.runDone = make(chan struct{})
 	s.state.Running = true
 	s.aborting = false
+	s.clearQueueLocked()
+	s.queueClosing = false
 	s.state.Error = ""
 	s.changedLocked()
 	go s.run(ctx, s.runDone, conversation.ID, workspace, s.config, model, text)
@@ -388,6 +413,8 @@ func (s *Service) Abort() {
 		// Invalidate the UI action immediately so a reply after Abort cannot
 		// create a lasting grant before that propagation completes.
 		s.state.PendingApproval, s.approval, s.approvalCtx = nil, nil, nil
+		s.clearQueueLocked()
+		s.queueClosing = true
 		s.changedLocked()
 	}
 	s.mu.Unlock()
@@ -420,7 +447,7 @@ func (s *Service) SetPermissionMode(id string, mode PermissionMode) error {
 	if err := s.persistPermissionModeLocked(id, mode); err != nil {
 		return err
 	}
-	if s.state.PendingApproval != nil && mode.allows(s.state.PendingApproval.ToolName) && s.approval != nil {
+	if s.state.PendingApproval != nil && s.permissionAllowsLocked(s.state.PendingApproval.ToolName) && s.approval != nil {
 		s.resolveApprovalLocked(true)
 	}
 	s.changedLocked()
@@ -488,14 +515,20 @@ func (s *Service) Close() {
 		return
 	}
 	s.closed = true
-	cancel, done := s.runCancel, s.runDone
+	cancel, done, mcpCancel := s.runCancel, s.runDone, s.mcpConnectCancel
+	s.clearQueueLocked()
+	s.queueClosing = true
 	s.mu.Unlock()
+	if mcpCancel != nil {
+		mcpCancel()
+	}
 	if cancel != nil {
 		cancel()
 	}
 	if done != nil {
 		<-done
 	}
+	s.closeMCP()
 	// Keep the store locked until the final transcript/catalog write finishes.
 	// The OS also releases this advisory lock if the process crashes. Leave the
 	// lock file in place so another process cannot lock a different inode.
@@ -527,6 +560,9 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		s.session, s.runCancel = nil, nil
 		s.state.Running = false
 		s.aborting = false
+		s.clearQueueLocked()
+		s.queueClosing = true
+		s.externalTools = map[string]bool{}
 		s.state.PendingApproval, s.approval = nil, nil
 		s.approvalCtx = nil
 		if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, codingagent.ErrAgentAborted) {
@@ -545,8 +581,32 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 	if runErr = ctx.Err(); runErr != nil {
 		return
 	}
-	manager, runErr = codingagent.OpenSession(s.sessionFile(id))
+	manager, runErr = openDeskSession(s.sessionFile(id), id, workspace.Path)
 	if runErr != nil {
+		return
+	}
+	s.mu.Lock()
+	index := s.conversationIndexLocked(id)
+	if index >= 0 {
+		runErr = ensureSessionTitle(manager, s.state.Conversations[index].Title)
+		if runErr == nil {
+			s.state.Conversations[index].Title = latestSessionTitle(manager, s.state.Conversations[index].Title)
+		}
+	}
+	s.mu.Unlock()
+	if runErr != nil {
+		return
+	}
+	if runErr = validateRuntimeResources(workspace.Path, s.dataDir); runErr != nil {
+		return
+	}
+	if err := s.connectMCP(ctx, true); err != nil && ctx.Err() == nil {
+		s.mu.Lock()
+		s.state.Error = err.Error()
+		s.changedLocked()
+		s.mu.Unlock()
+	}
+	if runErr = ctx.Err(); runErr != nil {
 		return
 	}
 	policy, runErr = newFilePolicy(workspace.Path, s.dataDir)
@@ -586,6 +646,9 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 	})
 	defer unsubscribe()
 	_, runErr = session.Prompt(ctx, text)
+	s.mu.Lock()
+	s.queueClosing = true
+	s.mu.Unlock()
 }
 
 func deskPrompt(mode PermissionMode) string {
@@ -599,10 +662,12 @@ func deskPrompt(mode PermissionMode) string {
 	return `You are Pith Desk, a personal assistant working with the user's selected folder.
 Help the user read, organize, edit, and create useful files. Use the available tools to complete tasks.
 Use read_file, grep_files, find_files, and list_files to inspect the workspace.
+Skills may refer to a tool named read. In this desktop, use read_file instead: it is the guarded file reader. The unguarded builtin read tool is unavailable.
 Use write_file for new files and edit_file for existing content. File tools stay inside the selected workspace in every permission mode.
 Use run_command only when file tools cannot complete the task. It runs with the user's OS permissions, without an OS sandbox.
 Do not attempt to read credentials or private application settings. Never claim a file was changed before its tool succeeds.
 Explain results concisely and name any files created or changed.
+Enabled MCP tools use names beginning with mcp__. They use the external server's permissions rather than the workspace file boundary. Ask and workspace-write modes require individual approval for every MCP call; full-access also authorizes the enabled MCP tools.
 The user can change permissions during a task; tools enforce the current selection. At the start of this task:
 ` + permission
 }
@@ -632,6 +697,14 @@ func (s *Service) observe(event codingagent.SessionEvent, manager *codingagent.S
 	switch event.Type {
 	case codingagent.SessionEventMessageEnd:
 		s.state.Messages = messagesFrom(manager)
+		s.observeQueuedMessageLocked(event)
+	case codingagent.SessionEventAgentEnd:
+		s.queueClosing = true
+	case codingagent.SessionEventAutoRetryStart:
+		s.queueClosing = false
+		s.queueReady = true
+		s.queueDispatched = map[string]bool{}
+		s.dispatchQueueLocked()
 	case codingagent.SessionEventToolExecutionStart:
 		s.state.Messages = append(s.state.Messages, Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, Text: "Running…", Status: "running"})
 	case codingagent.SessionEventToolExecutionEnd:
@@ -760,17 +833,19 @@ func (s *Service) loadMessagesLocked(id string) error {
 	if s.conversationIndexLocked(id) < 0 {
 		return errors.New("Conversation not found")
 	}
-	path := s.sessionFile(id)
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		s.state.Messages = []Message{}
-		return nil
-	}
-	manager, err := codingagent.OpenSession(path)
+	manager, err := s.readConversationSessionLocked(id)
 	if err != nil {
 		return err
 	}
+	if manager == nil {
+		s.state.Messages = []Message{}
+		return nil
+	}
 	defer manager.Close()
 	s.state.Messages = messagesFrom(manager)
+	if index := s.conversationIndexLocked(id); index >= 0 {
+		s.state.Conversations[index].Title = latestSessionTitle(manager, s.state.Conversations[index].Title)
+	}
 	return nil
 }
 

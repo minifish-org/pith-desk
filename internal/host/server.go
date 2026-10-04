@@ -37,6 +37,9 @@ type Server struct {
 
 	appearanceMu      sync.Mutex
 	appearanceChanged func(desk.AppearanceMode)
+	openFile          func(string) error
+	revealFile        func(string) error
+	exportMarkdown    func(string) error
 }
 
 func Start(service *desk.Service, picker func() (string, error), appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {
@@ -171,6 +174,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(s.snapshot())
 		return
 	}
+	if s.serveFeatureRead(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		s.fail(w, "Method not allowed", 405)
 		return
@@ -207,7 +213,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			Path string `json:"path"`
 		}
 		if err = decode(&in); err == nil {
-			_, err = s.service.AddWorkspace(in.Path)
+			var workspace desk.Workspace
+			workspace, err = s.service.AddWorkspace(in.Path)
+			if err == nil {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspace": workspace})
+				return
+			}
 		}
 	case "/api/conversations":
 		var in struct {
@@ -261,6 +272,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
+		if s.serveFeatureMutation(w, r, decode) {
+			return
+		}
 		s.fail(w, "Not found", 404)
 		return
 	}

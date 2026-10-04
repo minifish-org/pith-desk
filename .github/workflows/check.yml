@@ -29,4 +29,13 @@ jobs:
       - run: npm ci
       - run: npm --prefix frontend ci
       - run: npm run check
+      - name: Check concurrency
+        run: go test -race ./internal/...
+        env:
+          CGO_ENABLED: "1"
+      - name: Cross-build supported targets
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-darwin-amd64" ./cmd/pith-desk
+          GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-linux-amd64" ./cmd/pith-desk
+          GOOS=linux GOARCH=arm64 go build -o "$RUNNER_TEMP/pith-desk-linux-arm64" ./cmd/pith-desk
       - run: npm run build

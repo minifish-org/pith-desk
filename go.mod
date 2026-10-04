@@ -31,5 +31,5 @@ require (
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )

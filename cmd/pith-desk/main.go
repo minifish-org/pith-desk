@@ -115,14 +115,41 @@ func runDesktop(dataDir string) error {
 			mygo.App.Quit()
 			return
 		}
+		server.SetFileActions(mygo.Shell.OpenPath, func(path string) error {
+			mygo.Shell.ShowItemInFolder(path)
+			return nil
+		})
+		server.SetExportAction(func(markdown string) error {
+			dialogMu.Lock()
+			defer dialogMu.Unlock()
+			downloads, err := mygo.App.Path(mygo.PathDownloads)
+			if err != nil {
+				return err
+			}
+			path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
+				Parent: window.Load(), Title: "Export conversation",
+				DefaultPath: filepath.Join(downloads, "conversation.md"), CreateDirectories: true,
+				Filters: []mygo.FileFilter{{Name: "Markdown", Extensions: []string{"md"}}},
+			})
+			if err != nil || path == "" {
+				return err // Cancel does not fall back to a browser download.
+			}
+			return os.WriteFile(path, []byte(markdown), 0o600)
+		})
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title: "Pith Desk", URL: server.URL,
+			Title: "Pith Desk", Hidden: true,
 			Width: 1320, Height: 860, MinWidth: 900, MinHeight: 600,
 			TitleBarStyle:   mygo.TitleBarDefault,
 			BackgroundColor: "light-dark(#F7F8FB, #17191C)", StateKey: "main",
 		})
 		window.Store(win)
+		win.OnReadyToShow(win.Show)
 		appURL, _ := url.Parse(server.URL)
+		// Exports use the native save dialog. Download navigation bypasses MyGo's
+		// navigation listener, so reject that separate path as well.
+		win.Page().OnWillDownload(func(e *mygo.DownloadEvent) {
+			e.PreventDefault()
+		})
 		win.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
 			u, err := url.Parse(e.URL)
 			if err == nil && u.Scheme == appURL.Scheme && u.Host == appURL.Host && (u.Path == "" || u.Path == "/") {
@@ -139,6 +166,16 @@ func runDesktop(dataDir string) error {
 			}
 			return nil
 		})
+		win.Page().OnDidFailLoad(func(err *mygo.LoadError) {
+			log.Printf("Pith Desk interface failed to load: %v", err)
+			win.Show() // Leave reload and quit available after a failed load.
+		})
+		// Install the page policy before initiating its first navigation. The
+		// constructor's URL option would start loading before these listeners.
+		if err := win.Page().LoadURL(server.URL); err != nil {
+			startupErr = fmt.Errorf("load desktop interface: %w", err)
+			mygo.App.Quit()
+		}
 	})
 	// Closing the last window quits the app by default. Cleanup also covers
 	// Cmd+Q and termination signals, and releases pending Agent work.

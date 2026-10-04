@@ -314,10 +314,23 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 	for i := range definitions {
 		definitions[i].Name = names[i]
 	}
+	external := map[string]bool{}
+	for _, definition := range s.mcpDefinitions() {
+		external[definition.Name] = true
+		definitions = append(definitions, definition)
+		names = append(names, definition.Name)
+	}
+	s.mu.Lock()
+	s.externalTools = external
+	s.mu.Unlock()
 	definitions[4].Description = "Find files by glob pattern inside the workspace. Directory symlinks and .git are excluded."
 	return codingagent.NewToolRegistry(policy.path, definitions, names, codingagent.AllToolNames,
 		codingagent.ToolHooks{Before: func(ctx context.Context, call codingagent.ToolCall) error {
-			if call.Name != "run_command" {
+			if external[call.Name] {
+				return s.requestApproval(ctx, call)
+			}
+			switch call.Name {
+			case "read_file", "write_file", "edit_file", "grep_files", "find_files", "list_files":
 				var args struct {
 					Path string `json:"path"`
 				}
@@ -327,6 +340,9 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 				if _, err := policy.checked(args.Path); err != nil {
 					return err
 				}
+			case "run_command":
+			default:
+				return errors.New("This tool is not enabled in Pith Desk")
 			}
 			switch call.Name {
 			case "write_file", "edit_file", "run_command":
@@ -346,6 +362,8 @@ func (s *Service) requestApproval(ctx context.Context, call codingagent.ToolCall
 	approval := &Approval{ID: newID(), ToolName: call.Name, Args: append(json.RawMessage(nil), call.Arguments...)}
 	if call.Name == "run_command" {
 		approval.Warning = "This command runs with your computer account's permissions. It can access files and network outside the workspace. There is no OS sandbox."
+	} else if strings.HasPrefix(call.Name, "mcp__") {
+		approval.Warning = "This enabled MCP tool uses the external server's permissions. It can access or change data outside this workspace."
 	}
 	decision := make(chan bool, 1)
 	s.mu.Lock()
@@ -355,7 +373,7 @@ func (s *Service) requestApproval(ctx context.Context, call codingagent.ToolCall
 	}
 	// A previous call may have waited in the gate while the user changed mode.
 	// Recheck under the service lock immediately before creating an approval.
-	if s.permissionModeLocked().allows(call.Name) {
+	if s.permissionAllowsLocked(call.Name) {
 		s.mu.Unlock()
 		return ctx.Err()
 	}
