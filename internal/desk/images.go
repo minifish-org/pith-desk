@@ -63,20 +63,6 @@ func messageImages(blocks []aitypes.ContentBlock) []MessageImage {
 	return out
 }
 
-func sameImages(images []aitypes.ImageContent, blocks []aitypes.ContentBlock) bool {
-	i := 0
-	for _, block := range blocks {
-		if block.Image == nil {
-			continue
-		}
-		if i >= len(images) || images[i] != *block.Image {
-			return false
-		}
-		i++
-	}
-	return i == len(images)
-}
-
 // ConversationImage reads only an existing image block in a known transcript.
 // The HTTP layer applies the same host, origin and bearer-token checks as send.
 func (s *Service) ConversationImage(id, messageID string, index int) ([]byte, string, error) {

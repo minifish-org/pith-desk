@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,6 +134,13 @@ func (s *Service) recordCost(id, runID, purpose string, model *aitypes.Model, co
 	record := RequestCost{ID: newID(), RunID: runID, Time: timestamp(), Provider: string(model.Provider), ProviderName: config.Connections[config.Provider].Name, Model: model.Id, ModelName: model.Name, Purpose: purpose, Status: string(response.StopReason), Usage: usage, Price: model.Cost, Source: source, Known: known}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if id == s.state.ActiveID && runID == s.state.Runtime.RunID && s.state.Runtime.Timing.StartedAt != "" {
+		// Usage remains useful even when this endpoint has no known price.
+		if usage.Output >= 0 && !math.IsNaN(usage.Output) && !math.IsInf(usage.Output, 0) {
+			s.state.Runtime.Timing.OutputTokens += usage.Output
+		}
+		s.updateTimingLocked()
+	}
 	if err := os.MkdirAll(filepath.Dir(s.costFile(id)), 0700); err != nil {
 		s.state.Error = err.Error()
 		if id == s.state.ActiveID {

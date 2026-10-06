@@ -29,6 +29,16 @@ type RunUsage struct {
 	Total      float64 `json:"total"`
 }
 
+// TaskTiming measures the latest admitted task, including tools, approvals,
+// retries and compaction. Output comes from reported SDK request usage, rather
+// than cumulative transcript tokens. A crash leaves only the saved checkpoint.
+type TaskTiming struct {
+	StartedAt    string  `json:"startedAt,omitempty"`
+	ElapsedMs    int64   `json:"elapsedMs"`
+	OutputTokens float64 `json:"outputTokens"`
+	Partial      bool    `json:"partial,omitempty"`
+}
+
 type RuntimeStatus struct {
 	RunID         string      `json:"runId,omitempty"`
 	Provider      string      `json:"provider,omitempty"`
@@ -37,6 +47,7 @@ type RuntimeStatus struct {
 	Model         string      `json:"model"`
 	Usage         RunUsage    `json:"usage"`
 	Cost          CostSummary `json:"cost"`
+	Timing        TaskTiming  `json:"timing"`
 	ContextTokens float64     `json:"contextTokens"`
 	ContextWindow float64     `json:"contextWindow"`
 	Compactions   int         `json:"compactions"`
@@ -80,6 +91,7 @@ func classifyFailure(err error, phase string) *Failure {
 }
 
 func (s *Service) updateRuntimeLocked(manager *codingagent.SessionManager) {
+	s.updateTimingLocked()
 	if s.session != nil {
 		stats := s.session.Stats()
 		s.state.Runtime.Usage = RunUsage{stats.InputTokens, stats.OutputTokens, stats.CacheRead, stats.CacheWrite, stats.TotalTokens}
@@ -95,6 +107,12 @@ func (s *Service) updateRuntimeLocked(manager *codingagent.SessionManager) {
 		s.state.Runtime.Compactions = count
 	}
 	s.state.Runtime.UpdatedAt = timestamp()
+}
+
+func (s *Service) updateTimingLocked() {
+	if !s.runStarted.IsZero() {
+		s.state.Runtime.Timing.ElapsedMs = time.Since(s.runStarted).Milliseconds()
+	}
 }
 
 func (s *Service) observedCompactionPolicy(model *aitypes.Model, key string) codingagent.RunPolicy {
@@ -132,6 +150,9 @@ func (s *Service) loadRuntimeLocked(id string) error {
 	}
 	switch receipt.Runtime.Phase {
 	case "starting", "working", "tool", "retrying", "compacting":
+		// Never count app downtime as execution or invent a speed for the
+		// unknown interval after the last saved checkpoint.
+		s.state.Runtime.Timing.Partial = true
 		s.state.Runtime.Phase = "interrupted"
 		s.state.Failure = &Failure{Kind: "interrupted", Message: "The previous task was interrupted when the app closed.", Advice: "Review the conversation and existing files before continuing. Completed actions are not automatically replayed.", CanContinue: true}
 	}

@@ -6,6 +6,7 @@ import (
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/minifish-org/pith-desk/internal/desk"
 )
@@ -243,6 +244,15 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		}
 		if err = decode(&in); err == nil {
 			err = s.service.QueueMessage(in.ID, in.Text, in.Mode, in.Images...)
+		}
+	case "/api/queue/edit", "/api/queue/delete", "/api/queue/steer":
+		var in struct {
+			ID        string `json:"id"`
+			MessageID string `json:"messageId"`
+			Text      string `json:"text"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.MutateQueuedMessage(in.ID, in.MessageID, strings.TrimPrefix(r.URL.Path, "/api/queue/"), in.Text)
 		}
 	case "/api/rename":
 		var in struct {

@@ -48,7 +48,7 @@ func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
 	}
-	for _, path := range []string{"/api/export", "/api/queue", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
+	for _, path := range []string{"/api/export", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
 		if status, _, _ := featureRequest(t, s, "POST", path, map[string]any{}, false); status != 401 {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
@@ -63,6 +63,27 @@ func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 403 {
 		t.Fatal("foreign origin read connection settings")
+	}
+}
+
+func TestPendingMutationEndpointsRejectExpiredInput(t *testing.T) {
+	s := testServer(t)
+	workspace, err := s.service.AddWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversation, err := s.service.CreateConversation(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/queue/edit", "/api/queue/delete", "/api/queue/steer"} {
+		status, body, _ := featureRequest(t, s, "POST", path, map[string]string{"id": conversation.ID, "messageId": "consumed", "text": "edit"}, true)
+		if status != 400 || !strings.Contains(body, "already been received or removed") {
+			t.Errorf("%s accepted expired input or bypassed the service: %d %s", path, status, body)
+		}
+		if status, _, _ := featureRequest(t, s, "POST", path, map[string]string{"id": conversation.ID}, true); status != 400 {
+			t.Errorf("%s accepted a missing message ID: %d", path, status)
+		}
 	}
 }
 

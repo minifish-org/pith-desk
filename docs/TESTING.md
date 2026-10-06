@@ -61,9 +61,13 @@ workspace. Keep its model and connection settings separate from everyday data.
 3. Configure an HTTP or installed stdio MCP server. Connect and inspect the tool
    count. Check that saved tokens/environment values are not filled back into the
    form. In Ask before changes, an MCP call must require its own approval.
-4. While a task is running, submit Add instruction and Queue next task. Check the
-   pending list, consumption order, and that each message appears once. Stop a
-   second task with pending messages; its queue must clear.
+4. While a task is running, send several messages (including duplicate text and
+   image attachments). All must enter the ordinary queue. Edit one, delete one,
+   and click Steer on another. Only the steered entry becomes an Instruction;
+   it must precede ordinary pending input at the next turn boundary. Edits must
+   retain attachments and consumed messages must appear only once. Quit and
+   restart with pending mutations, check their recovery, and edit/delete before
+   reviewed continuation. Stop a second task; its pending queue must clear.
 5. Approve a write or edit. After completion, Open and Reveal the generated file.
    Failed writes, missing files, and files outside the workspace must not appear.
 6. Export Markdown. Save it through the native dialog, inspect its title/messages/
@@ -74,10 +78,25 @@ workspace. Keep its model and connection settings separate from everyday data.
 
 ## Latest verification
 
-The rc.7 candidate pins published Pith revision `44bd04bf25cf`. With `GOWORK=off`,
+The rc.8 candidate pins published Pith revision `92adcb39fd33`. With `GOWORK=off`,
 the complete frontend/Go tests, vet and internal race checks passed. The ARM64
 app embeds the versioned SDK with CGO disabled, and its ad-hoc signature
 verified.
+
+The 2026-10-07 follow-up verified pending-message edit/delete/Steer with native
+SDK IDs, preserved images, durable mutation recovery and rejection after
+delivery. SDK regression tests cover promotion between the final queue polls,
+so steering the last pending message cannot lose it or reorder ordinary input.
+Full Pith tests and vet, plus agent/coding-agent race checks, passed.
+
+Isolated native fixtures verified ordinary queueing, edit/delete/Steer delivery
+order without duplicates, and preservation of the composer draft. Timing tests
+cover a live clock without stream events, per-task output independent of price,
+reset for the next task, Stop (including immediate Stop), reopening and crash
+checkpoints without downtime. A native timing fixture checked both collapsed
+and expanded statistics, reset, Stop and an unchanged duration after reopening.
+All fixture credentials and workspaces were local; no user conversation or
+live model provider was used.
 
 Pith shares an in-memory QuickJS compilation cache instead of recompiling the
 same immutable module for every sandbox. Codemode and coding-agent race tests
@@ -169,6 +188,11 @@ coverage for those targets.
   key, an unavailable model, an endpoint without tools and Cancel test.
 - Expand run status; verify provider token usage, retry/compaction transitions
   and restored totals after restarting. Cost must not appear as a guessed bill.
+- Verify the latest-task clock advances while a model request waits without new
+  stream events. Finish or Stop and reopen: duration must freeze and persist.
+  The next task resets timing and output; speed uses reported output only, even
+  for unpriced endpoints. Interrupted checkpoints exclude downtime and show no
+  speed; old receipts without timing remain unrecorded.
 - Stop a task and use Review and continue. Check history is available and the
   old user request is not appended again. No task resumes without a user action.
 - Save diagnostics and inspect its JSON. Confirm it contains no prompts, file
@@ -247,7 +271,7 @@ Manual UI checks:
 The development browser check uses its own data directory and fixture keys;
 no live provider request or user settings are needed.
 
-## Unreleased SDK batch verification (2026-10-06)
+## SDK batch verification (2026-10-06)
 
 The local Pith override passed the full coding-agent package suite. Desk passed
 CGO-disabled package tests and vet, TypeScript checking, the production UI build,
@@ -314,7 +338,7 @@ scroll within the statistics and the composer stays visible without document
 overflow. There were no browser console errors. Screenshots are under ignored
 `output/playwright/inline-costs-*.png`; no live provider or user data was used.
 CGO-disabled full Go tests, vet, the frontend build, ARM64 packaging and ad-hoc
-signature verification passed. This remains a local, unreleased build.
+signature verification passed before release.
 
 The header follow-up leaves one labelled Compact button with an inward-arrow
 icon; the active conversation's menu holds the history browser. A browser
@@ -350,4 +374,4 @@ layouts. Previews preserve their individual aspect ratios and do not stretch to
 the tallest image in a row. No document overflow or browser console errors were
 observed. TypeScript/UI checks and ARM64 app packaging passed. Screenshots are
 retained under ignored `output/playwright/attachment-layout-*.png`; no live
-provider or user conversation was used. This remains a local, unreleased build.
+provider or user conversation was used. This was verified locally before release.

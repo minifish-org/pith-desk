@@ -327,7 +327,11 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .primary-button .icon { width: 14px; height: 14px; }
 .secondary-button { border: 1px solid var(--border); background: var(--surface-subtle); color: var(--text); }
 .secondary-button:hover { background: var(--surface-hover); }
-.modal { width: min(500px, calc(100% - 40px)); max-height: calc(100dvh - 60px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 15px; padding: 27px 28px 23px; color: var(--text); box-shadow: var(--modal-shadow); }
+.modal { width: min(500px, calc(100% - 40px)); max-height: calc(100dvh - 60px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 15px; padding: 27px 28px 23px; color: var(--text); box-shadow: var(--modal-shadow); }
+.modal::-webkit-scrollbar { width: 6px; height: 6px; }
+.modal::-webkit-scrollbar-track { background: transparent; margin: 8px 0; }
+.modal::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 999px; }
+.modal::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .modal::backdrop { background: var(--overlay); backdrop-filter: blur(5px); }
 .modal-heading { display: flex; align-items: center; justify-content: space-between; }
 .modal-heading .eyebrow { font-size: 10px; letter-spacing: 1.5px; }
@@ -388,14 +392,18 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .sidebar-conversation-menu button { background: transparent; padding: 9px 11px; color: var(--text); border-radius: 4px; text-align: left; font-size: 11px; }
 .sidebar-conversation-menu button:hover, .sidebar-conversation-menu button:focus-visible { background: var(--surface-hover); }
 .composer-context { flex-wrap: wrap; }
-.queue-control { display: inline-flex; min-width: 0; }
-.queue-control select { border: 1px solid var(--border); border-radius: 6px; background: var(--surface-subtle); color: var(--text); padding: 5px 7px; font-size: 10px; max-width: 150px; cursor: pointer; }
-.queue-control option { color: var(--text); background: var(--surface); }
-.queued-messages { padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; max-height: 150px; overflow: auto; }
+.queued-messages { padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; max-height: 180px; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--text); font-size: 11px; font-weight: 500; margin: 0 0 10px; }
-.queued-message { display: flex; gap: 9px; align-items: flex-start; color: var(--muted); font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.queued-message { display: flex; gap: 9px; align-items: center; color: var(--text); font-size: 11px; line-height: 1.6; }
 .queued-message + .queued-message { margin-top: 8px; }
 .queue-badge { flex-shrink: 0; color: var(--muted-tonal); background: var(--surface-subtle); border-radius: 4px; padding: 1px 6px; font-size: 10px; }
+.queued-message-content { flex: 1; min-width: 0; }
+.queued-message-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.queued-message-actions { display: flex; gap: 5px; flex-shrink: 0; align-items: center; }
+.queued-message-actions .icon { width: 15px; height: 15px; }
+.queue-steer { gap: 5px; font-size: 11px; }
+.modal textarea.queue-edit-text { font-family: inherit; min-height: 120px; }
+.queue-edit-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 .artifacts { max-width: 774px; margin: 0 auto; padding: 0 0 26px; }
 .file-card { display: flex; align-items: flex-start; gap: 11px; padding: 12px; border: 1px solid var(--border); background: var(--surface-subtle); border-radius: 8px; }
 .file-card + .file-card { margin-top: 8px; }

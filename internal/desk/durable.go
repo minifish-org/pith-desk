@@ -129,15 +129,30 @@ func (s *Service) durableTaskID() durable.TaskID {
 }
 
 func (s *Service) durableQueueLocked(kind string, message QueuedMessage) error {
-	if s.durable == nil {
-		return nil
-	}
 	payload, err := json.Marshal(struct {
 		Message QueuedMessage          `json:"message"`
 		Images  []aitypes.ImageContent `json:"images,omitempty"`
 	}{message, message.Images})
 	if err != nil {
 		return err
+	}
+	if s.durable == nil {
+		// Recovered input remains editable before reviewed continuation. Use the
+		// transactional kernel without resuming interrupted tasks or model calls.
+		if s.state.Failure == nil || s.state.Failure.Kind != "interrupted" || s.recoveredJournal == 0 {
+			return errors.New("The pending-message journal is no longer available")
+		}
+		storage, err := jsonl.Open(context.Background(), s.durableDir(s.state.ActiveID), jsonl.Options{Fsync: true})
+		if err != nil {
+			return err
+		}
+		journal := durable.NewSession(storage)
+		defer journal.Close(context.Background())
+		id := s.recoveredJournal
+		return journal.CommitTransaction(context.Background(), durable.TransactionScope{ConversationID: &id}, func(tx *durable.Transaction) error {
+			_, err := tx.AppendEntry(context.Background(), id, durable.EntryDraft{Kind: kind, Data: payload})
+			return err
+		})
 	}
 	return s.durable.harness.CommitConversation(context.Background(), s.durable.conversation, func(tx *durable.Transaction) error {
 		_, err := tx.AppendEntry(context.Background(), s.durable.conversation, durable.EntryDraft{Kind: kind, Data: payload})
@@ -146,6 +161,7 @@ func (s *Service) durableQueueLocked(kind string, message QueuedMessage) error {
 }
 
 func (s *Service) recoverDurableLocked(id string) error {
+	s.recoveredJournal = 0
 	path := s.durableDir(id)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -182,6 +198,7 @@ func (s *Service) recoverDurableLocked(id string) error {
 	if !interrupted {
 		return nil
 	}
+	s.recoveredJournal = conversationID
 	s.state.Runtime.Phase = "interrupted"
 	s.state.Failure = &Failure{Kind: "interrupted", Message: "A durable task was interrupted.", Advice: "Review and continue from the saved transcript. Uncertain commands and external actions are not replayed automatically.", CanContinue: true}
 	entries := []durable.EntryRecord{}
@@ -213,10 +230,24 @@ func (s *Service) recoverDurableLocked(id string) error {
 			record.Message.Images = record.Images
 			pending[record.Message.ID] = record.Message
 			order = append(order, record.Message.ID)
-		case "desk.delivered":
+		case "desk.queue-update":
+			if old, ok := pending[record.Message.ID]; ok {
+				record.Message.Images = record.Images
+				pending[record.Message.ID] = record.Message
+				if old.Mode != record.Message.Mode {
+					for index, key := range order {
+						if key == record.Message.ID {
+							order = append(append(order[:index], order[index+1:]...), key)
+							break
+						}
+					}
+				}
+			}
+		case "desk.delivered", "desk.queue-delete":
 			delete(pending, record.Message.ID)
 		case "desk.clear-queue":
 			pending = map[string]QueuedMessage{}
+			order = nil
 		}
 	}
 	s.state.QueuedMessages = nil

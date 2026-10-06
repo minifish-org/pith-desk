@@ -19,6 +19,7 @@ import (
 	agenttypes "github.com/minifish-org/pith/packages/agent/types"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
+	"github.com/minifish-org/pith/packages/durable"
 )
 
 type Settings struct {
@@ -139,6 +140,7 @@ type catalogState struct {
 type Service struct {
 	durable          *deskDurable
 	recoveredInput   *durableInput
+	recoveredJournal durable.ConversationID
 	loginCancel      context.CancelFunc
 	loginDone        chan struct{}
 	loginAnswer      chan string
@@ -151,6 +153,7 @@ type Service struct {
 	changes          chan struct{}
 	runCancel        context.CancelFunc
 	runDone          chan struct{}
+	runStarted       time.Time
 	session          *codingagent.AgentSession
 	activeManager    *codingagent.SessionManager
 	approval         chan bool
@@ -255,6 +258,9 @@ func (s *Service) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := s.state
+	if !s.runStarted.IsZero() {
+		out.Runtime.Timing.ElapsedMs = time.Since(s.runStarted).Milliseconds()
+	}
 	if out.Login != nil {
 		login := *out.Login
 		login.Options = append([]LoginOption{}, login.Options...)
@@ -458,9 +464,12 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	s.state.Runtime.Phase, s.state.Runtime.Model, s.state.Runtime.ContextWindow = "starting", model.Id, model.ContextWindow
 	s.state.Runtime.Provider, s.state.Runtime.ThinkingLevel = s.config.Provider, s.config.ThinkingLevel
 	s.state.Runtime.RunID = newID()
+	s.runStarted = time.Now()
+	s.state.Runtime.Timing = TaskTiming{StartedAt: s.runStarted.UTC().Format(time.RFC3339Nano)}
 	s.state.Runtime.Cost.RunTotal, s.state.Runtime.Cost.RunRequests, s.state.Runtime.Cost.RunUnknownRequests = 0, 0, 0
 	s.state.Runtime.UpdatedAt = timestamp()
 	if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: s.state.Runtime}); err != nil {
+		s.runStarted = time.Time{}
 		s.state.Running = false
 		s.state.Runtime, s.state.Failure = previousRuntime, previousFailure
 		s.runCancel = nil
@@ -477,6 +486,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	if err != nil {
 		s.state.Running = false
 		s.state.Runtime, s.state.Failure = previousRuntime, previousFailure
+		s.runStarted = time.Time{}
 		_ = writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: previousRuntime, Failure: previousFailure})
 		close(s.runDone)
 		s.runCancel = nil
@@ -496,6 +506,24 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 		}
 		if runErr != nil && !s.closed {
 			s.state.Error = "Durable task: " + runErr.Error()
+		}
+		// Admission may fail before run's cleanup can freeze the timer.
+		if !s.runStarted.IsZero() {
+			s.updateTimingLocked()
+			s.runStarted = time.Time{}
+			if s.aborting || s.closed || errors.Is(runErr, context.Canceled) {
+				s.state.Runtime.Phase = "stopped"
+				s.state.Failure = &Failure{Kind: "stopped", Message: "You stopped this task.", Advice: "Completed actions remain in place. Review before continuing.", CanContinue: true}
+			} else if runErr != nil {
+				s.state.Runtime.Phase = "error"
+				s.state.Failure = classifyFailure(runErr, "starting")
+			} else {
+				s.state.Runtime.Phase = "complete"
+			}
+			s.state.Runtime.UpdatedAt = timestamp()
+			if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: s.state.Runtime, Failure: s.state.Failure}); err != nil {
+				s.state.Error = err.Error()
+			}
 		}
 		s.state.Running = false
 		s.runCancel = nil
@@ -690,6 +718,8 @@ func (s *Service) run(ctx context.Context, id string, workspace Workspace, confi
 			s.state.Runtime.Phase = "complete"
 		}
 		s.state.Runtime.UpdatedAt = timestamp()
+		s.updateTimingLocked()
+		s.runStarted = time.Time{}
 		if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: s.state.Runtime, Failure: s.state.Failure}); err != nil {
 			s.state.Error = "Task history was saved, but run status could not be saved: " + err.Error()
 		}

@@ -1,5 +1,19 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
+New in rc.8:
+
+- Messages sent during a task enter the ordinary pending queue. Edit or delete
+  an individual message, or click **Steer** to turn it into an **Instruction**
+  for the next turn boundary. Edits preserve image attachments. Already received
+  messages cannot be changed, and steering does not interrupt a running command.
+- Pending mutations are committed through the Pith SDK before delivery and
+  saved in the Durable journal for reviewed continuation after interruption.
+- The existing status line shows the latest task's total elapsed time and
+  average output tokens/s, including tools and waits. Input, cache and earlier
+  tasks do not contribute to speed. Finished and stopped timing is saved; old
+  runs remain unrecorded and crash checkpoints show no guessed speed.
+- Settings dialogs use a slimmer scrollbar.
+
 This preview connects more of Pith's existing SDK capabilities:
 
 - Add independent compatible model connections in Settings. Official OpenAI and

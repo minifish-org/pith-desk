@@ -1,6 +1,6 @@
 # Pith SDK integration
 
-These capabilities are included in the rc.7 preview. Desk supplies controls and local persistence; the
+These capabilities are included in the rc.8 preview. Desk supplies controls and local persistence; the
 SDK continues to own model protocols, session history, resources, tools and
 execution. No new Go or npm application dependency was added.
 
@@ -12,16 +12,25 @@ execution. No new Go or npm application dependency was added.
 | Instructions, skills, templates | `LoadResources`, coding-agent prompt expansion | Inventory, Markdown editor and Use action |
 | Conversation branches | `SessionManager.Entries`, `Branch`, context reconstruction | Inline branch action below saved assistant replies and a history browser in the conversation menu |
 | Manual compression | `AgentSession.Compact`, `GenerateSummary` | Button, streaming status and metered provider selection |
+| Pending input | `Steer`, `FollowUp`, native `UpdatePendingMessage` | Queue ordinary input by default; explicit Steer, edit/delete controls and Durable mutation records |
 | Deferred MCP | `MCPRuntime`, `ToolRegistry`, `CreateToolSearchTool` | Enabled connections and shared tool approvals |
 | Code mode | `NewCodemodeTool`, SDK session store, nested execution hooks | Enable the tool and enforce the existing policy for each nested call |
 | Provider OAuth | SDK `OAuth.Login`, `CreateAuthStorage`, `GetAuth` | Dialog, browser link, prompts and private auth path |
 | MCP OAuth | SDK discovery, registration, PKCE, exchange and refresh | Private file store and temporary loopback callback |
 | Durable task recovery | `durable.Harness`, JSONL storage and task definitions | Persist admission/queue/settlement and require reviewed continuation |
 | Request cost estimates | Model catalog rates, `ai.CalculateCost` | Append immutable request records and show totals/details |
+| Task timing and output speed | Reported SDK request usage | Monotonic task clock, average output rate and saved run receipts |
 
 Virtual model routing is intentionally not enabled. MCP schemas are deferred,
 but a connection still performs normal SDK discovery. Code mode is available to
 the agent automatically; it is not compulsory for every tool call.
+
+Single-message pending edits are a native Go SDK extension, rather than a Pi
+terminal port. Ephemeral queue IDs identify input through native events and
+agent rebuilds; they are omitted from provider JSON and saved transcripts.
+The SDK checks that input is still pending and commits the host's journal
+change before delivery can drain it. A failed journal write leaves the input
+unchanged; already received input is rejected without re-enqueueing it.
 
 The durable task wraps an ordinary coding-agent session. It checkpoints task
 admission and queue events, then settles completion/failure. It does not journal
@@ -63,6 +72,15 @@ task totals, with an inline request breakdown. There is no separate cost button
 or dialog. Unrecorded, unknown and partly known costs are distinguished from a
 known free price. The snapshot carries only totals; the ledger loads on demand.
 
+The status line also shows elapsed time and average output tokens/s for the
+latest task. Desk measures admission through execution cleanup with a monotonic
+clock and persists the result in the run receipt. The numerator reuses SDK
+request usage from the existing meter, including reasoning, retries and
+summaries, even when prices are unknown. Input/cache/history tokens are excluded.
+Tools and waits count toward elapsed time, so this is task throughput rather
+than model decoding speed. Old receipts have no reconstructed timing; active
+crash checkpoints retain only a lower-bound duration and do not show a rate.
+
 ## Local data and dependencies
 
 All new state lives under the existing application data directory:
@@ -83,13 +101,16 @@ Production builds keep `CGO_ENABLED=0`.
 
 ## Versioned SDK dependency
 
-Desk pins published Pith revision `44bd04bf25cf` in `go.mod`. It includes SDK
+Desk pins published Pith revision `92adcb39fd33` in `go.mod`. It includes SDK
 fixes verified by the integration tests:
 
 1. Composed custom providers retain their supplied model metadata.
 2. The coding-agent session refreshes active tool schemas after tool search.
 3. Codemode reuses immutable compiled QuickJS code across sandbox lifetimes,
    while keeping runtimes, tool bindings, memory limits and VM state separate.
+4. Pending input can be edited, deleted or promoted atomically by native queue
+   ID, with host persistence committed before delivery. A late promotion at the
+   final queue poll is delivered before ordinary follow-up messages.
 
 The fixes and their regression tests live in Pith, rather than a Desk fork.
 No sibling checkout is required. Validate the pinned dependency with:

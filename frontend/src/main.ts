@@ -18,7 +18,8 @@ interface DraftImage extends ImageInput { id: string; name: string; size: number
 interface Message { id: string; role: string; text: string; toolName?: string; toolCallId?: string; status?: string; images?: MessageImage[]; branchNodeId?: string }
 interface Approval { id: string; toolName: string; args: unknown; warning?: string }
 interface RunUsage { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
-interface RuntimeStatus { runId?: string; cost?: CostSummary; provider?: string; thinkingLevel?: string; phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
+interface TaskTiming { startedAt?: string; elapsedMs: number; outputTokens: number; partial?: boolean }
+interface RuntimeStatus { runId?: string; cost?: CostSummary; timing?: TaskTiming; provider?: string; thinkingLevel?: string; phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
 interface Failure { kind: string; message: string; advice: string; canContinue: boolean }
 export interface ProviderChoice { oauth?: boolean; signedIn?: boolean; custom?: boolean; id: string; name: string; baseUrl: string; hasApiKey: boolean; hasSavedKey?: boolean; model?: string; thinkingLevel?: string }
 interface ModelChoice { id: string; name: string; provider: string; api: string; supportsImages: boolean; contextWindow: number; maxTokens: number; thinkingLevels: string[] }
@@ -60,6 +61,7 @@ let state: State = {
 };
 let selectedWorkspaceId = '';
 let snapshotLoaded = false;
+let runtimeReceivedAt = performance.now();
 let connection: 'connecting' | 'connected' | 'reconnecting' = 'connecting';
 let requestBusy = false;
 let connectionProbe: AbortController | null = null;
@@ -83,6 +85,7 @@ let artifactsLoading = false;
 let artifactsRequest = 0;
 let artifactsSignature = '';
 let queueSignature = '';
+let queueEditTarget: { conversationId: string; messageId: string } | null = null;
 let resources: WorkspaceResources | null = null;
 let resourcesWorkspaceId = '';
 let resourcesRequest = 0;
@@ -96,6 +99,9 @@ const historyImages = new Map<string, Promise<string>>();
 let imageGeneration = 0;
 
 const paths: Record<string, string> = {
+  steer: '<path d="M4 5v7a3 3 0 0 0 3 3h13m-5-5 5 5-5 5"/>',
+  edit: '<path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5"/>',
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
   branch: '<path d="M4 12h7M11 12l9-9M14 3h6v6M11 12l9 9M14 21h6v-6"/>',
   compress: '<path d="M7 3h10M12 3v6m-3-3 3 3 3-3M5 12h14M12 21v-6m-3 3 3-3 3 3M7 21h10"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',
@@ -164,7 +170,6 @@ $('app').innerHTML = `
           <div class="composer-context">
             <button id="attach-images" type="button" class="quiet-icon attach-images" data-action="attach-images" aria-label="Attach images" title="Attach images">${icon('image')}</button>
             <label class="permission-control" id="permission-control">${icon('shield')}<span class="sr-only">Conversation permissions</span><select id="permission-mode" aria-describedby="permission-description"><option value="ask">Ask before changes</option><option value="workspace-write">Allow workspace changes</option><option value="full-access">Full access</option></select>${icon('down')}</label>
-            <label class="queue-control" id="queue-control" hidden><span class="sr-only">Send while Pith is running</span><select id="queue-mode"><option value="steer">Add instruction</option><option value="follow-up">Queue next task</option></select></label>
           </div>
           <div class="composer-actions"><button id="composer-model" type="button" class="composer-model" data-action="model" data-idle-action aria-label="Choose model">Choose model</button><label class="composer-thinking"><span class="sr-only">Thinking effort</span><select id="composer-thinking" aria-label="Thinking effort"></select></label><button id="send-button" class="send-button" type="submit" aria-label="Send message">${icon('arrow')}</button><button id="stop-button" class="stop-button" type="button" data-action="stop" aria-label="Stop agent" hidden>${icon('stop')}<span>Stop</span></button></div>
         </div>
@@ -179,6 +184,7 @@ $('app').innerHTML = `
   <dialog id="permissions-dialog" class="modal permission-modal" aria-labelledby="full-access-title"><div id="permissions-content"></div></dialog>
   <dialog id="delete-dialog" class="modal" aria-labelledby="delete-title"><div id="delete-content"></div></dialog>
   <dialog id="rename-dialog" class="modal" aria-labelledby="rename-title"><div id="rename-content"></div></dialog>
+  <dialog id="queue-edit-dialog" class="modal" aria-labelledby="queue-edit-title"><div id="queue-edit-content"></div></dialog>
   <dialog id="resources-dialog" class="modal feature-modal" aria-labelledby="resources-title"><div id="resources-content"></div></dialog>
   <dialog id="connections-dialog" class="modal feature-modal" aria-labelledby="connections-title"><div id="connections-content"></div></dialog>
 `;
@@ -271,26 +277,57 @@ function render(): void {
   $('inline-error').textContent = error;
   $('connection-status').hidden = connection !== 'reconnecting';
   $('stop-button').hidden = !state.running;
-  $('queue-control').hidden = !state.running;
   $('send-button').hidden = false;
   $<HTMLButtonElement>('send-button').disabled = !snapshotLoaded || requestBusy || readingImages || (!input.value.trim() && !draftImages.length) || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey;
-  $<HTMLSelectElement>('queue-mode').disabled = requestBusy;
-  const queuedMode = $<HTMLSelectElement>('queue-mode').value;
-  $('send-button').setAttribute('aria-label', state.running ? queuedMode === 'follow-up' ? 'Queue next task' : 'Add instruction' : 'Send message');
-  input.placeholder = !snapshotLoaded ? 'Connecting to Pith…' : !state.settings.hasApiKey ? state.settings.hasConnections ? 'Choose a model beside the message box' : 'Connect a provider in Settings to get started' : !workspace ? 'Choose a workspace to get started' : state.running ? queuedMode === 'follow-up' ? 'Describe the next task to run afterward…' : 'Add an instruction for the current task…' : 'Ask Pith to help with your work…';
+  $('send-button').setAttribute('aria-label', state.running ? 'Queue message' : 'Send message');
+  input.placeholder = !snapshotLoaded ? 'Connecting to Pith…' : !state.settings.hasApiKey ? state.settings.hasConnections ? 'Choose a model beside the message box' : 'Connect a provider in Settings to get started' : !workspace ? 'Choose a workspace to get started' : state.running ? 'Send a message to queue it…' : 'Ask Pith to help with your work…';
   $<HTMLButtonElement>('stop-button').disabled = requestBusy;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-idle-action]')) button.disabled = requestBusy || state.running;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = requestBusy;
+}
+
+const activeRunPhases = new Set(['starting', 'working', 'tool', 'retrying', 'compacting']);
+
+function taskElapsedMs(status: RuntimeStatus): number {
+  const timing = status.timing;
+  if (!timing?.startedAt) return 0;
+  // Anchor to the host's monotonic duration; app downtime never becomes run time.
+  const live = state.running && activeRunPhases.has(status.phase) && !timing.partial;
+  return Math.max(0, timing.elapsedMs + (live ? performance.now() - runtimeReceivedAt : 0));
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${seconds % 60}s`;
+}
+
+function renderRuntimeTiming(): void {
+  const status = state.runtime;
+  if (!status?.model) return;
+  const phases: Record<string, string> = { starting: 'Starting', working: 'Working', tool: 'Using a tool', retrying: 'Retrying model request', compacting: 'Summarizing context', complete: 'Finished', stopped: 'Stopped', interrupted: 'Interrupted', error: 'Needs attention' };
+  const timing = status.timing;
+  const elapsed = taskElapsedMs(status);
+  const duration = timing?.startedAt ? `${timing.partial ? '≥' : ''}${formatDuration(elapsed)}` : 'Not recorded';
+  const speed = timing?.startedAt && !timing.partial && timing.outputTokens > 0 && elapsed > 0
+    ? new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(timing.outputTokens * 1000 / elapsed) : '—';
+  const tokens = new Intl.NumberFormat().format(Math.round(status.usage.total || 0));
+  $('run-status-summary').textContent = `${state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'} · ${status.model} · ${tokens} tokens · ${formatCost(status.cost)}${timing?.startedAt ? ` · ${duration} · ${speed} output tokens/s` : ''}`;
+  const durationValue = document.getElementById('runtime-duration');
+  const speedValue = document.getElementById('runtime-speed');
+  if (durationValue) durationValue.textContent = duration;
+  if (speedValue) speedValue.textContent = speed;
 }
 
 function renderRuntime(): void {
   const status = state.runtime;
   $('run-status').hidden = !status?.model;
   if (status?.model) {
-    const phases: Record<string, string> = { starting: 'Starting', working: 'Working', tool: 'Using a tool', retrying: 'Retrying model request', compacting: 'Summarizing context', complete: 'Finished', stopped: 'Stopped', interrupted: 'Interrupted', error: 'Needs attention' };
     const n = (value: number) => new Intl.NumberFormat().format(Math.round(value || 0));
-    $('run-status-summary').textContent = `${state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'} · ${status.model} · ${n(status.usage.total)} tokens · ${formatCost(status.cost)}`;
-    $('runtime-values').innerHTML = `<dl>${status.provider ? `<dt>Provider</dt><dd>${escape(status.provider)}</dd>` : ''}${status.thinkingLevel ? `<dt>Thinking effort</dt><dd>${escape(status.thinkingLevel)}</dd>` : ''}<dt>Session input / output</dt><dd>${n(status.usage.input)} / ${n(status.usage.output)}</dd><dt>Cache read / write</dt><dd>${n(status.usage.cacheRead)} / ${n(status.usage.cacheWrite)}</dd><dt>Estimated conversation context</dt><dd>~${n(status.contextTokens)} / ${n(status.contextWindow)} tokens</dd><dt>Context summaries</dt><dd>${n(status.compactions)}</dd><dt>Tool failures recorded</dt><dd>${n(status.toolFailures)}</dd><dt>Recorded cost (USD)</dt><dd>${escape(formatCost(status.cost))}</dd><dt>Latest task (USD)</dt><dd>${escape(formatCost(status.cost, true))}</dd><dt>Execution</dt><dd>Codemode enabled · durable local task journal</dd></dl><p>Tokens come from Pith session records. Context is an estimate of conversation messages; system instructions and tool schemas also take space. Costs estimate recorded requests, including retries and summaries with reported usage. Unknown prices are excluded; older unrecorded costs are not reconstructed. This is not a provider bill.</p>`;
+    $('runtime-values').innerHTML = `<dl>${status.provider ? `<dt>Provider</dt><dd>${escape(status.provider)}</dd>` : ''}${status.thinkingLevel ? `<dt>Thinking effort</dt><dd>${escape(status.thinkingLevel)}</dd>` : ''}<dt>Latest task duration</dt><dd id="runtime-duration"></dd><dt>Avg. output tokens/s</dt><dd id="runtime-speed"></dd><dt>Session input / output</dt><dd>${n(status.usage.input)} / ${n(status.usage.output)}</dd><dt>Cache read / write</dt><dd>${n(status.usage.cacheRead)} / ${n(status.usage.cacheWrite)}</dd><dt>Estimated conversation context</dt><dd>~${n(status.contextTokens)} / ${n(status.contextWindow)} tokens</dd><dt>Context summaries</dt><dd>${n(status.compactions)}</dd><dt>Tool failures recorded</dt><dd>${n(status.toolFailures)}</dd><dt>Recorded cost (USD)</dt><dd>${escape(formatCost(status.cost))}</dd><dt>Latest task (USD)</dt><dd>${escape(formatCost(status.cost, true))}</dd><dt>Execution</dt><dd>Codemode enabled · durable local task journal</dd></dl><p>Duration and average speed cover the latest task, including tools and waits. Speed uses reported output tokens, including reasoning, retries and summaries; input, cache and earlier tasks are excluded. An interrupted checkpoint shows only a lower bound for duration. Session token figures come from Pith records. Context excludes system instructions and tool schemas. Costs estimate recorded requests; unknown prices and older unrecorded requests are excluded. This is not a provider bill.</p>`;
+    renderRuntimeTiming();
   }
   costUI.render();
   const failure = state.failure;
@@ -428,11 +465,48 @@ function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
 
 function renderQueue(): void {
   const queued = state.queuedMessages || [];
-  const signature = JSON.stringify([state.activeId, queued]);
+  renderQueueEditor();
+  const signature = JSON.stringify([state.activeId, queued, state.running, requestBusy]);
   if (signature === queueSignature) return;
   queueSignature = signature;
   $('queued-messages').hidden = !queued.length;
-  $('queued-messages').innerHTML = queued.length ? `<div class="section-heading">Pending messages</div>${queued.map((entry) => `<div class="queued-message"><span class="queue-badge">${entry.mode === 'steer' ? 'Instruction' : 'Next task'}</span><span>${escape(entry.text)}${entry.imageCount ? `<small class="queue-image-count">${entry.imageCount} image${entry.imageCount === 1 ? '' : 's'}</small>` : ''}</span></div>`).join('')}` : '';
+  $('queued-messages').innerHTML = queued.length ? `<div class="section-heading">Pending messages</div>${queued.map((entry) => {
+    const disabled = requestBusy ? 'disabled' : '';
+    const actions = `data-queued-message="${escape(entry.id)}"`;
+    return `<div class="queued-message">${entry.mode === 'steer' ? '<span class="queue-badge">Instruction</span>' : ''}<div class="queued-message-content"><span class="queued-message-text" title="${escape(entry.text)}">${escape(entry.text || 'Image attachment')}</span>${entry.imageCount ? `<small class="queue-image-count">${entry.imageCount} image${entry.imageCount === 1 ? '' : 's'}</small>` : ''}</div><div class="queued-message-actions">${entry.mode === 'follow-up' && state.running ? `<button type="button" class="quiet-icon queue-steer" data-queue-action="steer" ${actions} title="Steer the current task at its next turn" ${disabled}>${icon('steer')}<span>Steer</span></button>` : ''}<button type="button" class="quiet-icon" data-queue-action="edit" ${actions} aria-label="Edit pending message" title="Edit message" ${disabled}>${icon('edit')}</button><button type="button" class="quiet-icon" data-queue-action="delete" ${actions} aria-label="Delete pending message" title="Delete message" ${disabled}>${icon('trash')}</button></div></div>`;
+  }).join('')}` : '';
+}
+
+function renderQueueEditor(): void {
+  if (!queueEditTarget) return;
+  const pending = queueEditTarget.conversationId === state.activeId && state.queuedMessages.some((entry) => entry.id === queueEditTarget!.messageId);
+  const save = $<HTMLButtonElement>('queue-edit-save');
+  const text = $<HTMLTextAreaElement>('queue-edit-text');
+  const entry = state.queuedMessages.find((entry) => entry.id === queueEditTarget!.messageId);
+  save.disabled = requestBusy || !pending || (!text.value.trim() && !entry?.imageCount);
+  text.disabled = requestBusy;
+  if (!pending) $('queue-edit-error').textContent = 'This message is no longer pending. Your draft is kept here so you can copy it.';
+}
+
+function openQueueEditor(entry: QueuedMessage): void {
+  if (requestBusy || !state.activeId) return;
+  queueEditTarget = { conversationId: state.activeId, messageId: entry.id };
+  $('queue-edit-content').innerHTML = `${dialogHeading('Edit pending message', 'queue-edit-title', 'queue-edit-dialog', 'Pending message')}<form id="queue-edit-form"><label class="field-label" for="queue-edit-text">Message</label><textarea id="queue-edit-text" class="queue-edit-text" rows="5"></textarea>${entry.imageCount ? `<p class="settings-note">${entry.imageCount} attached image${entry.imageCount === 1 ? '' : 's'} will be kept.</p>` : ''}<p id="queue-edit-error" class="form-error" role="alert"></p><div class="queue-edit-actions"><button type="button" class="secondary-button" data-close="queue-edit-dialog">Cancel</button><button id="queue-edit-save" type="submit" class="primary-button">Save message</button></div></form>`;
+  const editor = $<HTMLTextAreaElement>('queue-edit-text');
+  editor.value = entry.text;
+  editor.addEventListener('input', renderQueueEditor);
+  $('queue-edit-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const target = queueEditTarget;
+    if (!target || $<HTMLButtonElement>('queue-edit-save').disabled) return;
+    $('queue-edit-error').textContent = '';
+    if (!await mutate('/api/queue/edit', { id: target.conversationId, messageId: target.messageId, text: editor.value }, () => $<HTMLDialogElement>('queue-edit-dialog').close())) {
+      $('queue-edit-error').textContent = localError;
+    }
+  });
+  renderQueueEditor();
+  showDialog('queue-edit-dialog');
+  editor.focus();
 }
 
 function renderAppearance(): void {
@@ -554,6 +628,7 @@ function setState(next: State): void {
   const activeChanged = next.activeId !== state.activeId;
   const runFinished = state.running && !next.running;
   state = { ...next, queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
+  runtimeReceivedAt = performance.now();
   if (activeChanged) { clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; }
   snapshotLoaded = true;
   render();
@@ -637,13 +712,12 @@ async function send(): Promise<void> {
 async function queueMessage(text: string, draft: string, images: ImageInput[], submittedIds: Set<string>): Promise<void> {
   const id = state.activeId;
   if (!id || requestBusy) return;
-  const mode = $<HTMLSelectElement>('queue-mode').value === 'follow-up' ? 'follow-up' : 'steer';
   requestBusy = true;
   localError = '';
   render();
   try {
     // A queue POST is sent exactly once. A lost response must not duplicate work.
-    await request('/api/queue', { id, text, mode, images });
+    await request('/api/queue', { id, text, images });
     clearDraftImages(submittedIds);
     if (input.value === draft) input.value = '';
     resizeComposer();
@@ -1199,6 +1273,14 @@ document.addEventListener('click', async (event) => {
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand');
   if (!target) return;
+  if (target.dataset.queueAction && target.dataset.queuedMessage) {
+    if (requestBusy || !state.activeId) return;
+    const entry = state.queuedMessages.find((message) => message.id === target.dataset.queuedMessage);
+    if (!entry) return;
+    if (target.dataset.queueAction === 'edit') openQueueEditor(entry);
+    else await mutate(`/api/queue/${target.dataset.queueAction}`, { id: state.activeId, messageId: entry.id });
+    return;
+  }
   if (target.dataset.conversationMenu) { openConversationMenu(target.dataset.conversationMenu, target); return; }
   if (target.dataset.workspaceMenu) { openWorkspaceMenu(target.dataset.workspaceMenu, target); return; }
   if (target.dataset.toggleWorkspace) {
@@ -1304,7 +1386,6 @@ document.addEventListener('click', async (event) => {
 
 $('sidebar-scrim').addEventListener('click', closeSidebar);
 $<HTMLInputElement>('history-search').addEventListener('input', (event) => { historySearch = (event.currentTarget as HTMLInputElement).value; renderHistory(); });
-$<HTMLSelectElement>('queue-mode').addEventListener('change', render);
 $('composer-form').addEventListener('submit', (event) => { event.preventDefault(); void send(); });
 input.addEventListener('input', () => { resizeComposer(); render(); });
 $<HTMLSelectElement>('permission-mode').addEventListener('change', async (event) => {
@@ -1338,6 +1419,7 @@ window.addEventListener('resize', () => closeConversationMenu());
 for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
   if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => { fullAccessTargetId = null; });
   dialog.addEventListener('close', () => {
+    if (dialog.id === 'queue-edit-dialog') queueEditTarget = null;
     if (dialog.id === 'settings-dialog') { connectionProbe?.abort(); connectionProbe = null; const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; }
     if (dialog.id === 'connections-dialog') { mcpRequest++; const key = document.getElementById('mcp-token') as HTMLInputElement | null; if (key) key.value = ''; const env = document.getElementById('mcp-env') as HTMLTextAreaElement | null; if (env) env.value = ''; }
     if (dialog.id === 'resources-dialog') resourcesRequest++;
@@ -1392,7 +1474,10 @@ async function streamEvents(): Promise<void> {
   }
 }
 
-window.addEventListener('beforeunload', () => { disposed = true; clearDraftImages(); clearHistoryImages(); eventSocket?.close(); });
+const runtimeClock = window.setInterval(() => {
+  if (state.running && state.runtime && activeRunPhases.has(state.runtime.phase)) renderRuntimeTiming();
+}, 1000);
+window.addEventListener('beforeunload', () => { disposed = true; window.clearInterval(runtimeClock); clearDraftImages(); clearHistoryImages(); eventSocket?.close(); });
 systemAppearance.addEventListener('change', () => {
   if (appearanceMode(state.settings.appearance) === 'system') applyAppearance('system');
 });
