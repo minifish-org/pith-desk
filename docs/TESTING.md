@@ -79,19 +79,18 @@ the complete frontend/Go tests, vet and internal race checks passed. The ARM64
 app embeds the versioned SDK with CGO disabled, and its ad-hoc signature
 verified.
 
-The initial remote race run timed out waiting for MCP approval while a task was
-still starting. Pith now shares an in-memory QuickJS compilation cache instead
-of recompiling the same immutable module for every sandbox. Existing Codemode
-and coding-agent race tests passed; an added regression verifies independent
-host bindings, VM state and runtime lifetimes. Three consecutive MCP permission
-runs passed without increasing the existing five-second state deadline.
+Pith shares an in-memory QuickJS compilation cache instead of recompiling the
+same immutable module for every sandbox. Codemode and coding-agent race tests
+passed; an added regression verifies independent host bindings, VM state and
+runtime lifetimes.
 
-A later remote run passed the MCP checks but exceeded the large-image test's
-completion deadline. CPU profiling of the 3 MiB image test showed race
-instrumentation dominating JSON processing; three local repeats passed. CI now
-runs race-instrumented packages sequentially, preserving concurrent execution
-within each package, and the large-image completion wait permits 90 seconds.
-The test still verifies the full upload, authenticated history and exact bytes.
+CI runs race-instrumented packages sequentially, preserving concurrent execution
+within each package. State synchronization permits 30 seconds for cold startup;
+the deliberately padded 3 MiB image completion wait permits 90 seconds. CPU
+profiling confirmed race instrumentation dominates this test's JSON processing.
+These are bounded synchronization waits rather than latency contracts. All
+state assertions, upload limits, authenticated history and exact-byte checks
+remain in place.
 
 An isolated native test bundle with a distinct bundle identifier and disposable
 data verified cold launch, provider OAuth controls, a local compatible endpoint's

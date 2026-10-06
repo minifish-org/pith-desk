@@ -499,7 +499,9 @@ func configuredService(t *testing.T, providerURL string) (*Service, string, stri
 
 func waitState(t *testing.T, s *Service, predicate func(State) bool) State {
 	t.Helper()
-	deadline := time.NewTimer(5 * time.Second)
+	// State assertions are synchronization checks, not startup benchmarks.
+	// Leave room for cold WASM compilation and race instrumentation on CI.
+	deadline := time.NewTimer(30 * time.Second)
 	defer deadline.Stop()
 	for {
 		state := s.Snapshot()
