@@ -74,10 +74,17 @@ workspace. Keep its model and connection settings separate from everyday data.
 
 ## Latest verification
 
-The rc.7 candidate pins published Pith revision `f24ef2b34be0`. With `GOWORK=off`,
+The rc.7 candidate pins published Pith revision `44bd04bf25cf`. With `GOWORK=off`,
 the complete frontend/Go tests, vet and internal race checks passed. The ARM64
-app embeds that exact SDK revision with CGO disabled, and its ad-hoc signature
-verified. Pith's macOS/Linux CI passed, including full race checks.
+app embeds the versioned SDK with CGO disabled, and its ad-hoc signature
+verified.
+
+The initial remote race run timed out waiting for MCP approval while a task was
+still starting. Pith now shares an in-memory QuickJS compilation cache instead
+of recompiling the same immutable module for every sandbox. Existing Codemode
+and coding-agent race tests passed; an added regression verifies independent
+host bindings, VM state and runtime lifetimes. Three consecutive MCP permission
+runs passed without increasing the existing five-second state deadline.
 
 An isolated native test bundle with a distinct bundle identifier and disposable
 data verified cold launch, provider OAuth controls, a local compatible endpoint's

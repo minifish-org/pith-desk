@@ -83,11 +83,13 @@ Production builds keep `CGO_ENABLED=0`.
 
 ## Versioned SDK dependency
 
-Desk pins published Pith revision `f24ef2b34be0` in `go.mod`. It includes two SDK
+Desk pins published Pith revision `44bd04bf25cf` in `go.mod`. It includes SDK
 fixes verified by the integration tests:
 
 1. Composed custom providers retain their supplied model metadata.
 2. The coding-agent session refreshes active tool schemas after tool search.
+3. Codemode reuses immutable compiled QuickJS code across sandbox lifetimes,
+   while keeping runtimes, tool bindings, memory limits and VM state separate.
 
 The fixes and their regression tests live in Pith, rather than a Desk fork.
 No sibling checkout is required. Validate the pinned dependency with:

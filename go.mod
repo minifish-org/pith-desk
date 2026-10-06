@@ -6,7 +6,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/egoist/mygo v0.2.1
 	github.com/gofrs/flock v0.13.1
-	github.com/minifish-org/pith v0.0.0-20261006155610-f24ef2b34be0
+	github.com/minifish-org/pith v0.0.0-20261006161929-44bd04bf25cf
 )
 
 require (
