@@ -30,10 +30,14 @@ func modelRuntime() (*codingagent.ModelRuntime, error) {
 }
 
 type ProviderChoice struct {
+	OAuth         bool   `json:"oauth"`
+	SignedIn      bool   `json:"signedIn"`
+	Custom        bool   `json:"custom"`
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	BaseURL       string `json:"baseUrl"`
 	HasAPIKey     bool   `json:"hasApiKey"`
+	HasSavedKey   bool   `json:"hasSavedKey"`
 	Model         string `json:"model,omitempty"`
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
 }
@@ -64,7 +68,7 @@ type ProviderConnectionInput struct {
 }
 
 func preferredProviderModel(provider string, current savedConfig) (*aitypes.Model, error) {
-	runtime, err := modelRuntime()
+	runtime, err := runtimeForConfig(current)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +86,7 @@ func preferredProviderModel(provider string, current savedConfig) (*aitypes.Mode
 			return &model, nil
 		}
 	}
-	return nil, errors.New("Choose an API-key provider from Pith's catalog")
+	return nil, errors.New("Choose a supported provider from Pith's catalog")
 }
 
 func connectionConfigInput(input ProviderConnectionInput, current savedConfig) (ConfigInput, error) {
@@ -155,15 +159,19 @@ func (s *Service) TestProviderConnection(ctx context.Context, input ProviderConn
 }
 
 type savedConnection struct {
-	BaseURL       string `json:"baseUrl"`
-	APIKey        string `json:"apiKey,omitempty"`
-	Model         string `json:"model,omitempty"`
-	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+	UseOAuth      bool                          `json:"useOAuth,omitempty"`
+	Name          string                        `json:"name,omitempty"`
+	API           aitypes.Api                   `json:"api,omitempty"`
+	Models        []codingagent.ModelsJsonModel `json:"models,omitempty"`
+	BaseURL       string                        `json:"baseUrl"`
+	APIKey        string                        `json:"apiKey,omitempty"`
+	Model         string                        `json:"model,omitempty"`
+	ThinkingLevel string                        `json:"thinkingLevel,omitempty"`
 }
 
 func supportedDesktopModel(model aitypes.Model) bool {
 	switch model.Api {
-	case aitypes.ApiOpenAICompletions, aitypes.ApiOpenAIResponses,
+	case aitypes.ApiOpenAICompletions, aitypes.ApiOpenAIResponses, aitypes.ApiOpenAICodexResponses,
 		aitypes.ApiAnthropicMessages, aitypes.ApiGoogleGenerativeAI, aitypes.ApiMistralConversations:
 		return !strings.Contains(model.BaseUrl, "{")
 	default:
@@ -188,23 +196,23 @@ func describeModel(model aitypes.Model) ModelChoice {
 }
 
 func (s *Service) Models(providerID string) (ModelCatalog, error) {
-	runtime, err := modelRuntime()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	runtime, err := runtimeForConfig(s.config)
 	if err != nil {
 		return ModelCatalog{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	result := ModelCatalog{Providers: []ProviderChoice{}, Models: []ModelChoice{}, Source: "Pith SDK catalog"}
 	seen := map[string]bool{}
 	for _, model := range runtime.GetModels() {
 		id := string(model.Provider)
 		provider := runtime.GetProvider(id)
-		if !supportedDesktopModel(model) || provider == nil || provider.Auth().APIKey == nil {
+		if !supportedDesktopModel(model) || provider == nil || (provider.Auth().APIKey == nil && provider.Auth().OAuth == nil) {
 			continue
 		}
 		if !seen[id] {
 			seen[id] = true
-			choice := ProviderChoice{ID: id, Name: provider.Name(), BaseURL: provider.BaseURL(), Model: codingagent.DefaultModelPerProvider[id]}
+			choice := ProviderChoice{OAuth: provider.Auth().OAuth != nil, SignedIn: s.config.Connections[id].UseOAuth, HasSavedKey: s.config.Connections[id].APIKey != "", Custom: s.config.Connections[id].API != "", ID: id, Name: provider.Name(), BaseURL: provider.BaseURL(), Model: codingagent.DefaultModelPerProvider[id]}
 			if preferred := runtime.GetModel(id, choice.Model); preferred != nil {
 				choice.ThinkingLevel = string(ai.ClampThinkingLevel(*preferred, aitypes.ModelThinkingLevel(codingagent.DefaultThinkingLevel)))
 			}
@@ -212,11 +220,11 @@ func (s *Service) Models(providerID string) (ModelCatalog, error) {
 				choice.BaseURL = model.BaseUrl
 			}
 			if connection, ok := s.config.Connections[id]; ok {
-				choice.BaseURL, choice.HasAPIKey = connection.BaseURL, connection.APIKey != ""
+				choice.BaseURL, choice.HasAPIKey = connection.BaseURL, connectionReady(connection)
 				choice.Model, choice.ThinkingLevel = connection.Model, connection.ThinkingLevel
 			}
 			if id == s.config.Provider {
-				choice.BaseURL, choice.HasAPIKey = s.config.BaseURL, s.config.APIKey != ""
+				choice.BaseURL, choice.HasAPIKey = s.config.BaseURL, connectionReady(s.config.Connections[id])
 				choice.Model, choice.ThinkingLevel = s.config.Model, s.config.ThinkingLevel
 			}
 			result.Providers = append(result.Providers, choice)
@@ -233,7 +241,7 @@ func (s *Service) Models(providerID string) (ModelCatalog, error) {
 		return result.Models[i].Name < result.Models[j].Name
 	})
 	if providerID != "" && !seen[providerID] {
-		return ModelCatalog{}, errors.New("Choose an API-key provider from Pith's catalog")
+		return ModelCatalog{}, errors.New("Choose a supported provider from Pith's catalog")
 	}
 	return result, nil
 }
@@ -262,14 +270,14 @@ func resolveConfiguredModel(config savedConfig) (*aitypes.Model, error) {
 	if config.Provider == "" {
 		return resolveModel(config.Model, config.BaseURL)
 	}
-	runtime, err := modelRuntime()
+	runtime, err := runtimeForConfig(config)
 	if err != nil {
 		return nil, err
 	}
 	provider := runtime.GetProvider(config.Provider)
 	model := runtime.GetModel(config.Provider, config.Model)
-	if provider == nil || provider.Auth().APIKey == nil || model == nil || !supportedDesktopModel(*model) {
-		return nil, fmt.Errorf("Model %q is not an API-key model in Pith's %s catalog", config.Model, config.Provider)
+	if provider == nil || (provider.Auth().APIKey == nil && provider.Auth().OAuth == nil) || model == nil || !supportedDesktopModel(*model) {
+		return nil, fmt.Errorf("Model %q is not a supported model in Pith's %s catalog", config.Model, config.Provider)
 	}
 	// ResolveModel clones all SDK capability/compatibility metadata before an
 	// endpoint override, so neither the shared catalog nor other runs change.
@@ -301,7 +309,9 @@ func normalizedConfig(current savedConfig) savedConfig {
 		connections[id] = connection
 	}
 	current.Connections = connections
-	current.Connections[current.Provider] = savedConnection{current.BaseURL, current.APIKey, current.Model, current.ThinkingLevel}
+	connection := current.Connections[current.Provider]
+	connection.BaseURL, connection.APIKey, connection.Model, connection.ThinkingLevel = current.BaseURL, current.APIKey, current.Model, current.ThinkingLevel
+	current.Connections[current.Provider] = connection
 	return current
 }
 
@@ -316,7 +326,7 @@ func validatedConfig(input ConfigInput, current savedConfig) (savedConfig, error
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return savedConfig{}, errors.New("Enter an HTTP or HTTPS API base URL without credentials, query, or fragment")
 	}
-	next := savedConfig{Provider: provider, BaseURL: base, Model: strings.TrimSpace(input.Model), Appearance: current.Appearance, Connections: map[string]savedConnection{}}
+	next := savedConfig{AuthPath: current.AuthPath, Provider: provider, BaseURL: base, Model: strings.TrimSpace(input.Model), Appearance: current.Appearance, Connections: map[string]savedConnection{}}
 	for id, connection := range current.Connections {
 		next.Connections[id] = connection
 	}
@@ -326,10 +336,15 @@ func validatedConfig(input ConfigInput, current savedConfig) (savedConfig, error
 		next.APIKey = connection.APIKey
 	}
 	if input.APIKey != "" {
+		connection.UseOAuth = false
 		next.APIKey = strings.TrimSpace(input.APIKey)
 	}
 	if input.ClearAPIKey {
 		next.APIKey = ""
+	}
+	if base != connection.BaseURL {
+		connection.UseOAuth = false
+		next.Connections[provider] = connection
 	}
 	model, err := resolveConfiguredModel(next)
 	if err != nil {
@@ -353,7 +368,8 @@ func validatedConfig(input ConfigInput, current savedConfig) (savedConfig, error
 		return savedConfig{}, fmt.Errorf("Thinking level %q is not supported by this model", level)
 	}
 	next.ThinkingLevel = level
-	next.Connections[provider] = savedConnection{base, next.APIKey, next.Model, level}
+	connection.BaseURL, connection.APIKey, connection.Model, connection.ThinkingLevel = base, next.APIKey, next.Model, level
+	next.Connections[provider] = connection
 	return next, nil
 }
 
@@ -390,4 +406,8 @@ func (s *Service) SelectModel(provider, model, level string) error {
 		return err
 	}
 	return s.saveConfigLocked(next)
+}
+
+func connectionReady(connection savedConnection) bool {
+	return connection.APIKey != "" || connection.UseOAuth || connection.API != ""
 }

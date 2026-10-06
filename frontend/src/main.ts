@@ -1,6 +1,8 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import './style.css';
+import { createSDKUI } from './sdk-features';
+import { createCostUI, formatCost, type CostSummary } from './costs';
 
 interface Workspace { id: string; name: string; path: string }
 type AppearanceMode = 'system' | 'light' | 'dark';
@@ -8,20 +10,21 @@ type PermissionMode = 'ask' | 'workspace-write' | 'full-access';
 interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number; permissionMode?: PermissionMode }
 interface QueuedMessage { id: string; text: string; mode: 'steer' | 'follow-up'; imageCount?: number }
 interface Artifact { path: string; name: string }
-interface WorkspaceResources { workspaceId: string; instructions: { name: string; path: string; content: string }[]; skills: { name: string; path: string; description: string }[]; diagnostics: string[] }
-interface MCPConnection { name: string; type: 'http' | 'stdio'; url?: string; command?: string; args: string[]; envKeys?: string[]; enabled: boolean; hasBearerToken: boolean; status: 'disconnected' | 'connecting' | 'connected' | 'error'; toolCount: number; error?: string }
+interface WorkspaceResources { workspaceId: string; instructions: { name: string; path: string; content: string }[]; skills: { name: string; path: string; description: string }[]; templates: { name: string; path: string; description: string }[]; diagnostics: string[] }
+interface MCPConnection { oauth?: boolean; signedIn?: boolean; oauthClientId?: string; oauthScope?: string; name: string; type: 'http' | 'stdio'; url?: string; command?: string; args: string[]; envKeys?: string[]; enabled: boolean; hasBearerToken: boolean; status: 'disconnected' | 'connecting' | 'connected' | 'error'; toolCount: number; error?: string }
 interface MessageImage { index: number; mimeType: string }
 interface ImageInput { type: 'image'; data: string; mimeType: string }
 interface DraftImage extends ImageInput { id: string; name: string; size: number; url: string }
-interface Message { id: string; role: string; text: string; toolName?: string; status?: string; images?: MessageImage[] }
+interface Message { id: string; role: string; text: string; toolName?: string; toolCallId?: string; status?: string; images?: MessageImage[]; branchNodeId?: string }
 interface Approval { id: string; toolName: string; args: unknown; warning?: string }
 interface RunUsage { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
-interface RuntimeStatus { provider?: string; thinkingLevel?: string; phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
+interface RuntimeStatus { runId?: string; cost?: CostSummary; provider?: string; thinkingLevel?: string; phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
 interface Failure { kind: string; message: string; advice: string; canContinue: boolean }
-interface ProviderChoice { id: string; name: string; baseUrl: string; hasApiKey: boolean; model?: string; thinkingLevel?: string }
+export interface ProviderChoice { oauth?: boolean; signedIn?: boolean; custom?: boolean; id: string; name: string; baseUrl: string; hasApiKey: boolean; hasSavedKey?: boolean; model?: string; thinkingLevel?: string }
 interface ModelChoice { id: string; name: string; provider: string; api: string; supportsImages: boolean; contextWindow: number; maxTokens: number; thinkingLevels: string[] }
 interface ModelCatalog { providers: ProviderChoice[]; models: ModelChoice[]; source: string }
-interface State {
+export interface State {
+  login?: { id: string; provider: string; phase: string; message: string; url?: string; code?: string; prompt?: string; promptType?: string; options: { id: string; label: string }[] };
   settings: { provider?: string; modelName?: string; thinkingLevel?: string; thinkingLevels?: string[]; baseUrl: string; model: string; hasApiKey: boolean; hasConnections?: boolean; appearance?: AppearanceMode; supportsImages?: boolean; imageUploadLimit?: number };
   workspaces: Workspace[];
   conversations: Conversation[];
@@ -93,6 +96,8 @@ const historyImages = new Map<string, Promise<string>>();
 let imageGeneration = 0;
 
 const paths: Record<string, string> = {
+  branch: '<path d="M4 12h7M11 12l9-9M14 3h6v6M11 12l9 9M14 21h6v-6"/>',
+  compress: '<path d="M7 3h10M12 3v6m-3-3 3 3 3-3M5 12h14M12 21v-6m-3 3 3-3 3 3M7 21h10"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   chat: '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5a8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/>',
@@ -138,6 +143,7 @@ $('app').innerHTML = `
     <header class="topbar">
       <button class="quiet-icon mobile-menu" data-action="menu" aria-label="Open sidebar">${icon('menu')}</button>
       <div class="breadcrumb">${icon('folder')}<span id="workspace-label">No workspace</span>${icon('chevron', 'breadcrumb-chevron')}<span class="breadcrumb-current" id="conversation-label">New conversation</span></div>
+      <div class="conversation-actions"><button class="quiet-icon compact-action" data-sdk="compact" data-sdk-idle title="Compress context by summarizing older messages" aria-label="Compress context">${icon('compress')}<span>Compact</span></button></div>
     </header>
     <section id="chat-scroll" class="chat-scroll" aria-label="Conversation">
       <div id="welcome" class="welcome"></div>
@@ -148,7 +154,7 @@ $('app').innerHTML = `
       <div id="approval" class="approval-region"></div>
       <div id="inline-error" class="inline-error" role="alert" hidden></div>
       <section id="task-failure" class="task-failure" role="status" hidden></section>
-      <details id="run-status" class="run-status" hidden><summary id="run-status-summary"></summary><div id="run-status-details"></div></details>
+      <details id="run-status" class="run-status" hidden><summary id="run-status-summary"></summary><div id="run-status-details"><div id="runtime-values"></div><details id="cost-requests" class="cost-requests" hidden><summary>Request breakdown</summary><div id="cost-ledger"></div></details></div></details>
       <section id="queued-messages" class="queued-messages" aria-label="Pending messages" aria-live="polite" hidden></section>
       <form id="composer-form" class="composer">
         <div id="draft-images" class="draft-images" aria-label="Image attachments" hidden></div>
@@ -179,6 +185,14 @@ $('app').innerHTML = `
 
 const input = $<HTMLTextAreaElement>('composer-input');
 const chatScroll = $('chat-scroll');
+const costUI = createCostUI({ state: () => state, request });
+const sdkUI = createSDKUI({
+  state: () => state, request, mutate, error: () => localError,
+  busy: () => requestBusy || !snapshotLoaded,
+  workspace: selectedWorkspace, settings: openSettings,
+  draft: (text) => { input.value = text + input.value; resizeComposer(); input.focus(); render(); },
+  refreshResources: loadResources, refreshMCP: loadMCP,
+});
 
 function selectedWorkspace(): Workspace | undefined {
   const conversation = state.conversations.find((entry) => entry.id === state.activeId);
@@ -238,7 +252,8 @@ function render(): void {
   if (signature !== messagesSignature) {
     const nearBottom = chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 150;
     const changedConversation = renderedActiveId !== state.activeId;
-    $('messages').innerHTML = state.messages.map(renderMessage).join('') + (state.running && !state.pendingApproval ? `<div class="agent-working"><span class="agent-avatar">${logo}</span><span class="working-dots"><i></i><i></i><i></i></span><span>Pith is working</span></div>` : '');
+    const folds = new Map<string, boolean>(changedConversation ? [] : Array.from($('messages').querySelectorAll<HTMLDetailsElement>('[data-tool-fold]'), (element) => [element.dataset.toolFold!, element.open] as const));
+    $('messages').innerHTML = renderMessages(state.messages, folds) + (state.running && !state.pendingApproval ? '<div class="agent-working" role="status"><span class="working-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Working…</span></div>' : '');
     messagesSignature = signature;
     renderedActiveId = state.activeId;
     loadHistoryImages();
@@ -249,6 +264,7 @@ function render(): void {
   renderArtifacts();
   renderQueue();
   renderRuntime();
+  sdkUI.render();
   renderDraftImages();
   const error = localError || state.error || '';
   $('inline-error').hidden = !error || (!localError && !!state.failure);
@@ -273,9 +289,10 @@ function renderRuntime(): void {
   if (status?.model) {
     const phases: Record<string, string> = { starting: 'Starting', working: 'Working', tool: 'Using a tool', retrying: 'Retrying model request', compacting: 'Summarizing context', complete: 'Finished', stopped: 'Stopped', interrupted: 'Interrupted', error: 'Needs attention' };
     const n = (value: number) => new Intl.NumberFormat().format(Math.round(value || 0));
-    $('run-status-summary').textContent = `${state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'} · ${status.model} · ${n(status.usage.total)} tokens`;
-    $('run-status-details').innerHTML = `<dl>${status.provider ? `<dt>Provider</dt><dd>${escape(status.provider)}</dd>` : ''}${status.thinkingLevel ? `<dt>Thinking effort</dt><dd>${escape(status.thinkingLevel)}</dd>` : ''}<dt>Session input / output</dt><dd>${n(status.usage.input)} / ${n(status.usage.output)}</dd><dt>Cache read / write</dt><dd>${n(status.usage.cacheRead)} / ${n(status.usage.cacheWrite)}</dd><dt>Estimated conversation context</dt><dd>~${n(status.contextTokens)} / ${n(status.contextWindow)} tokens</dd><dt>Context summaries</dt><dd>${n(status.compactions)}</dd><dt>Tool failures recorded</dt><dd>${n(status.toolFailures)}</dd><dt>Cost</dt><dd>Not included in this client</dd></dl><p>Tokens come from Pith session records. Context is an estimate of conversation messages; system instructions and tool schemas also take space. Requests without usage reports and summarization requests may not be included. This is not a provider bill.</p>`;
+    $('run-status-summary').textContent = `${state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'} · ${status.model} · ${n(status.usage.total)} tokens · ${formatCost(status.cost)}`;
+    $('runtime-values').innerHTML = `<dl>${status.provider ? `<dt>Provider</dt><dd>${escape(status.provider)}</dd>` : ''}${status.thinkingLevel ? `<dt>Thinking effort</dt><dd>${escape(status.thinkingLevel)}</dd>` : ''}<dt>Session input / output</dt><dd>${n(status.usage.input)} / ${n(status.usage.output)}</dd><dt>Cache read / write</dt><dd>${n(status.usage.cacheRead)} / ${n(status.usage.cacheWrite)}</dd><dt>Estimated conversation context</dt><dd>~${n(status.contextTokens)} / ${n(status.contextWindow)} tokens</dd><dt>Context summaries</dt><dd>${n(status.compactions)}</dd><dt>Tool failures recorded</dt><dd>${n(status.toolFailures)}</dd><dt>Recorded cost (USD)</dt><dd>${escape(formatCost(status.cost))}</dd><dt>Latest task (USD)</dt><dd>${escape(formatCost(status.cost, true))}</dd><dt>Execution</dt><dd>Codemode enabled · durable local task journal</dd></dl><p>Tokens come from Pith session records. Context is an estimate of conversation messages; system instructions and tool schemas also take space. Costs estimate recorded requests, including retries and summaries with reported usage. Unknown prices are excluded; older unrecorded costs are not reconstructed. This is not a provider bill.</p>`;
   }
+  costUI.render();
   const failure = state.failure;
   $('task-failure').hidden = !failure || state.running;
   $('task-failure').innerHTML = failure && !state.running ? `<strong>${escape(failure.message)}</strong><p>${escape(failure.advice)}</p><div>${failure.canContinue ? '<button class="secondary-button" type="button" data-action="continue" data-idle-action>Review and continue</button>' : '<button class="secondary-button" type="button" data-action="settings">Check model settings</button>'}<button class="text-button" type="button" data-action="diagnostics">Save diagnostics</button></div>` : '';
@@ -347,7 +364,7 @@ function openConversationMenu(id: string, trigger: HTMLElement): void {
   trigger.setAttribute('aria-expanded', 'true');
   const menu = $('conversation-menu');
   menu.setAttribute('aria-label', 'Conversation actions');
-  menu.innerHTML = '<button role="menuitem" data-action="rename">Rename</button><button role="menuitem" data-action="export">Export Markdown</button><button role="menuitem" class="destructive-menu-item" data-action="delete-conversation">Delete conversation</button>';
+  menu.innerHTML = `<button role="menuitem" data-action="rename">Rename</button>${id === state.activeId ? '<button role="menuitem" data-sdk="history" data-action="close-conversation-menu">Conversation branches</button>' : ''}<button role="menuitem" data-action="export">Export Markdown</button><button role="menuitem" class="destructive-menu-item" data-action="delete-conversation">Delete conversation</button>`;
   positionContextMenu(trigger);
 }
 
@@ -445,14 +462,44 @@ function renderWelcome(workspace?: Workspace): void {
   `;
 }
 
-function renderMessage(message: Message): string {
+function toolGroupLabel(tools: Message[]): string {
+  if (tools.length === 1) return ({ list_files: 'Listed files', read_file: 'Read a file', run_command: 'Ran a command', write_file: 'Wrote a file', edit_file: 'Edited a file', tool_search: 'Searched tools', codemode: 'Ran code' } as Record<string, string>)[tools[0].toolName || ''] || 'Used a tool';
+  const hasCommands = tools.some((tool) => tool.toolName === 'run_command');
+  const exploredFiles = tools.every((tool) => ['list_files', 'read_file', 'grep', 'find', 'ls', 'run_command'].includes(tool.toolName || ''));
+  if (tools.every((tool) => tool.toolName === 'run_command')) return 'Ran commands';
+  if (exploredFiles) return hasCommands ? 'Ran commands and explored files' : 'Explored files';
+  return 'Used tools';
+}
+
+function renderMessages(messages: Message[], folds: Map<string, boolean>): string {
+  const output: string[] = [];
+  let groupIndex = 0;
+  for (let index = 0; index < messages.length;) {
+    if (messages[index].role !== 'tool') {
+      output.push(renderMessage(messages[index++]));
+      continue;
+    }
+    const start = index;
+    while (index < messages.length && messages[index].role === 'tool') index++;
+    const tools = messages.slice(start, index);
+    // Group order stays stable when live tool IDs are replaced by saved nodes.
+    const key = `group-${groupIndex++}`;
+    const running = tools.filter((tool) => tool.status === 'running').length;
+    const failed = tools.filter((tool) => tool.status === 'error').length;
+    output.push(`<details class="tool-group" data-tool-fold="${key}" ${folds.get(key) ? 'open' : ''}><summary>${icon('terminal')}<span class="tool-group-label">${toolGroupLabel(tools)}</span><span class="tool-group-count">${tools.length} ${tools.length === 1 ? 'call' : 'calls'}</span>${failed ? `<span class="tool-group-failed">${failed} failed</span>` : ''}${running ? `<span class="tool-group-running">${running} running</span>` : ''}${icon('down')}</summary><div class="tool-group-content">${tools.map((tool) => { const toolKey = `${key}-tool-${tool.toolCallId || tool.id}`; return renderMessage(tool, folds.get(toolKey), toolKey); }).join('')}</div></details>`);
+  }
+  return output.join('');
+}
+
+function renderMessage(message: Message, expanded = false, foldKey = ''): string {
   const text = message.text ?? '';
   const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${state.activeId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" loading="lazy" />`).join('');
   const gallery = images ? `<div class="message-images">${images}</div>` : '';
-  if (message.role === 'tool') return `<details class="tool-message" ${message.status === 'running' ? 'open' : ''}><summary>${icon('terminal')}<span>${escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(message.status || 'Result')}</span>${icon('down')}</summary><pre>${escape(text)}</pre>${gallery}</details>`;
-  if (message.role === 'user') return `<article class="message user-message"><div class="message-content"><div class="message-label">You</div>${text ? `<div class="user-text">${escape(text)}</div>` : ''}${gallery}</div></article>`;
+  const actions = message.role === 'assistant' && message.branchNodeId ? `<div class="message-actions"><button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button></div>` : '';
+  if (message.role === 'tool') return `<details class="tool-message" data-tool-fold="${escape(foldKey)}" ${expanded ? 'open' : ''}><summary>${icon('terminal')}<span>${escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(message.status || 'Result')}</span>${icon('down')}</summary><pre>${escape(text)}</pre>${gallery}</details>`;
+  if (message.role === 'user') return `<article class="message user-message" aria-label="Your message"><div class="message-content">${gallery}${text ? `<div class="user-text">${escape(text)}</div>` : ''}</div></article>`;
   if (message.role === 'system') return `<div class="system-message">${escape(text)}</div>`;
-  return `<article class="message assistant-message"><span class="agent-avatar">${logo}</span><div class="message-content"><div class="message-label">Pith</div><div class="markdown">${renderMarkdown(text)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}</div></article>`;
+  return `<article class="message assistant-message" aria-label="Agent response"><div class="message-content"><div class="markdown">${renderMarkdown(text)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}${actions}</div></article>`;
 }
 
 function renderApproval(): void {
@@ -693,7 +740,7 @@ function openResources(): void {
   if (!workspace) { openWorkspace(); return; }
   resourcesWorkspaceId = workspace.id;
   resources = null;
-  $('resources-content').innerHTML = `${dialogHeading('Workspace resources', 'resources-title', 'resources-dialog', workspace.name)}<p class="modal-description">Instructions and skills help Pith work in this workspace. Open a Markdown file to edit it in your installed app. Changes are loaded for the next task.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-resources">Refresh</button></div><div id="resources-list"><p class="feature-hint">Loading workspace resources…</p></div><div id="resources-error" class="form-error" role="alert"></div>`;
+  $('resources-content').innerHTML = `${dialogHeading('Workspace resources', 'resources-title', 'resources-dialog', workspace.name)}<p class="modal-description">Instructions, skills and prompt templates are loaded by Pith for each task. Edit them here or open their Markdown files.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-resources">Refresh</button><button class="secondary-button" data-sdk="resource" data-kind="skill">Add skill</button><button class="secondary-button" data-sdk="resource" data-kind="template">Add prompt template</button></div><div id="resources-list"><p class="feature-hint">Loading workspace resources…</p></div><div id="resources-error" class="form-error" role="alert"></div>`;
   showDialog('resources-dialog');
   void loadResources();
 }
@@ -716,12 +763,12 @@ function renderResources(): void {
   const workspace = state.workspaces.find((entry) => entry.id === resourcesWorkspaceId);
   const rootPath = `${workspace?.path.replace(/\\/g, '/').replace(/\/$/, '')}/AGENTS.md`;
   const hasInstructions = resources.instructions.some((entry) => entry.path.replace(/\\/g, '/') === rootPath);
-  $('resources-list').innerHTML = `<section class="resource-section"><h3>Instructions</h3>${resources.instructions.map((entry) => `<article class="resource-card"><div class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}</div><details class="resource-preview"><summary>View instructions</summary><pre>${escape(entry.content)}</pre></details></article>`).join('') || '<p class="feature-hint">No workspace instructions found.</p>'}${!hasInstructions ? '<button class="secondary-button" data-action="create-instructions" data-idle-action>Create AGENTS.md in this workspace</button>' : ''}</section><section class="resource-section"><h3>Skills</h3>${resources.skills.map((entry) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}</article>`).join('') || '<p class="feature-hint">No skills found. Add .pi/skills/&lt;skill-name&gt;/SKILL.md in this workspace, then refresh.</p>'}</section>${resources.diagnostics.length ? `<section class="resource-section resource-diagnostics"><h3>Resource notes</h3>${resources.diagnostics.map((entry) => `<p>${escape(entry)}</p>`).join('')}</section>` : ''}`;
+  $('resources-list').innerHTML = `<section class="resource-section"><h3>Instructions</h3>${resources.instructions.map((entry) => `<article class="resource-card"><div class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('instructions', entry)}</div><details class="resource-preview"><summary>View instructions</summary><pre>${escape(entry.content)}</pre></details></article>`).join('') || '<p class="feature-hint">No workspace instructions found.</p>'}${!hasInstructions ? '<button class="secondary-button" data-sdk="resource" data-kind="instructions" data-idle-action>Create AGENTS.md in this workspace</button>' : ''}</section><section class="resource-section"><h3>Skills</h3>${resources.skills.map((entry) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('skill', entry)}</article>`).join('') || '<p class="feature-hint">No skills found. Add .pi/skills/&lt;skill-name&gt;/SKILL.md in this workspace, then refresh.</p>'}</section><section class="resource-section"><h3>Prompt templates</h3>${(resources.templates || []).map((entry) => `<article class="file-card"><div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${sdkUI.resourceActions('template', entry)}</article>`).join('') || '<p class="feature-hint">No prompt templates yet.</p>'}</section>${resources.diagnostics.length ? `<section class="resource-section resource-diagnostics"><h3>Resource notes</h3>${resources.diagnostics.map((entry) => `<p>${escape(entry)}</p>`).join('')}</section>` : ''}`;
   render();
 }
 
 function openConnections(): void {
-  $('connections-content').innerHTML = `${dialogHeading('Connections', 'connections-title', 'connections-dialog', 'EXTERNAL TOOLS')}<p class="modal-description">Connect an MCP server to add its tools. Enabled connections are used when a task starts, or when you choose Connect. External tools require approval unless this conversation has full access.</p><div class="feature-toolbar"><button class="secondary-button" data-action="connect-mcp" data-idle-action>Connect enabled</button><button class="secondary-button" data-action="disconnect-mcp" data-idle-action>Disconnect</button><button class="secondary-button" data-action="refresh-mcp">Refresh</button></div><div id="mcp-list"><p class="feature-hint">Loading connections…</p></div><div id="mcp-error" class="form-error" role="alert"></div><section class="connection-editor"><div class="section-heading"><span id="mcp-form-title">Add connection</span><button type="button" class="text-button" data-action="new-mcp">New connection</button></div><form id="mcp-form"><label class="field-label" for="mcp-name">Name</label><input id="mcp-name" name="name" required autocomplete="off" placeholder="my-tools" /><label class="field-label" for="mcp-type">Connection type</label><select id="mcp-type" name="type" class="feature-select"><option value="http">HTTP</option><option value="stdio">Local command (stdio)</option></select><div id="mcp-http-fields"><label class="field-label" for="mcp-url">Server URL</label><input id="mcp-url" name="url" type="url" placeholder="https://example.com/mcp" autocomplete="off" /><label class="field-label" for="mcp-token">Bearer token (optional)</label><input id="mcp-token" name="bearerToken" type="password" autocomplete="new-password" placeholder="Optional token" /><label class="checkbox-field" id="mcp-clear-token-row" hidden><input id="mcp-clear-token" type="checkbox" />Remove saved bearer token</label><p class="field-hint">Saved tokens are never returned to this page. Leave this field blank to keep an existing token.</p></div><div id="mcp-stdio-fields" hidden><label class="field-label" for="mcp-command">Installed executable</label><input id="mcp-command" name="command" placeholder="/path/to/mcp-server" autocomplete="off" /><label class="field-label" for="mcp-args">Arguments (JSON array)</label><textarea id="mcp-args" name="args" rows="3" spellcheck="false">[]</textarea><p class="field-hint">The executable and any runtime it needs must already be installed on your computer. Pith Desk does not bundle external runtimes or a marketplace.</p><div class="secret-label"><label class="field-label" for="mcp-env">Environment overrides (JSON object, optional)</label><button class="text-button" type="button" id="mcp-env-visibility" data-action="toggle-env" aria-controls="mcp-env" aria-pressed="false">Show</button></div><textarea id="mcp-env" class="secret-field" name="env" rows="3" spellcheck="false" autocomplete="off" aria-describedby="mcp-env-hint" placeholder='{"API_KEY":"…"}'></textarea><p id="mcp-env-hint" class="field-hint">Values stay private. Leave blank to keep saved overrides. Add a JSON object of string keys and values to set or replace individual overrides.</p><p id="mcp-env-keys" class="field-hint" hidden></p><label class="checkbox-field" id="mcp-clear-env-row" hidden><input id="mcp-clear-env" type="checkbox" />Clear saved environment overrides</label></div><label class="checkbox-field"><input id="mcp-enabled" name="enabled" type="checkbox" checked />Enable this connection</label><div id="mcp-form-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="connections-dialog">Close</button><button class="primary-button" type="submit" data-idle-action>Save connection</button></div></form></section>`;
+  $('connections-content').innerHTML = `${dialogHeading('Connections', 'connections-title', 'connections-dialog', 'EXTERNAL TOOLS')}<p class="modal-description">Connect an MCP server to add its tools. Enabled connections are used when a task starts, or when you choose Connect. External tools require approval unless this conversation has full access.</p><div class="feature-toolbar"><button class="secondary-button" data-action="connect-mcp" data-idle-action>Connect enabled</button><button class="secondary-button" data-action="disconnect-mcp" data-idle-action>Disconnect</button><button class="secondary-button" data-action="refresh-mcp">Refresh</button></div><div id="mcp-list"><p class="feature-hint">Loading connections…</p></div><div id="mcp-error" class="form-error" role="alert"></div><section class="connection-editor"><div class="section-heading"><span id="mcp-form-title">Add connection</span><button type="button" class="text-button" data-action="new-mcp">New connection</button></div><form id="mcp-form"><label class="field-label" for="mcp-name">Name</label><input id="mcp-name" name="name" required autocomplete="off" placeholder="my-tools" /><label class="field-label" for="mcp-type">Connection type</label><select id="mcp-type" name="type" class="feature-select"><option value="http">HTTP</option><option value="stdio">Local command (stdio)</option></select><div id="mcp-http-fields"><label class="field-label" for="mcp-url">Server URL</label><input id="mcp-url" name="url" type="url" placeholder="https://example.com/mcp" autocomplete="off" /><label class="checkbox-field"><input id="mcp-oauth" type="checkbox" />Sign in with OAuth</label><details class="provider-advanced"><summary>OAuth settings (optional)</summary><label class="field-label">Registered client ID<input id="mcp-oauth-client" /></label><label class="field-label">Scopes<input id="mcp-oauth-scope" /></label><p class="field-hint">Uses the server’s OAuth discovery and PKCE. The temporary callback listens on 127.0.0.1:54819.</p></details><label class="field-label" for="mcp-token">Bearer token (optional)</label><input id="mcp-token" name="bearerToken" type="password" autocomplete="new-password" placeholder="Optional token" /><label class="checkbox-field" id="mcp-clear-token-row" hidden><input id="mcp-clear-token" type="checkbox" />Remove saved bearer token</label><p class="field-hint">Saved tokens are never returned to this page. Leave this field blank to keep an existing token.</p></div><div id="mcp-stdio-fields" hidden><label class="field-label" for="mcp-command">Installed executable</label><input id="mcp-command" name="command" placeholder="/path/to/mcp-server" autocomplete="off" /><label class="field-label" for="mcp-args">Arguments (JSON array)</label><textarea id="mcp-args" name="args" rows="3" spellcheck="false">[]</textarea><p class="field-hint">The executable and any runtime it needs must already be installed on your computer. Pith Desk does not bundle external runtimes or a marketplace.</p><div class="secret-label"><label class="field-label" for="mcp-env">Environment overrides (JSON object, optional)</label><button class="text-button" type="button" id="mcp-env-visibility" data-action="toggle-env" aria-controls="mcp-env" aria-pressed="false">Show</button></div><textarea id="mcp-env" class="secret-field" name="env" rows="3" spellcheck="false" autocomplete="off" aria-describedby="mcp-env-hint" placeholder='{"API_KEY":"…"}'></textarea><p id="mcp-env-hint" class="field-hint">Values stay private. Leave blank to keep saved overrides. Add a JSON object of string keys and values to set or replace individual overrides.</p><p id="mcp-env-keys" class="field-hint" hidden></p><label class="checkbox-field" id="mcp-clear-env-row" hidden><input id="mcp-clear-env" type="checkbox" />Clear saved environment overrides</label></div><label class="checkbox-field"><input id="mcp-enabled" name="enabled" type="checkbox" checked />Enable this connection</label><div id="mcp-form-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="connections-dialog">Close</button><button class="primary-button" type="submit" data-idle-action>Save connection</button></div></form></section>`;
   showDialog('connections-dialog');
   $<HTMLSelectElement>('mcp-type').addEventListener('change', renderMCPType);
   $('mcp-form').addEventListener('submit', (event) => { event.preventDefault(); void saveMCP(); });
@@ -751,7 +798,7 @@ async function loadMCP(): Promise<void> {
 }
 
 function renderMCPList(): void {
-  $('mcp-list').innerHTML = mcpConnections.map((entry) => `<article class="connection-card"><div class="connection-card-heading"><strong>${escape(entry.name)}</strong><span class="connection-status ${entry.status === 'error' ? 'is-error' : ''}">${escape(entry.status)} · ${entry.toolCount} ${entry.toolCount === 1 ? 'tool' : 'tools'}</span></div><p class="file-path">${escape(entry.type === 'http' ? entry.url : [entry.command, ...(entry.args || [])].join(' '))}</p><p class="feature-hint">${entry.enabled ? 'Enabled' : 'Disabled'}${entry.hasBearerToken ? ' · Token configured' : ''}</p>${entry.envKeys?.length ? `<p class="feature-hint">Saved environment keys: ${escape(entry.envKeys.join(', '))}</p>` : ''}${entry.error ? `<p class="form-error">${escape(entry.error)}</p>` : ''}<div class="file-actions"><button class="secondary-button" data-mcp-edit="${escape(entry.name)}">Edit</button><button class="secondary-button" data-mcp-toggle="${escape(entry.name)}" data-idle-action>${entry.enabled ? 'Disable' : 'Enable'}</button><button class="secondary-button destructive-button" data-mcp-remove="${escape(entry.name)}" data-idle-action>Delete</button></div></article>`).join('') || '<p class="feature-hint">No connections yet. Add an HTTP server or an installed local MCP command below.</p>';
+  $('mcp-list').innerHTML = mcpConnections.map((entry) => `<article class="connection-card"><div class="connection-card-heading"><strong>${escape(entry.name)}</strong><span class="connection-status ${entry.status === 'error' ? 'is-error' : ''}">${escape(entry.status)} · ${entry.toolCount} ${entry.toolCount === 1 ? 'tool' : 'tools'}</span></div><p class="file-path">${escape(entry.type === 'http' ? entry.url : [entry.command, ...(entry.args || [])].join(' '))}</p><p class="feature-hint">${entry.enabled ? 'Enabled' : 'Disabled'}${entry.hasBearerToken ? ' · Token configured' : ''}</p>${entry.envKeys?.length ? `<p class="feature-hint">Saved environment keys: ${escape(entry.envKeys.join(', '))}</p>` : ''}${entry.error ? `<p class="form-error">${escape(entry.error)}</p>` : ''}<div class="file-actions">${entry.oauth ? `<button class="secondary-button" data-sdk="mcp-login" data-id="${escape(entry.name)}">${entry.signedIn ? 'Sign in again' : 'Sign in'}</button>${entry.signedIn ? `<button class="secondary-button" data-sdk="mcp-logout" data-id="${escape(entry.name)}">Sign out</button>` : ''}` : ''}<button class="secondary-button" data-mcp-edit="${escape(entry.name)}">Edit</button><button class="secondary-button" data-mcp-toggle="${escape(entry.name)}" data-idle-action>${entry.enabled ? 'Disable' : 'Enable'}</button><button class="secondary-button destructive-button" data-mcp-remove="${escape(entry.name)}" data-idle-action>Delete</button></div></article>`).join('') || '<p class="feature-hint">No connections yet. Add an HTTP server or an installed local MCP command below. Tools are discovered on demand using tool search and Codemode.</p>';
 }
 
 function editMCP(entry?: MCPConnection): void {
@@ -765,6 +812,9 @@ function editMCP(entry?: MCPConnection): void {
   $<HTMLInputElement>('mcp-name').readOnly = !!entry;
   $<HTMLSelectElement>('mcp-type').value = entry?.type || 'http';
   $<HTMLInputElement>('mcp-url').value = entry?.url || '';
+  $<HTMLInputElement>('mcp-oauth').checked = entry?.oauth || false;
+  $<HTMLInputElement>('mcp-oauth-client').value = entry?.oauthClientId || '';
+  $<HTMLInputElement>('mcp-oauth-scope').value = entry?.oauthScope || '';
   $<HTMLInputElement>('mcp-command').value = entry?.command || '';
   $<HTMLTextAreaElement>('mcp-args').value = JSON.stringify(entry?.args || [], null, 2);
   $<HTMLInputElement>('mcp-enabled').checked = entry?.enabled ?? true;
@@ -799,7 +849,7 @@ async function saveMCP(): Promise<void> {
     const env: unknown = type === 'stdio' && envDraft ? parseConnectionJSON(envDraft, 'environment overrides') : undefined;
     if (env !== undefined && (!env || typeof env !== 'object' || Array.isArray(env) || !Object.values(env).every((value) => typeof value === 'string'))) throw new Error('Environment overrides must be a JSON object with string values.');
     const bearerToken = $<HTMLInputElement>('mcp-token').value.trim();
-    const payload = { name, type, args, enabled: $<HTMLInputElement>('mcp-enabled').checked, ...(type === 'http' ? { url: $<HTMLInputElement>('mcp-url').value.trim(), ...(bearerToken ? { bearerToken } : {}), ...($<HTMLInputElement>('mcp-clear-token').checked ? { clearBearerToken: true } : {}) } : { command: $<HTMLInputElement>('mcp-command').value.trim(), ...(env !== undefined ? { env } : {}), ...($<HTMLInputElement>('mcp-clear-env').checked ? { clearEnv: true } : {}) }) };
+    const payload = { name, type, args, enabled: $<HTMLInputElement>('mcp-enabled').checked, ...(type === 'http' ? { oauth: $<HTMLInputElement>('mcp-oauth').checked, oauthClientId: $<HTMLInputElement>('mcp-oauth-client').value.trim(), oauthScope: $<HTMLInputElement>('mcp-oauth-scope').value.trim(), url: $<HTMLInputElement>('mcp-url').value.trim(), ...(bearerToken ? { bearerToken } : {}), ...($<HTMLInputElement>('mcp-clear-token').checked ? { clearBearerToken: true } : {}) } : { command: $<HTMLInputElement>('mcp-command').value.trim(), ...(env !== undefined ? { env } : {}), ...($<HTMLInputElement>('mcp-clear-env').checked ? { clearEnv: true } : {}) }) };
     const saved = await mutate('/api/mcp/save', payload);
     if (!isCurrent()) return;
     $<HTMLInputElement>('mcp-token').value = '';
@@ -817,7 +867,7 @@ function thinkingLabel(level: string): string {
 }
 
 function modelEditorMarkup(prefix: string): string {
-  return `<label class="field-label" for="${prefix}-provider">Provider</label><select class="feature-select" id="${prefix}-provider" required disabled><option value="">Loading providers…</option></select><label class="field-label" for="${prefix}-search">Model</label><input id="${prefix}-search" type="search" placeholder="Search by model name or ID" autocomplete="off" /><label class="sr-only" for="${prefix}-model">Choose model</label><select id="${prefix}-model" class="model-list" size="6" required disabled></select><p id="${prefix}-capabilities" class="field-hint" aria-live="polite"></p><label class="field-label" id="${prefix}-thinking-label" for="${prefix}-thinking">Thinking effort</label><select id="${prefix}-thinking" class="feature-select" aria-describedby="${prefix}-capabilities" required></select><p class="field-hint">Models and capabilities come from the Pith SDK catalog. Availability depends on your provider account.</p>`;
+  return `<label class="field-label" for="${prefix}-provider">Provider</label><select class="feature-select" id="${prefix}-provider" required disabled><option value="">Loading providers…</option></select><label class="field-label" for="${prefix}-search">Model</label><input id="${prefix}-search" type="search" placeholder="Search by model name or ID" autocomplete="off" /><label class="sr-only" for="${prefix}-model">Choose model</label><select id="${prefix}-model" class="model-list" size="6" required disabled></select><p id="${prefix}-capabilities" class="field-hint" aria-live="polite"></p><label class="field-label" id="${prefix}-thinking-label" for="${prefix}-thinking">Thinking effort</label><select id="${prefix}-thinking" class="feature-select" aria-describedby="${prefix}-capabilities" required></select><p class="field-hint">Built-in models come from the Pith SDK catalog. Custom models use your saved definitions. Availability depends on your endpoint and account.</p>`;
 }
 
 function modelFormSelection(prefix: string): { provider: string; model: string; thinkingLevel: string } {
@@ -902,7 +952,7 @@ function openSettings(): void {
   const appearanceSection = `<section class="appearance-settings" aria-labelledby="appearance-title"><div><h3 id="appearance-title">Appearance</h3><p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p></div><label class="sr-only" for="appearance-mode">Appearance</label><select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select><div id="appearance-error" class="form-error" role="alert"></div></section>`;
   connectionProbe?.abort();
   connectionProbe = null;
-  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p><form id="settings-form"><label class="field-label" for="settings-provider">Provider</label><select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select><details id="provider-advanced" class="provider-advanced"><summary>Advanced connection settings</summary><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div><p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p></details><label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p><button class="remove-key" id="remove-key" type="button" hidden>Remove saved API key</button><div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-idle-action>Test connection</button><p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" type="submit">Save settings</button></div></form>`;
+  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button><form id="settings-form"><label class="field-label" for="settings-provider">Provider</label><select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select><div id="provider-actions"></div><details id="provider-advanced" class="provider-advanced"><summary>Advanced connection settings</summary><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div><p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p></details><label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p><button class="remove-key" id="remove-key" type="button" hidden>Remove saved API key</button><div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-idle-action>Test connection</button><p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" type="submit">Save settings</button></div></form>`;
   renderAppearance();
   $<HTMLDialogElement>('settings-dialog').showModal();
   let catalog: ModelCatalog | null = null;
@@ -916,19 +966,21 @@ function openSettings(): void {
   });
   const keyStatus = () => {
     const provider = catalog?.providers.find((entry) => entry.id === $<HTMLSelectElement>('settings-provider').value);
-    const retained = !!provider?.hasApiKey && provider.baseUrl === $<HTMLInputElement>('base-url').value.trim().replace(/\/+$/, '');
-    $('key-status').textContent = retained ? 'Configured' : 'Not configured';
+    const retained = !!provider?.hasSavedKey && provider.baseUrl === $<HTMLInputElement>('base-url').value.trim().replace(/\/+$/, '');
+    $('key-status').textContent = provider?.signedIn ? 'Signed in' : retained ? 'Configured' : 'Not configured';
     const key = $<HTMLInputElement>('api-key');
-    key.required = !retained;
-    key.placeholder = retained ? 'Leave blank to keep this provider’s key' : 'Paste this provider’s API key';
-    $('remove-key').hidden = !retained;
+    key.required = !retained && !provider?.signedIn && !provider?.custom;
+    key.placeholder = retained ? 'Leave blank to keep this provider’s key' : provider?.signedIn ? 'Leave blank to keep provider sign-in' : provider?.custom ? 'Optional API key for this endpoint' : 'Paste this provider’s API key';
+    $('remove-key').hidden = !retained || !!provider?.signedIn;
+    if (provider?.custom) key.required = false;
+    if (provider) $('provider-actions').innerHTML = sdkUI.providerActions(provider);
   };
   $<HTMLButtonElement>('save-settings').disabled = true;
   void request<ModelCatalog>('/api/models').then((result) => {
     if (!isCurrent()) return;
     catalog = result;
     const providerSelect = $<HTMLSelectElement>('settings-provider');
-    providerSelect.innerHTML = result.providers.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}${entry.hasApiKey ? ' · Configured' : ''}</option>`).join('');
+    providerSelect.innerHTML = result.providers.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}${entry.signedIn ? ' · Signed in' : entry.hasApiKey ? ' · Configured' : ''}</option>`).join('');
     providerSelect.disabled = false;
     providerSelect.value = result.providers.some((entry) => entry.id === state.settings.provider) ? state.settings.provider! : result.providers[0]?.id || '';
     const chooseProvider = (changed: boolean) => {
@@ -1206,6 +1258,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
   switch (target.dataset.action) {
+    case 'close-conversation-menu': closeConversationMenu(); break;
     case 'settings': openSettings(); break;
     case 'model': await openModelPicker(); break;
     case 'continue': if (!state.running && state.activeId && state.failure?.canContinue) await mutate('/api/continue', { id: state.activeId }); break;

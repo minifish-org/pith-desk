@@ -1,8 +1,8 @@
 # Pith Desk
 
-A local desktop workspace for getting things done with an AI agent. Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native window. The interface is TypeScript. The product is a separate repository; it does not fork or modify the agent SDK.
+A local desktop workspace for getting things done with an AI agent. Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native window. The interface is TypeScript. The product is a separate repository; agent behavior stays in the Pith SDK.
 
-This first version supports text and image conversations, workspace folders, streamed answers, file tools, conversation permissions, workspace instructions and skills, and optional MCP connections. DeepSeek Flash is the default model. Provider selection, model capabilities, thinking levels and native request adapters come from Pith’s SDK. API-key connections include DeepSeek, OpenAI, Anthropic, Google, Mistral and compatible providers in its catalog.
+This preview supports text and image conversations, workspace folders, streamed answers, guarded tools, instructions/skills/prompt templates, conversation branches, manual compression, deferred MCP discovery, Code mode, OAuth, durable task journals and request cost estimates. DeepSeek Flash is the default model. See [SDK integration](docs/SDK_FEATURES.md) for the reused capabilities and their boundaries. Provider selection, model capabilities, thinking levels and native request adapters come from Pith’s SDK. API-key connections include DeepSeek, OpenAI, Anthropic, Google, Mistral and compatible providers in its catalog.
 
 ![Pith Desk on macOS showing a workspace conversation, a tool result, and a generated Markdown file](docs/images/pith-desk-macos.png)
 
@@ -18,7 +18,7 @@ favicon for the browser preview.
 On macOS, open the built **Pith Desk.app**. You do not need Go, Node.js or npm to run the packaged application.
 
 1. Choose a workspace folder.
-2. Open Settings, choose a provider and enter its API key. The default endpoint is filled in automatically; **Advanced connection settings** lets you override it. Use **Test connection** to check streaming and tool calling using that provider’s last selected model or Pith’s default, then Save settings. Testing sends one small model request, does not save the form, and never accesses workspace files or executes tools.
+2. Open Settings, choose a provider and enter its API key, or use **Sign in with provider** when Pith offers OAuth. The default endpoint is filled in automatically; **Advanced connection settings** lets you override it. Use **Test connection** to check streaming and tool calling using that provider’s last selected model or Pith’s default, then Save settings. Testing sends one small model request, does not save the form, and never accesses workspace files or executes tools.
 3. Choose a model and thinking effort beside the message box. Create a conversation and ask the agent to inspect or change files in that folder.
 4. Review the tool name and arguments before approving a file change or command. You can change the permission mode beside the message box. Use Stop to cancel a running task.
 
@@ -28,7 +28,7 @@ The application saves settings and conversation data in your user configuration 
 
 ### Providers, models and thinking effort
 
-**Settings** manages API-key connections. Choose a provider and save its key. API base URL is prefilled and hidden under
+**Settings** manages independent model connections. Choose a built-in provider and save its key or sign in through its SDK OAuth flow. **Add independent model connection** gives another endpoint its own name, protocol, models and credentials. Official OpenAI and several OpenAI-compatible endpoints can coexist. API base URL is prefilled and hidden under
 **Advanced connection settings** for proxies and custom services. Saving another
 provider’s connection does not change the active conversation model. Pith supplies the catalog, input
 capabilities, context/output limits, and supported thinking levels. The model
@@ -46,13 +46,18 @@ the provider and effort actually selected for that task.
 Each provider retains its own endpoint, key and last selection. Switching
 providers restores those settings. Changing an endpoint requires entering the
 key again: a saved credential is never silently forwarded to a new address.
-The previous single-provider settings load automatically, retaining the key and
-its original thinking default. Loading does not rewrite the settings file.
+Custom connections have their own model IDs, capabilities, limits and optional
+USD prices. Blank prices mean unknown; explicit zero prices mean free. A blank
+key on a custom connection sends the SDK adapters a non-secret `unused` key,
+which is suitable only for servers that ignore authentication.
 
 Agent requests, connection probes and context summaries all use Pith's native
 adapters. Desk does not implement separate OpenAI, Anthropic or Google clients.
-The UI currently supports API-key/token connections; OAuth login and cloud
-credential setups such as Bedrock, Vertex and Azure are not exposed here.
+OAuth availability comes from the selected SDK provider. The sign-in dialog
+opens the provider page and forwards device codes or additional prompts; tokens
+are saved by Pith and refreshed for subsequent requests. OAuth uses the official
+provider endpoint, not a custom proxy. Cloud credential setups such as Bedrock,
+Vertex and Azure are not configured by this UI.
 
 ### Appearance
 
@@ -75,7 +80,7 @@ While Pith is working, use **Add instruction** to steer it after the current ass
 
 ### Run status and recovery
 
-Expand the status line above the composer to see the running model, Pith session token usage, estimated conversation context, context summary count and recorded tool failures. Model retries and context summarization have their own status. Conversation context excludes system instructions and tool schemas; usage may omit provider requests without usage reports and summaries. This client does not display cost estimates from catalog prices. These numbers are not a provider bill.
+Expand the status line above the composer to see the running model, Pith session token usage, estimated conversation context, context summary count, recorded tool failures and estimated cost. Expand **Request breakdown** within those statistics for each reported request, including retries and context summaries, with input/output/cache tokens, purpose, status, saved rates and price source. Model retries and context summarization have their own status. Conversation context excludes system instructions and tool schemas. Costs are USD estimates from the bundled Pith/Pi catalog or custom prices, not the provider bill. Requests with unknown usage or prices are excluded from totals. No external pricing or exchange-rate API is called. Earlier requests made before the ledger was added are not reconstructed.
 
 Failures show guidance for credentials, unknown models, incompatible endpoints, network interruptions, rate limits, summarization and local errors. **Review and continue** sends an explicit new instruction using the existing Pith transcript. It does not replay the original task or automatically restart actions after a crash. Review already completed or uncertain external actions first. After changing model settings, test the connection before continuing.
 
@@ -93,9 +98,14 @@ Press `⌘N` (`Ctrl+N` on Linux) to start a conversation in the current workspac
 
 After a task finishes, successful file writes and edits appear as generated-file cards. **Open** uses the default application; **Reveal** shows the file in your file manager. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview shows paths but native file actions require the desktop app.
 
-### Workspace instructions and skills
+### Workspace instructions, skills and prompt templates
 
-Open **Workspace resources** to see the instruction files and skills discovered by Pith. Instructions include AGENTS.md or CLAUDE.md files discovered along the workspace's ancestor path. Project skills live in `.pi/skills`. Open or reveal these Markdown files to edit them with your own tools; changes are loaded on the next task. If the workspace has no AGENTS.md, **Create instructions** adds a starter file without overwriting an existing one.
+Open **Workspace resources** to inspect the files discovered by Pith. Instructions
+include AGENTS.md and CLAUDE.md along the ancestor path; project skills live in
+`.pi/skills`, and prompt templates in `.pi/prompts`. View, create, edit or delete
+project resources in the Markdown editor. Inherited instructions are read-only
+here. Changes load on the next task. **Use** inserts `/skill:name` or `/name` into
+the composer; Pith expands the resource and template arguments when submitted.
 
 The application retains Pith's instruction and skill discovery. Skill references to the `read` tool are mapped in the desktop prompt to its guarded `read_file` tool. No separate skill engine or visual workflow builder is used.
 
@@ -103,9 +113,32 @@ The application retains Pith's instruction and skill discovery. Skill references
 
 Open **Connections** to configure an HTTP endpoint or an installed local MCP server command. HTTP connections accept an optional bearer token; an empty token field preserves the saved token. Local commands accept an argument array and optional environment overrides as a JSON object of string values. Blank overrides preserve saved values; use the clear checkbox to remove them. Only saved variable names are displayed. Enable only the connections you want available, then connect explicitly or let the next task connect them. Connection status and tool counts appear in the dialog.
 
-Pith provides the MCP transports, tool discovery, and calls. Desk saves connection settings, selects enabled tools, and applies approvals. **Ask before changes** and **Allow workspace changes** both require approval for external MCP calls. **Full access** also authorizes tools from enabled connections. Connection changes and disconnects require the current task to finish or stop first.
+Pith provides the MCP transports, discovery, OAuth and calls. Desk saves connection settings, supplies sign-in UI and applies approvals. Enabled MCP tools are registered as deferred: the model starts with `tool_search`, and selected schemas become available on demand. Connecting still discovers the server catalog; deferred exposure saves model context rather than avoiding that initial catalog request. **Ask before changes** and **Allow workspace changes** both require approval for external MCP calls. **Full access** also authorizes tools from enabled connections. Connection changes and disconnects require the current task to finish or stop first.
 
-Tokens and environment overrides are saved in the private local `mcp.json` file and their values are never returned in public configuration responses. This client does not install MCP servers or bundle their Node/Python runtimes. OAuth login and a connector marketplace are outside this version's scope.
+Tokens and environment overrides are saved in the private local `mcp.json` file and their values are never returned in public configuration responses. This client does not install MCP servers or bundle their Node/Python runtimes. HTTP MCP connections can use the SDK OAuth flow instead of a bearer token, with optional client ID and scope. Sign in, then connect or reconnect to load tools. The temporary callback uses `127.0.0.1:54819`; the port must be available. External servers decide whether they support discovery and dynamic client registration. A connector marketplace is outside this version's scope.
+
+### Code mode, history and recovery
+
+**Code mode** is enabled alongside ordinary tools. The agent chooses whether to
+compose several tool calls, filter results or return a smaller answer through
+Pith's existing JavaScript/WASM runtime. Nested writes, commands and MCP calls
+use the same workspace checks and approval rules as direct calls. Code mode
+does not install Node.js and is not an OS sandbox for the tools it invokes.
+
+Use the branch action below a saved assistant reply to continue from that point,
+or **Conversation branches** in the conversation's sidebar menu to choose a
+saved node. Pith preserves sibling branches in the same session; this does not
+undo files, commands or remote effects. **Compact** calls Pith's summarizer,
+keeps recent messages and preserves saved history. Short conversations may have
+nothing to compress. Compression is a model request and appears in the cost ledger.
+
+Every task is admitted to a Pith Durable JSONL journal before it runs, alongside
+pending queued text/images. Restart shows an interrupted task for review; **Continue**
+starts a new task over saved history and restores pending queue items. Unfinished
+commands or remote effects are never automatically replayed. This is durable
+admission, settlement and queue recovery around the coding-agent session, not an
+exactly-once guarantee for each external effect or a resumable model stream.
+Deleting a conversation also deletes its local cost ledger and durable journal.
 
 ## Images
 
@@ -128,8 +161,8 @@ in every streaming state update. Guarded workspace image reading is also enabled
 for image-capable models. Markdown exports mark image attachments but do not
 embed their bytes.
 
-Image support is included in the
-[`v0.1.0-rc.6` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.6).
+Download the
+[`v0.1.0-rc.7` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.7).
 
 
 ## Develop
@@ -164,7 +197,7 @@ CGO_ENABLED=0 go test ./...
 CGO_ENABLED=0 go vet ./...
 ```
 
-Both Pith and MyGo are pinned in `go.mod`; the released application does not rely on a sibling checkout or a local Go `replace` directive. Node/npm are development tools only. The Mac window uses the system WKWebView, which may have its own helper processes.
+Both Pith and MyGo are pinned in `go.mod`; applications build without a sibling checkout or a local Go replacement. Release checks use `GOWORK=off` to verify the versioned dependency. See [SDK dependency validation](docs/SDK_FEATURES.md#versioned-sdk-dependency). Node/npm are development tools only. The Mac window uses the system WKWebView, which may have its own helper processes.
 
 ## Where to read the code
 
@@ -174,13 +207,13 @@ Both Pith and MyGo are pinned in `go.mod`; the released application does not rel
 - `cmd/pith-desk/`: the native window, folder picker, application lifetime and browser preview.
 - `mygo.config.ts`: build and packaging settings.
 
-The Go service owns each agent run. Closing a browser subscription does not end a run; Stop and application shutdown cancel it explicitly. The frontend only renders snapshots and submits user actions.
+The Go service owns each agent run. Closing a browser subscription does not end a run. **Stop** aborts it explicitly; application shutdown preserves an unfinished durable task for user-reviewed recovery. The frontend only renders snapshots and submits user actions.
 
 See [testing and native smoke checks](docs/TESTING.md) for verification and a short manual checklist.
 
 ## Current boundaries
 
-This is an experimental local desktop product. It has no computer-control tools, plugin marketplace, scheduled jobs, enterprise account system or automatic updates yet. Durable is available in the pinned Pith library, but this UI currently uses its normal coding-agent sessions.
+This is an experimental local desktop product. It has no computer-control tools, plugin marketplace, scheduled jobs, enterprise account system or automatic updates yet. Recovery requires user review and cannot roll back or deduplicate external effects.
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 

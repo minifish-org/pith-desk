@@ -17,6 +17,9 @@ import (
 )
 
 type MCPInput struct {
+	OAuth            bool              `json:"oauth"`
+	OAuthClientID    string            `json:"oauthClientId,omitempty"`
+	OAuthScope       string            `json:"oauthScope,omitempty"`
 	Name             string            `json:"name"`
 	Type             string            `json:"type"`
 	URL              string            `json:"url,omitempty"`
@@ -30,6 +33,10 @@ type MCPInput struct {
 }
 
 type MCPServerView struct {
+	OAuth          bool     `json:"oauth"`
+	SignedIn       bool     `json:"signedIn"`
+	OAuthClientID  string   `json:"oauthClientId,omitempty"`
+	OAuthScope     string   `json:"oauthScope,omitempty"`
 	Name           string   `json:"name"`
 	Type           string   `json:"type"`
 	URL            string   `json:"url,omitempty"`
@@ -44,14 +51,17 @@ type MCPServerView struct {
 }
 
 type savedMCP struct {
-	Name        string            `json:"name"`
-	Type        string            `json:"type"`
-	URL         string            `json:"url,omitempty"`
-	Command     string            `json:"command,omitempty"`
-	Args        []string          `json:"args"`
-	BearerToken string            `json:"bearerToken,omitempty"`
-	Enabled     bool              `json:"enabled"`
-	Env         map[string]string `json:"env,omitempty"`
+	OAuth         bool              `json:"oauth"`
+	OAuthClientID string            `json:"oauthClientId,omitempty"`
+	OAuthScope    string            `json:"oauthScope,omitempty"`
+	Name          string            `json:"name"`
+	Type          string            `json:"type"`
+	URL           string            `json:"url,omitempty"`
+	Command       string            `json:"command,omitempty"`
+	Args          []string          `json:"args"`
+	BearerToken   string            `json:"bearerToken,omitempty"`
+	Enabled       bool              `json:"enabled"`
+	Env           map[string]string `json:"env,omitempty"`
 }
 
 func (s *Service) ListMCP() []MCPServerView {
@@ -65,7 +75,8 @@ func (s *Service) ListMCP() []MCPServerView {
 	}
 	views := make([]MCPServerView, 0, len(s.mcpConfigs))
 	for _, config := range s.mcpConfigs {
-		view := MCPServerView{Name: config.Name, Type: config.Type, URL: config.URL, Command: config.Command,
+		auth, _ := s.mcpOAuthStore(config).Load()
+		view := MCPServerView{OAuth: config.OAuth, OAuthClientID: config.OAuthClientID, OAuthScope: config.OAuthScope, SignedIn: auth != nil && auth.Tokens != nil, Name: config.Name, Type: config.Type, URL: config.URL, Command: config.Command,
 			Args: append([]string{}, config.Args...), Enabled: config.Enabled, HasBearerToken: config.BearerToken != "", Status: "disconnected"}
 		view.EnvKeys = []string{}
 		for key := range config.Env {
@@ -97,7 +108,7 @@ func (s *Service) SaveMCP(input MCPInput) error {
 		s.mu.Unlock()
 		return err
 	}
-	next := savedMCP{Name: strings.TrimSpace(input.Name), Type: strings.TrimSpace(input.Type),
+	next := savedMCP{OAuth: input.OAuth && input.Type == "http", OAuthClientID: strings.TrimSpace(input.OAuthClientID), OAuthScope: strings.TrimSpace(input.OAuthScope), Name: strings.TrimSpace(input.Name), Type: strings.TrimSpace(input.Type),
 		URL: strings.TrimSpace(input.URL), Command: strings.TrimSpace(input.Command), Args: append([]string{}, input.Args...), Enabled: input.Enabled, Env: map[string]string{}}
 	if next.Type == "" {
 		next.Type = "stdio"
@@ -105,7 +116,10 @@ func (s *Service) SaveMCP(input MCPInput) error {
 	index := -1
 	for i, existing := range s.mcpConfigs {
 		if existing.Name == next.Name {
-			index, next.BearerToken = i, existing.BearerToken
+			index = i
+			if existing.Type == next.Type && existing.URL == next.URL {
+				next.BearerToken = existing.BearerToken
+			}
 			if !input.ClearEnv {
 				for key, value := range existing.Env {
 					next.Env[key] = value
@@ -128,6 +142,15 @@ func (s *Service) SaveMCP(input MCPInput) error {
 	if err := validateMCP(next); err != nil {
 		s.mu.Unlock()
 		return err
+	}
+	if index >= 0 {
+		previous := s.mcpConfigs[index]
+		if previous.URL != next.URL || previous.OAuth != next.OAuth || previous.OAuthClientID != next.OAuthClientID || previous.OAuthScope != next.OAuthScope {
+			if err := os.Remove(s.mcpOAuthStore(previous).path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				s.mu.Unlock()
+				return err
+			}
+		}
 	}
 	configs := append([]savedMCP{}, s.mcpConfigs...)
 	if index < 0 {
@@ -162,6 +185,10 @@ func (s *Service) RemoveMCP(name string) error {
 	for _, config := range s.mcpConfigs {
 		if config.Name == name {
 			found = true
+			if err := os.Remove(s.mcpOAuthStore(config).path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				s.mu.Unlock()
+				return err
+			}
 		} else {
 			configs = append(configs, config)
 		}
@@ -212,7 +239,7 @@ func validateMCP(config savedMCP) error {
 func (config savedMCP) sdkConfig() codingagent.MCPServerConfig {
 	enabled := config.Enabled
 	result := codingagent.MCPServerConfig{Name: config.Name, Type: config.Type, URL: config.URL,
-		Command: config.Command, Args: append([]string{}, config.Args...), Enabled: &enabled, Exposure: codingagent.MCPExposureDirect}
+		Command: config.Command, Args: append([]string{}, config.Args...), Enabled: &enabled, Exposure: codingagent.MCPExposureDeferred}
 	result.Env = map[string]string{}
 	for key, value := range config.Env {
 		result.Env[key] = value
@@ -265,7 +292,23 @@ func (s *Service) connectMCP(ctx context.Context, duringRun bool) error {
 	defer cancel()
 	closeMCPRuntime(old)
 	runtime := codingagent.NewMCPRuntime(codingagent.MCPRuntimeOptions{ClientName: "pith-desk", ClientVersion: "1",
-		TransportFactory: safeMCPTransport,
+		TransportFactory: func(config codingagent.MCPServerConfig) (mcp.Transport, error) {
+			if config.Type != "http" {
+				return safeMCPTransport(config)
+			}
+			var saved savedMCP
+			s.mu.Lock()
+			for _, candidate := range s.mcpConfigs {
+				if candidate.Name == config.Name {
+					saved = candidate
+				}
+			}
+			s.mu.Unlock()
+			if !saved.OAuth {
+				return safeMCPTransport(config)
+			}
+			return mcp.NewStreamableHTTPTransport(config.URL, &mcp.HTTPOptions{AuthProvider: newMCPTokenProvider(saved, s.mcpOAuthStore(saved))}), nil
+		},
 		OnError: func(_ string, _ error) {
 			// Pith's runtime supplies connection status diagnostics. Avoid logging
 			// raw transport errors, which may contain echoed HTTP credentials.
@@ -391,6 +434,15 @@ func (s *Service) redactMCPLocked(text string) string {
 	text = redact(text, s.config.APIKey)
 	for _, config := range s.mcpConfigs {
 		text = redact(text, config.BearerToken)
+		if state, err := s.mcpOAuthStore(config).Load(); err == nil && state != nil {
+			if state.Tokens != nil {
+				text = redact(text, state.Tokens.AccessToken)
+				text = redact(text, state.Tokens.RefreshToken)
+			}
+			if state.ClientInformation != nil {
+				text = redact(text, state.ClientInformation.ClientSecret)
+			}
+		}
 		for _, value := range config.Env {
 			text = redact(text, value)
 		}

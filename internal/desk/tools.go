@@ -326,13 +326,12 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 	for _, definition := range s.mcpDefinitions() {
 		external[definition.Name] = true
 		definitions = append(definitions, definition)
-		names = append(names, definition.Name)
 	}
 	s.mu.Lock()
 	s.externalTools = external
 	s.mu.Unlock()
 	definitions[4].Description = "Find files by glob pattern inside the workspace. Directory symlinks and .git are excluded."
-	return codingagent.NewToolRegistry(policy.path, definitions, names, codingagent.AllToolNames,
+	registry, err := codingagent.NewToolRegistry(policy.path, definitions, names, codingagent.AllToolNames,
 		codingagent.ToolHooks{Before: func(ctx context.Context, call codingagent.ToolCall) error {
 			if external[call.Name] {
 				return s.requestApproval(ctx, call)
@@ -348,7 +347,7 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 				if _, err := policy.checked(args.Path); err != nil {
 					return err
 				}
-			case "run_command":
+			case "run_command", codingagent.CodemodeToolName, codingagent.ToolSearchToolName:
 			default:
 				return errors.New("This tool is not enabled in Pith Desk")
 			}
@@ -358,6 +357,35 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 			}
 			return ctx.Err()
 		}})
+	if err != nil {
+		return nil, err
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			_ = registry.CloseTools()
+		}
+	}()
+	search, err := codingagent.CreateToolSearchTool(registry)
+	if err != nil {
+		return nil, err
+	}
+	if err = registry.Register(search); err != nil {
+		return nil, err
+	}
+	code, err := codingagent.NewCodemodeTool(registry, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err = registry.Register(code); err != nil {
+		return nil, err
+	}
+	names = append(names, codingagent.ToolSearchToolName, codingagent.CodemodeToolName)
+	if err = registry.SetActive(names); err != nil {
+		return nil, err
+	}
+	complete = true
+	return registry, nil
 }
 
 func (s *Service) requestApproval(ctx context.Context, call codingagent.ToolCall) error {

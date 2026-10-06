@@ -12,6 +12,7 @@ jobs:
     runs-on: macos-latest
     env:
       CGO_ENABLED: '0'
+      GOWORK: 'off'
       GOMAXPROCS: '4'
     steps:
       - uses: actions/checkout@v4

@@ -1,29 +1,41 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-This preview simplifies model setup and workspace navigation:
+This preview connects more of Pith's existing SDK capabilities:
 
-- Configure provider connections in Settings. Default API URLs are filled in;
-  endpoint overrides live under advanced settings. Saved credentials stay
-  separate for each provider and endpoint.
-- Choose a model and its supported thinking effort in the message composer.
-  Models, capabilities and protocol adapters come from the Pith SDK.
-- Conversations appear beneath their workspace folders. Each folder has a
-  new-conversation button; conversation menus offer rename, export and delete.
-- Delete a conversation to remove its saved history, image attachments and run
-  records. Remove a workspace to unlink it and delete all its conversations.
-  Both actions require confirmation and leave workspace files and exported
-  documents untouched. Archive/restore is no longer offered.
-- Duplicate workspace/model controls and the Local badge are removed. Connection
-  status appears only while reconnecting.
+- Add independent compatible model connections in Settings. Official OpenAI and
+  multiple compatible endpoints can coexist with separate models and credentials.
+- Sign in through Pith's OAuth flow where the model provider supports it. HTTP
+  MCP connections can also use OAuth discovery, PKCE and token refresh.
+- View and edit workspace instructions, skills and prompt templates using Pith's
+  discovery and expansion. Inherited instruction files remain read-only.
+- Branch below a saved assistant reply, or select a saved node from the
+  conversation menu. Branches preserve history without undoing file changes.
+- Use **Compact** to summarize context while preserving recent messages and
+  saved history. This sends a metered model request.
+- MCP tool search and deferred schemas are enabled. Connections still discover
+  their catalog; only needed tool descriptions are exposed to the model.
+- Codemode is enabled for the agent to choose automatically. Nested tool calls
+  keep the same workspace checks and approval policy as direct calls.
+- Pith Durable saves admitted tasks and pending queued text/images. After an
+  interruption, review and continue explicitly from saved history. Individual
+  commands and remote effects are not automatically replayed.
+- Estimated USD costs share the existing token statistics, with request details
+  and saved rates. Prices come from the bundled SDK catalog or your custom
+  rates; there is no pricing-service or exchange-rate dependency. Unknown and
+  older unrecorded costs remain distinguishable from known zero prices.
+- User messages align right, replies align left, and tool calls collapse into
+  compact groups. Image attachments appear above content-sized text bubbles;
+  mixed portrait and landscape previews keep their proportions.
 
-This preview includes model connection checks, session token/context status,
-failure guidance, explicit task continuation and metadata-only diagnostic
-exports, alongside workspaces, file tools, skills, MCP and saved conversations.
+Workspace folders still group their conversations, with folder-level creation
+and conversation rename/export/delete actions. Removing a workspace unlinks it
+and deletes its conversations, cost records and task journals, while leaving
+workspace files and exported documents untouched.
 
 Mac downloads are Apple Silicon only. The embedded Pith SDK preserves queued
 inputs across retries and session rebuilds. Image selection, paste/drop,
-previews, queued image inputs
-and persistent image history are now included. PNG, JPEG, GIF and WebP uploads
+previews, queued image inputs and persistent image history are included.
+PNG, JPEG, GIF and WebP uploads
 must total 20 MiB or less per message; provider limits may be lower. Images
 require an image-capable model and are sent to the configured provider.
 

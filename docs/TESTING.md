@@ -3,21 +3,39 @@
 ## Automated checks
 
 ```sh
-npm run build:ui
-CGO_ENABLED=0 go test ./...
-CGO_ENABLED=0 go vet ./...
-CGO_ENABLED=1 go test -race ./internal/...
+GOWORK=off npm run build:ui
+GOWORK=off CGO_ENABLED=0 go test ./...
+GOWORK=off CGO_ENABLED=0 go vet ./...
+GOWORK=off CGO_ENABLED=1 go test -race ./internal/...
 ```
 
 The race detector needs CGO in the development toolchain. Normal application
 and release builds keep CGO disabled. No live model key is needed for these
-tests: local provider and MCP fixtures exercise the actual pinned Pith APIs.
+tests: local provider and MCP fixtures exercise the Pith APIs. Tests use the
+published Pith revision pinned in `go.mod`, without a sibling checkout; see
+[SDK dependency validation](SDK_FEATURES.md#versioned-sdk-dependency).
 
 The tests cover queue consumption and cancellation, completion races, private
 MCP settings and explicit process environments, MCP cancellation and reconnect,
 canonical session titles, deletion/recovery, Markdown exports, resource discovery,
 generated-file evidence, and authenticated native actions. Existing workspace
 and permission tests remain part of the suite.
+
+## SDK integration regression tests
+
+`internal/desk/sdk_features_test.go` uses temporary data/workspace directories
+and local SSE/MCP fixtures. It checks independent compatible providers, credential
+scoping and restart, empty-key local endpoints, immutable cost snapshots,
+unknown-price handling, manual compression with metered summaries, Code mode
+nested approvals and path boundaries, deferred MCP schemas, resource editing,
+branch switching, mocked SDK OAuth credential persistence, endpoint-scoped MCP
+tokens, a complete local SDK MCP OAuth discovery/PKCE/callback/exchange flow with invalid-state rejection and cancellation, durable queue/image recovery beyond one pagination page, and actual shutdown/restart with reviewed queue continuation.
+
+The pinned Pith revision includes regression tests for retaining composed model
+metadata and refreshing deferred tool schemas in the next session turn. No live
+model or identity-provider credentials are used. Live vendor OAuth and actual
+MCP authorization-server compatibility still need account-backed smoke tests;
+the mocked flow verifies host integration, not vendor availability.
 
 ## Native smoke test
 
@@ -55,6 +73,19 @@ workspace. Keep its model and connection settings separate from everyday data.
    explicitly or when the next task starts.
 
 ## Latest verification
+
+The rc.7 candidate pins published Pith revision `f24ef2b34be0`. With `GOWORK=off`,
+the complete frontend/Go tests, vet and internal race checks passed. The ARM64
+app embeds that exact SDK revision with CGO disabled, and its ad-hoc signature
+verified. Pith's macOS/Linux CI passed, including full race checks.
+
+An isolated native test bundle with a distinct bundle identifier and disposable
+data verified cold launch, provider OAuth controls, a local compatible endpoint's
+streaming/tool probe, a real guarded README read through Pith, Stop, and restored
+history/status/cost totals after restart. Markdown export and diagnostics native
+save dialogs both returned normally on Cancel. No live model provider or identity
+provider was contacted. Gitleaks found no secrets in the intended source tree;
+both npm dependency audits reported zero vulnerabilities.
 
 On 2026-10-05, the delete/remove implementation passed the CGO-disabled project
 tests and vet checks, plus race checks. An isolated browser preview verified
@@ -202,3 +233,108 @@ Manual UI checks:
 
 The development browser check uses its own data directory and fixture keys;
 no live provider request or user settings are needed.
+
+## Unreleased SDK batch verification (2026-10-06)
+
+The local Pith override passed the full coding-agent package suite. Desk passed
+CGO-disabled package tests and vet, TypeScript checking, the production UI build,
+and targeted race checks for custom connections, Code mode, deferred MCP,
+OAuth, durable recovery and manual compression. The ARM64 application bundle
+was rebuilt locally with CGO disabled.
+
+An isolated Playwright browser preview and local SSE provider exercised adding
+an empty-key custom connection with rates, selecting its model, streaming a
+reply, viewing the request ledger, continuing from a history node, and creating
+and using SDK resources. Screenshots are development evidence under ignored
+`output/playwright/`, not captures of real user conversations. The browser check
+found an HTML pattern issue in the resource editor; the corrected editor saved
+a hyphenated skill name without browser errors. Light and Dark layouts were
+inspected, and incomplete custom price input was rejected rather than silently
+treating missing categories as free.
+
+Live vendor OAuth, a real external MCP OAuth server, and Linux desktop runtime
+compatibility are not established by these fixtures. Release checks must be
+repeated with the published SDK dependency and `GOWORK=off`.
+
+## Inline branching and message layout (2026-10-06)
+
+Saved user messages and settled replies expose their Pith history node IDs to
+the inline branch action. A regression rejects branch targets inside unfinished
+tool exchanges. Existing sibling-branch and restart tests still pass, as do the
+CGO-disabled full suite, vet, frontend build and ARM64 app packaging.
+
+An isolated browser fixture verified inline branching, preservation of an
+unsent draft, composer focus, and restoring the later messages through the
+history browser. Light, Dark and 560-pixel layouts were inspected. Image history
+loaded after restart, remained aligned to the right, and kept its branch action
+below the image without horizontal overflow. Screenshots are retained under
+ignored `output/playwright/message-*.png`. No live model request was needed.
+
+## Grouped tool activity (2026-10-06)
+
+Consecutive tool calls now share a collapsed summary with call, running and
+failure counts. Expanding it reveals the original per-call results. Stable SDK
+tool-call IDs keep individual expansion state when transient messages become
+saved transcript entries; group state also survives streaming refreshes.
+
+The browser fixture grouped 11 consecutive calls separately from a later
+single call. WebSocket fixture updates verified expansion preservation across
+live/saved ID changes and that a manually closed group stays closed. Keyboard
+toggling, visible failure counts, escaped tool output and a 560-pixel layout
+passed without browser errors. Screenshots are under ignored
+`output/playwright/tool-groups-*.png`. This fixture did not run commands or
+contact a model provider. Full CGO-disabled tests, vet, the frontend build,
+ARM64 app packaging and ad-hoc signature verification passed afterward.
+
+## Inline request costs (2026-10-06)
+
+Costs now share the original run statistics instead of a separate button and
+modal. Regression tests verify the snapshot matches immutable ledger totals,
+latest-task totals reset, restart and conversation switching rebuild from the
+ledger, and corrupt cost data does not prevent opening conversation history.
+
+An isolated browser fixture checked the summary amount, inline totals and
+request breakdown, no cost button or open dialog, lazy ledger loading and
+preserved rate disclosure during streamed updates. Unknown, unrecorded, partial,
+free and unavailable states were checked separately. At 560 pixels, the details
+scroll within the statistics and the composer stays visible without document
+overflow. There were no browser console errors. Screenshots are under ignored
+`output/playwright/inline-costs-*.png`; no live provider or user data was used.
+CGO-disabled full Go tests, vet, the frontend build, ARM64 packaging and ad-hoc
+signature verification passed. This remains a local, unreleased build.
+
+The header follow-up leaves one labelled Compact button with an inward-arrow
+icon; the active conversation's menu holds the history browser. A browser
+fixture verified the single header action, the relocated history browser and
+the compact request payload (intercepted without contacting a model provider),
+with no console errors. TypeScript/UI checks and ARM64 app packaging passed.
+
+Message labels and avatars were removed after left/right alignment made them
+redundant. Browser fixtures verified commentary/tool/result order, a tool-first
+reply, branch actions, the plain working indicator and screen-reader message
+names. Reply text and tools share the same left edge on wide and 560-pixel
+layouts, without document overflow or console errors. Light/Dark screenshots
+are retained under ignored `output/playwright/messages-*.png`. The frontend and
+ARM64 app were rebuilt; no provider call or user conversation was used.
+
+Inline branch actions are now limited to saved assistant replies. A browser
+fixture with two user messages and two settled replies verified zero user-row
+branch buttons and two reply-row buttons, with no console errors. TypeScript/UI
+checks and ARM64 app packaging passed. The SDK history browser still exposes
+saved nodes; the underlying branch semantics are unchanged.
+
+The dark message-bubble follow-up uses a brighter neutral fill without a visible
+outline. Browser checks confirmed explicit Light/Dark preferences win over the
+opposite OS preference, System follows both OS palettes, and narrow layouts have
+no document overflow. No console errors were observed. TypeScript/UI checks and
+ARM64 app packaging passed; the fixture screenshot is retained under ignored
+`output/playwright/bubble-contrast-dark.png`.
+
+Attachment messages now place the image gallery above a content-sized text
+bubble, with both aligned right. An isolated browser fixture checked short and
+long text, image-only messages, mixed portrait/landscape images and 560-pixel
+layouts. Previews preserve their individual aspect ratios and do not stretch to
+the tallest image in a row. No document overflow or browser console errors were
+observed. TypeScript/UI checks and ARM64 app packaging passed. Screenshots are
+retained under ignored `output/playwright/attachment-layout-*.png`; no live
+provider or user conversation was used. This remains a local, unreleased build.

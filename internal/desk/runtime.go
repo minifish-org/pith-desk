@@ -2,6 +2,7 @@ package desk
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
@@ -50,9 +51,16 @@ func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageCon
 		return err
 	}
 	message := QueuedMessage{ID: newID(), Text: text, Mode: QueueMode(mode), Images: images, ImageCount: len(images)}
+	if err := s.durableQueueLocked("desk.queue", message); err != nil {
+		return err
+	}
 	s.state.QueuedMessages = append(s.state.QueuedMessages, message)
 	if s.queueReady && s.session != nil {
 		if err := s.dispatchMessageLocked(message); err != nil {
+			if rollbackErr := s.durableQueueLocked("desk.delivered", message); rollbackErr != nil {
+				s.changedLocked()
+				return fmt.Errorf("Message saved for recovery but not queued: %w; %v", err, rollbackErr)
+			}
 			s.state.QueuedMessages = s.state.QueuedMessages[:len(s.state.QueuedMessages)-1]
 			return err
 		}
@@ -99,12 +107,14 @@ func (s *Service) observeQueuedMessageLocked(event codingagent.SessionEvent) {
 		s.dispatchQueueLocked()
 		return
 	}
-	text := event.Message.Message.User.Content.Text + blockText(event.Message.Message.User.Content.Blocks)
-	// Pith prioritizes steering over follow-up. Remove one matching accepted
-	// message, retaining identical messages that are still in the queue.
+	// Pith accepts steering FIFO before follow-up FIFO. Match that order rather
+	// than raw text: SDK skill/template expansion changes the accepted text.
 	for _, mode := range []QueueMode{QueueSteer, QueueFollowUp} {
 		for i, message := range s.state.QueuedMessages {
-			if message.Mode == mode && message.Text == text && sameImages(message.Images, event.Message.Message.User.Content.Blocks) && s.queueDispatched[message.ID] {
+			if message.Mode == mode && sameImages(message.Images, event.Message.Message.User.Content.Blocks) && s.queueDispatched[message.ID] {
+				if err := s.durableQueueLocked("desk.delivered", message); err != nil {
+					s.state.Error = err.Error()
+				}
 				delete(s.queueDispatched, message.ID)
 				s.state.QueuedMessages = append(s.state.QueuedMessages[:i], s.state.QueuedMessages[i+1:]...)
 				return

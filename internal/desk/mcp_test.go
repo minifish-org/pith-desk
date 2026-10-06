@@ -107,6 +107,22 @@ func TestMCPAutoConnectUsesPithAndSeparateExternalPermissions(t *testing.T) {
 			t.Error("connected MCP tool was not exposed through Pith")
 		}
 		startSSE(w)
+		// Deferred tools become model-visible after the SDK's search tool.
+		var declarations []struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		}
+		_ = json.Unmarshal(tools, &declarations)
+		exposed := false
+		for _, tool := range declarations {
+			exposed = exposed || tool.Function.Name == "mcp__office__echo"
+		}
+		if !exposed {
+			sse(w, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "search-external", "type": "function", "function": map[string]any{"name": "tool_search", "arguments": `{"query":"echo"}`}}}}}}})
+			finishSSE(w, "tool_calls")
+			return
+		}
 		if number := requests.Add(1); number%2 == 1 {
 			sse(w, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("external-%d", number), "type": "function", "function": map[string]any{"name": "mcp__office__echo", "arguments": `{"path":"/external/server/document","text":"hello"}`}}}}}}})
 			finishSSE(w, "tool_calls")
@@ -182,7 +198,7 @@ func TestMCPAutoConnectUsesPithAndSeparateExternalPermissions(t *testing.T) {
 	if _, err := registry.ExecuteNested(context.Background(), codingagent.ToolCall{Name: "mcp__office__unknown", Arguments: json.RawMessage(`{}`)}); err == nil {
 		t.Fatal("unknown external tool bypassed the allowlist")
 	}
-	_, err = registry.Execute(context.Background(), codingagent.ToolCall{Name: "mcp__office__fail", Arguments: json.RawMessage(`{}`)})
+	_, err = registry.ExecuteNested(context.Background(), codingagent.ToolCall{Name: "mcp__office__fail", Arguments: json.RawMessage(`{}`)})
 	if err == nil || strings.Contains(err.Error(), "private-mcp-token") {
 		t.Fatalf("raw MCP error leaked credentials: %v", err)
 	}
@@ -331,7 +347,7 @@ func TestMCPToolCallAbortCancelsHTTPAndCanReconnect(t *testing.T) {
 	}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startSSE(w)
-		sse(w, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "slow-external", "type": "function", "function": map[string]any{"name": "mcp__slow__echo", "arguments": `{}`}}}}}}})
+		sse(w, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "slow-external", "type": "function", "function": map[string]any{"name": "codemode", "arguments": `{"code":"return await tools.mcp__slow__echo({});"}`}}}}}}})
 		finishSSE(w, "tool_calls")
 	}))
 	t.Cleanup(provider.Close)
@@ -401,14 +417,14 @@ func TestMCPStdioUsesExplicitEnvironmentAndCleansUp(t *testing.T) {
 	if err := s.SetPermissionMode(s.Snapshot().ActiveID, PermissionFullAccess); err != nil {
 		t.Fatal(err)
 	}
-	result, err := registry.Execute(ctx, codingagent.ToolCall{Name: "mcp__stdio__env", Arguments: json.RawMessage(`{}`)})
+	result, err := registry.ExecuteNested(ctx, codingagent.ToolCall{Name: "mcp__stdio__env", Arguments: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if text := blockText(result.Content); text != "true|true|false|false" {
 		t.Fatalf("MCP inherited ambient secrets or lost explicit credentials: %q", text)
 	}
-	_, err = registry.Execute(ctx, codingagent.ToolCall{Name: "mcp__stdio__fail", Arguments: json.RawMessage(`{}`)})
+	_, err = registry.ExecuteNested(ctx, codingagent.ToolCall{Name: "mcp__stdio__fail", Arguments: json.RawMessage(`{}`)})
 	if err == nil || strings.Contains(err.Error(), "stdio-only-secret") {
 		t.Fatalf("configured environment credential leaked through MCP error: %v", err)
 	}

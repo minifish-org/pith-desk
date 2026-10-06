@@ -54,6 +54,14 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 		w.Header().Set("Content-Type", mime)
 		_, _ = w.Write(data)
 		return true
+	case "/api/history":
+		value, err = s.service.History(r.URL.Query().Get("id"))
+	case "/api/costs":
+		value, err = s.service.Costs(r.URL.Query().Get("id"))
+	case "/api/resource-content":
+		value, err = s.service.ResourceContent(r.URL.Query().Get("workspaceId"), r.URL.Query().Get("path"))
+	case "/api/custom-connection":
+		value, err = s.service.CustomConnection(r.URL.Query().Get("id"))
 	case "/api/models":
 		value, err = s.service.Models(r.URL.Query().Get("provider"))
 	case "/api/resources":
@@ -93,6 +101,63 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, decode func(any) error) bool {
 	var err error
 	switch r.URL.Path {
+	case "/api/custom-connection":
+		var in desk.CustomConnectionInput
+		if err = decode(&in); err == nil {
+			err = s.service.SaveCustomConnection(in)
+		}
+	case "/api/remove-model-connection":
+		var in struct {
+			ID string `json:"id"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.RemoveModelConnection(in.ID)
+		}
+	case "/api/resource":
+		var in desk.ResourceInput
+		if err = decode(&in); err == nil {
+			err = s.service.SaveResource(in)
+		}
+	case "/api/branch":
+		var in struct {
+			ID     string `json:"id"`
+			NodeID string `json:"nodeId"`
+			Before bool   `json:"before"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.BranchConversation(in.ID, in.NodeID, in.Before)
+		}
+	case "/api/compact":
+		var in struct {
+			ID string `json:"id"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.CompactConversation(in.ID)
+		}
+	case "/api/oauth/start":
+		var in struct {
+			Provider string `json:"provider"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.StartOAuth(in.Provider)
+		}
+	case "/api/oauth/answer":
+		var in struct {
+			ID     string `json:"id"`
+			Answer string `json:"answer"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.AnswerOAuth(in.ID, in.Answer)
+		}
+	case "/api/oauth/cancel":
+		s.service.CancelOAuth()
+	case "/api/oauth/logout":
+		var in struct {
+			Provider string `json:"provider"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.LogoutOAuth(in.Provider)
+		}
 	case "/api/provider-config":
 		var in desk.ProviderConnectionInput
 		if err = decode(&in); err == nil {
@@ -256,6 +321,17 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 				default:
 					err = errors.New("Choose open or reveal")
 				}
+			}
+		}
+	case "/api/mcp/oauth/start", "/api/mcp/oauth/logout":
+		var in struct {
+			Name string `json:"name"`
+		}
+		if err = decode(&in); err == nil {
+			if r.URL.Path == "/api/mcp/oauth/start" {
+				err = s.service.StartMCPOAuth(in.Name)
+			} else {
+				err = s.service.LogoutMCPOAuth(in.Name)
 			}
 		}
 	case "/api/mcp/save":

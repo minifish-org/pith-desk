@@ -4,13 +4,20 @@ End users download an application, not a source checkout. Mac packages target
 Apple Silicon (ARM64) and contain the embedded UI, dependency notices and the
 Pith library. Go, Node.js and npm are development requirements only.
 
+## SDK dependency validation
+
+Pith is pinned to a published revision in `go.mod`, including the SDK fixes used
+by this preview. Run all checks with `GOWORK=off` to verify that versioned library
+without an ignored local workspace override. The CI workflows set this explicitly.
+See [the SDK dependency](SDK_FEATURES.md#versioned-sdk-dependency).
+
 ## Local preview
 
 After installing development dependencies:
 
 ```sh
-npm run check
-npm run release:preview
+GOWORK=off npm run check
+GOWORK=off npm run release:preview
 ```
 
 The output is `build/releases/pith-desk-0.1.0-macos-arm64-preview.zip`,

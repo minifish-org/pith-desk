@@ -10,7 +10,9 @@ These controls address access from other websites. They do not protect against m
 
 ## Model credentials and data
 
-Settings and session files are stored locally. API credentials are kept in a private local settings file; this release does not use Keychain. Public state and model catalogs expose only a `hasApiKey` flag for credentials. Each provider retains a separate saved connection; its key is reused only for the same provider and endpoint. Changing the endpoint clears the active key unless a new key is entered explicitly. Credentials are not returned to the frontend or included in command-tool environments. MCP bearer tokens and explicit environment overrides are stored separately in private `mcp.json`; public configuration exposes only whether a token is present and the saved environment key names. Avoid selecting the application data directory as a workspace.
+Settings and session files are stored locally. API credentials are kept in a private local settings file; this release does not use Keychain. Public state exposes only readiness/sign-in flags for credentials, never the saved keys or OAuth tokens. Each provider retains a separate saved connection; its key is reused only for the same provider and endpoint. Changing the endpoint clears the active key unless a new key is entered explicitly. Credentials are not returned to the frontend or included in command-tool environments. MCP bearer tokens and explicit environment overrides are stored separately in private `mcp.json`; public configuration exposes only whether a token is present and the saved environment key names. Avoid selecting the application data directory as a workspace.
+
+Model OAuth credentials are stored through Pith in private `auth.json`; MCP OAuth state is scoped to the connection name and URL under `mcp-auth/`. The temporary MCP callback listens on loopback port 54819 during sign-in and checks the SDK-generated state before exchanging a code. It closes on completion or cancellation. OAuth model requests use the official provider endpoint, and refresh uses the SDK.
 
 Conversation content and tool results are sent to the endpoint you configure. Reading a workspace file can therefore disclose its contents to that model provider. Use a test folder first and select workspaces deliberately.
 
@@ -26,11 +28,13 @@ Permission choices are stored per conversation. **Allow workspace changes** auto
 
 This is application-level gating. It is not a filesystem sandbox, enterprise authorization gateway, network isolation system or a guarantee against all filesystem races. Those mechanisms require separate designs if the product's threat model expands.
 
+Code mode runs in the SDK's existing JavaScript/WASM runtime. Every nested tool call passes through the same hooks as a direct call. It does not grant raw file access, bypass approvals, or sandbox the commands and MCP servers called through it. Tool search exposes deferred MCP schemas on demand; searching is not permission to execute an external call.
+
 ## External tools and native file actions
 
-MCP servers are external programs or services selected by the user. They have their own access and may read or change data beyond a workspace. The workspace file policy does not confine them. Local servers receive essential process variables and the overrides explicitly configured for that server, not the application's full ambient environment. Only registered tools from enabled connections are exposed, and external calls use a separate approval path. Configuration changes cannot replace tools during a running task. Connections are closed on application shutdown.
+MCP servers are external programs or services selected by the user. They have their own access and may read or change data beyond a workspace. The workspace file policy does not confine them. Local servers receive essential process variables and the overrides explicitly configured for that server, not the application's full ambient environment. Only registered tools from enabled connections are exposed through deferred discovery, and external calls use a separate approval path. Configuration changes cannot replace tools during a running task. Connections are closed on application shutdown.
 
-Generated-file Open and Reveal actions accept only successful recorded write/edit results that still resolve to regular files inside the workspace. Resource actions accept only instruction and skill files discovered by Pith, including inherited instruction files. Both paths exclude private application storage; arbitrary model-generated links do not gain native file access. Opening a file invokes its system-associated application and does not serve it as web content.
+Generated-file Open and Reveal actions accept only successful recorded write/edit results that still resolve to regular files inside the workspace. Resource actions accept only instruction, skill and prompt files discovered by Pith, including inherited instruction files. The built-in editor may only mutate project resources inside the selected workspace; inherited instructions remain read-only. Both paths exclude private application storage; arbitrary model-generated links do not gain native file access. Opening a file invokes its system-associated application and does not serve it as web content.
 
 Markdown exports use a native save dialog in the desktop app, or an authenticated download in browser preview. They may include local file contents and tool results, so keep them with the same care as the original conversation. Deleting a conversation does not remove previously exported documents.
 
@@ -48,21 +52,18 @@ No conversation text, titles, file contents, paths, endpoint URLs, raw errors,
 tool arguments or keys are exported. Session token totals and aggregate counts
 are included. Native saves require a destination chosen by the user.
 
-Task continuation is a user-initiated new prompt over persisted history. It does
-not promise exactly-once execution of external effects, roll back changes or
-automatically resume a crashed task. Review uncertain effects before continuing.
+Task admission, settlement and pending queued text/images are stored with Pith Durable. Shutdown preserves unfinished tasks for reviewed continuation. Task continuation is a user-initiated new prompt over persisted history; it does not promise exactly-once execution, roll back changes, resume an interrupted model stream or automatically replay external effects. Branch changes also do not undo effects. Review uncertain operations before continuing. Request cost JSONL files contain usage and rate snapshots, not conversation text.
 
 ## Deleting local application data
 
-Conversation deletion removes only its session transcript (including inline images)
-and run receipt. Workspace removal also removes its catalog association and all
+Conversation deletion removes only its session transcript (including inline images), run receipt, request cost ledger and durable journal. Workspace removal also removes its catalog association and all
 its conversations. Neither operation deletes workspace files or exported documents.
 The API requires the same loopback host, origin and bearer-token checks as other
 mutations, and rejects changes while a task is running or a connection probe is
 active. Workspace removal checks the conversation count shown in the confirmation.
 
 Filesystem cleanup uses Go's `os.Root` to stay inside the private application data
-directory and never recursively removes unexpected directories. A persisted
+directory and recursively removes only the expected per-conversation durable directory; unexpected directories at transcript, receipt or cost-file paths are rejected. A persisted
 delete-intent journal allows startup to finish committed cleanup after an
 interruption. The catalog decides whether a deletion committed; referenced
 conversations are preserved. Disk errors are surfaced and the journal is retained

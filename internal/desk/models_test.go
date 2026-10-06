@@ -33,8 +33,10 @@ func TestModelCatalogUsesSDKCapabilitiesAndDoesNotExposeCredentials(t *testing.T
 			t.Errorf("missing native provider %s", provider)
 		}
 	}
-	if providers["openai-codex"] {
-		t.Fatal("OAuth provider advertised as API-key connection")
+	for _, provider := range catalog.Providers {
+		if provider.ID == "openai-codex" && !provider.OAuth {
+			t.Fatal("OAuth provider must advertise its login method")
+		}
 	}
 	for _, model := range catalog.Models {
 		if model.Provider == "deepseek" && model.ID == "deepseek-flash" {

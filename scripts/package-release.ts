@@ -17,7 +17,7 @@ const root = resolve(import.meta.dirname, '..');
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) throw new Error('Use a numeric three-part app version; release tags may have prerelease suffixes.');
 function run(command: string, args: string[], capture = false): string {
-  const result = spawnSync(command, args, { cwd: root, env: { ...process.env, CGO_ENABLED: '0' }, encoding: 'utf8', stdio: capture ? 'pipe' : 'inherit' });
+  const result = spawnSync(command, args, { cwd: root, env: { ...process.env, CGO_ENABLED: '0', GOWORK: 'off' }, encoding: 'utf8', stdio: capture ? 'pipe' : 'inherit' });
   if (result.error || result.status !== 0) throw new Error(`${command} failed (${result.status}): ${capture ? result.stderr : 'see output above'}`);
   return capture ? result.stdout.trim() : '';
 }

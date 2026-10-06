@@ -14,3 +14,7 @@ dist/
 # Local UI test captures
 .playwright-cli/
 output/playwright/
+
+# Local SDK integration; releases pin a published Pith revision.
+go.work
+go.work.sum

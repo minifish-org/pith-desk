@@ -10,9 +10,9 @@ import (
 )
 
 type InstructionResource struct {
+	Content string `json:"content"`
 	Name    string `json:"name"`
 	Path    string `json:"path"`
-	Content string `json:"content"`
 }
 
 type SkillResource struct {
@@ -25,6 +25,7 @@ type ResourceInventory struct {
 	WorkspaceID  string                `json:"workspaceId"`
 	Instructions []InstructionResource `json:"instructions"`
 	Skills       []SkillResource       `json:"skills"`
+	Templates    []SkillResource       `json:"templates"`
 	Diagnostics  []string              `json:"diagnostics"`
 }
 
@@ -74,6 +75,14 @@ func (s *Service) resourcesLocked(workspaceID string) (ResourceInventory, error)
 			continue
 		}
 		inventory.Skills = append(inventory.Skills, SkillResource{Name: skill.Name, Path: canonical, Description: skill.Description})
+	}
+	inventory.Templates = []SkillResource{}
+	for _, template := range loaded.Templates {
+		canonical, err := checkedResourceFile(template.File, s.dataDir)
+		if err != nil || !within(workspace.Path, canonical) {
+			continue
+		}
+		inventory.Templates = append(inventory.Templates, SkillResource{Name: template.Name, Path: canonical, Description: template.Description})
 	}
 	return inventory, nil
 }
@@ -144,7 +153,12 @@ func (s *Service) ResolveResourceFile(workspaceID, path string) (string, error) 
 			return canonical, nil
 		}
 	}
-	return "", errors.New("Open a discovered instruction or skill file from this workspace")
+	for _, resource := range inventory.Templates {
+		if resource.Path == canonical {
+			return canonical, nil
+		}
+	}
+	return "", errors.New("Open a discovered instruction, skill, or template from this workspace")
 }
 
 func checkedResourceFile(path, dataDir string) (string, error) {

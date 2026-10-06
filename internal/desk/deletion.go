@@ -54,7 +54,7 @@ func conversationDataFiles(ids []string) ([]string, error) {
 		if id == "" || id == "." || id == ".." || filepath.Base(id) != id || strings.ContainsAny(id, `/\`) {
 			return nil, errors.New("Invalid conversation ID for deletion")
 		}
-		files = append(files, filepath.Join("sessions", id+".jsonl"), filepath.Join("runs", id+".json"))
+		files = append(files, filepath.Join("sessions", id+".jsonl"), filepath.Join("runs", id+".json"), filepath.Join("costs", id+".jsonl"), filepath.Join("durable", id))
 	}
 	return files, nil
 }
@@ -68,7 +68,7 @@ func checkDeletionFiles(root *os.Root, files []string) error {
 		if err != nil {
 			return err
 		}
-		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 && !(filepath.Dir(file) == "durable" && info.IsDir()) {
 			return fmt.Errorf("Conversation data is not a regular file: %s", file)
 		}
 	}
@@ -167,7 +167,7 @@ func (s *Service) cleanupDeletionsLocked() error {
 	}
 	var failures []error
 	for _, file := range files {
-		if err := root.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := root.RemoveAll(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 			failures = append(failures, err)
 		}
 	}

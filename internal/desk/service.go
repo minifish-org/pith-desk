@@ -87,12 +87,14 @@ func (mode PermissionMode) allows(tool string) bool {
 }
 
 type Message struct {
-	ID       string         `json:"id"`
-	Role     string         `json:"role"`
-	Text     string         `json:"text"`
-	ToolName string         `json:"toolName,omitempty"`
-	Status   string         `json:"status,omitempty"`
-	Images   []MessageImage `json:"images,omitempty"`
+	ID           string         `json:"id"`
+	Role         string         `json:"role"`
+	Text         string         `json:"text"`
+	ToolName     string         `json:"toolName,omitempty"`
+	ToolCallID   string         `json:"toolCallId,omitempty"`
+	Status       string         `json:"status,omitempty"`
+	Images       []MessageImage `json:"images,omitempty"`
+	BranchNodeID string         `json:"branchNodeId,omitempty"`
 }
 
 type Approval struct {
@@ -103,6 +105,7 @@ type Approval struct {
 }
 
 type State struct {
+	Login           *LoginStatus    `json:"login,omitempty"`
 	Settings        Settings        `json:"settings"`
 	Workspaces      []Workspace     `json:"workspaces"`
 	Conversations   []Conversation  `json:"conversations"`
@@ -117,6 +120,7 @@ type State struct {
 }
 
 type savedConfig struct {
+	AuthPath      string                     `json:"-"`
 	Provider      string                     `json:"provider"`
 	ThinkingLevel string                     `json:"thinkingLevel"`
 	Connections   map[string]savedConnection `json:"connections,omitempty"`
@@ -133,6 +137,11 @@ type catalogState struct {
 }
 
 type Service struct {
+	durable          *deskDurable
+	recoveredInput   *durableInput
+	loginCancel      context.CancelFunc
+	loginDone        chan struct{}
+	loginAnswer      chan string
 	mu               sync.Mutex
 	dataDir          string
 	config           savedConfig
@@ -202,6 +211,7 @@ func New(dataDir string) (*Service, error) {
 	if err := readJSON(filepath.Join(abs, "settings.json"), &s.config); err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
+	s.config.AuthPath = filepath.Join(abs, "auth.json")
 	s.config.Appearance = normalizedAppearance(s.config.Appearance)
 	s.config = normalizedConfig(s.config)
 	if err := readJSON(filepath.Join(abs, "mcp.json"), &s.mcpConfigs); err != nil {
@@ -245,6 +255,11 @@ func (s *Service) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := s.state
+	if out.Login != nil {
+		login := *out.Login
+		login.Options = append([]LoginOption{}, login.Options...)
+		out.Login = &login
+	}
 	out.Settings.ThinkingLevels = append([]string{}, s.state.Settings.ThinkingLevels...)
 	out.Workspaces = append([]Workspace{}, s.state.Workspaces...)
 	out.Conversations = append([]Conversation{}, s.state.Conversations...)
@@ -386,11 +401,15 @@ func (s *Service) Send(text string, images ...aitypes.ImageContent) error {
 }
 
 func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error {
+	return s.startTaskLocked(text, images, false)
+}
+
+func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, compact bool) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
 	text = strings.TrimSpace(text)
-	if text == "" && len(images) == 0 {
+	if text == "" && len(images) == 0 && !compact {
 		return errors.New("Write a message or attach an image first")
 	}
 	index := s.conversationIndexLocked(s.state.ActiveID)
@@ -406,7 +425,7 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 	if err != nil || currentPath != workspace.Path {
 		return errors.New("The workspace has moved or is no longer available; add its current folder again")
 	}
-	if s.config.APIKey == "" {
+	if s.config.APIKey == "" && !s.config.Connections[s.config.Provider].UseOAuth && s.config.Connections[s.config.Provider].API == "" {
 		return errors.New("Save a model API key in Settings first")
 	}
 	model, err := resolveConfiguredModel(s.config)
@@ -417,7 +436,7 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 	if err != nil {
 		return err
 	}
-	if conversation.Title == "New conversation" {
+	if conversation.Title == "New conversation" && !compact {
 		title := []rune(strings.Split(text, "\n")[0])
 		if len(title) == 0 {
 			title = []rune("Image conversation")
@@ -432,19 +451,18 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 		s.state.Conversations[index] = conversation
 		return err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
 	previousRuntime, previousFailure := s.state.Runtime, s.state.Failure
-	s.runCancel = cancel
 	s.runDone = make(chan struct{})
 	s.state.Running = true
 	s.state.Failure = nil
 	s.state.Runtime.Phase, s.state.Runtime.Model, s.state.Runtime.ContextWindow = "starting", model.Id, model.ContextWindow
 	s.state.Runtime.Provider, s.state.Runtime.ThinkingLevel = s.config.Provider, s.config.ThinkingLevel
+	s.state.Runtime.RunID = newID()
+	s.state.Runtime.Cost.RunTotal, s.state.Runtime.Cost.RunRequests, s.state.Runtime.Cost.RunUnknownRequests = 0, 0, 0
 	s.state.Runtime.UpdatedAt = timestamp()
 	if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: s.state.Runtime}); err != nil {
 		s.state.Running = false
 		s.state.Runtime, s.state.Failure = previousRuntime, previousFailure
-		cancel()
 		s.runCancel = nil
 		close(s.runDone)
 		return err
@@ -454,7 +472,37 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 	s.queueClosing = false
 	s.state.Error = ""
 	s.changedLocked()
-	go s.run(ctx, s.runDone, conversation.ID, workspace, s.config, model, text, images)
+	done := s.runDone
+	journal, err := s.admitDurableLocked(conversation.ID, workspace, s.config, model, durableInput{RunID: s.state.Runtime.RunID, Text: text, Images: images, Compact: compact})
+	if err != nil {
+		s.state.Running = false
+		s.state.Runtime, s.state.Failure = previousRuntime, previousFailure
+		_ = writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: previousRuntime, Failure: previousFailure})
+		close(s.runDone)
+		s.runCancel = nil
+		return err
+	}
+	s.durable = journal
+	s.runCancel = func() { _, _ = journal.harness.AbortTask(context.Background(), journal.task) }
+	go func() {
+		runErr := journal.harness.Resume()
+		if runErr == nil {
+			_, runErr = journal.harness.WaitForTask(context.Background(), journal.task)
+		}
+		_ = journal.harness.Close(context.Background())
+		s.mu.Lock()
+		if s.durable == journal {
+			s.durable = nil
+		}
+		if runErr != nil && !s.closed {
+			s.state.Error = "Durable task: " + runErr.Error()
+		}
+		s.state.Running = false
+		s.runCancel = nil
+		close(done)
+		s.changedLocked()
+		s.mu.Unlock()
+	}()
 	return nil
 }
 
@@ -467,6 +515,9 @@ func (s *Service) Abort() {
 		// Invalidate the UI action immediately so a reply after Abort cannot
 		// create a lasting grant before that propagation completes.
 		s.state.PendingApproval, s.approval, s.approvalCtx = nil, nil, nil
+		if err := s.durableQueueLocked("desk.clear-queue", QueuedMessage{}); err != nil {
+			s.state.Error = err.Error()
+		}
 		s.clearQueueLocked()
 		s.queueClosing = true
 		s.changedLocked()
@@ -570,10 +621,18 @@ func (s *Service) Close() {
 	}
 	s.closed = true
 	cancel, done, mcpCancel := s.runCancel, s.runDone, s.mcpConnectCancel
+	journal := s.durable
 	probeCancel, probeDone := s.probeCancel, s.probeDone
 	s.clearQueueLocked()
 	s.queueClosing = true
+	loginCancel, loginDone := s.loginCancel, s.loginDone
 	s.mu.Unlock()
+	if loginCancel != nil {
+		loginCancel()
+	}
+	if loginDone != nil {
+		<-loginDone
+	}
 	if probeCancel != nil {
 		probeCancel()
 	}
@@ -583,7 +642,9 @@ func (s *Service) Close() {
 	if mcpCancel != nil {
 		mcpCancel()
 	}
-	if cancel != nil {
+	if journal != nil {
+		_ = journal.harness.Close(context.Background())
+	} else if cancel != nil {
 		cancel()
 	}
 	if done != nil {
@@ -597,7 +658,7 @@ func (s *Service) Close() {
 	close(s.closeDone)
 }
 
-func (s *Service) run(ctx context.Context, done chan struct{}, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent) {
+func (s *Service) run(ctx context.Context, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool) {
 	var manager *codingagent.SessionManager
 	var session *codingagent.AgentSession
 	var registry *codingagent.ToolRegistry
@@ -633,7 +694,6 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 			s.state.Error = "Task history was saved, but run status could not be saved: " + err.Error()
 		}
 		s.session, s.activeManager, s.runCancel = nil, nil, nil
-		s.state.Running = false
 		s.aborting = false
 		s.clearQueueLocked()
 		s.queueClosing = true
@@ -651,7 +711,6 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		}
 		s.changedLocked()
 		s.mu.Unlock()
-		close(done)
 	}()
 	if runErr = ctx.Err(); runErr != nil {
 		return
@@ -697,12 +756,28 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 	s.mu.Lock()
 	mode := s.permissionModeLocked()
 	s.mu.Unlock()
+	stream, streamErr := streamForConfig(ctx, config)
+	if streamErr != nil {
+		runErr = streamErr
+		return
+	}
+	s.mu.Lock()
+	runID := s.state.Runtime.RunID
+	s.mu.Unlock()
+	stream = s.meteredStream(ctx, id, runID, config, stream, func() string {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.state.Runtime.Phase == "compacting" {
+			return "compaction"
+		}
+		return "agent"
+	})
 	session, runErr = codingagent.CreateAgentSession(codingagent.SessionOptions{
 		Cwd: workspace.Path, Manager: manager, Tools: registry,
-		Model: codingagent.ModelOptions{Model: model, ThinkingLevel: thinking,
+		Model: codingagent.ModelOptions{Model: model, ThinkingLevel: thinking, StreamFn: stream,
 			APIKey: func(context.Context, string) (string, error) { return config.APIKey, nil }},
 		Resources: codingagent.ResourceOptions{Cwd: workspace.Path, SystemPrompt: deskPrompt(mode)},
-		Policy:    s.observedCompactionPolicy(model, config.APIKey),
+		Policy:    s.compactionWithStream(model, config.APIKey, stream),
 		OnProviderStreamEvent: func(data any, _ *aitypes.Model) error {
 			s.appendProviderText(data)
 			return ctx.Err()
@@ -721,7 +796,11 @@ func (s *Service) run(ctx context.Context, done chan struct{}, id string, worksp
 		s.observe(event, manager)
 	})
 	defer unsubscribe()
-	_, runErr = session.Prompt(ctx, text, codingagent.PromptOptions{Images: images})
+	if compact {
+		runErr = session.Compact(ctx)
+	} else {
+		_, runErr = session.Prompt(ctx, text, codingagent.PromptOptions{Images: images})
+	}
 	s.mu.Lock()
 	s.queueClosing = true
 	s.mu.Unlock()
@@ -743,6 +822,8 @@ Use write_file for new files and edit_file for existing content. File tools stay
 Use run_command only when file tools cannot complete the task. It runs with the user's OS permissions, without an OS sandbox.
 Do not attempt to read credentials or private application settings. Never claim a file was changed before its tool succeeds.
 Explain results concisely and name any files created or changed.
+Codemode is enabled. Use it when code can efficiently combine independent tool calls or filter structured results. Internal calls use the same permission checks.
+Use tool_search to discover MCP tools when needed; discovered tools can be called through codemode.
 Enabled MCP tools use names beginning with mcp__. They use the external server's permissions rather than the workspace file boundary. Ask and workspace-write modes require individual approval for every MCP call; full-access also authorizes the enabled MCP tools.
 The user can change permissions during a task; tools enforce the current selection. At the start of this task:
 ` + permission
@@ -791,7 +872,7 @@ func (s *Service) observe(event codingagent.SessionEvent, manager *codingagent.S
 		s.state.Runtime.Phase = "working"
 	case codingagent.SessionEventToolExecutionStart:
 		s.state.Runtime.Phase = "tool"
-		s.state.Messages = append(s.state.Messages, Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, Text: "Running…", Status: "running"})
+		s.state.Messages = append(s.state.Messages, Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, ToolCallID: event.ToolCallID, Text: "Running…", Status: "running"})
 	case codingagent.SessionEventToolExecutionEnd:
 		s.state.Runtime.Phase = "working"
 		if event.IsError {
@@ -863,13 +944,22 @@ func messagesFrom(manager *codingagent.SessionManager) []Message {
 		case msg.User != nil:
 			out.Text = msg.User.Content.Text + blockText(msg.User.Content.Blocks)
 			out.Images = messageImages(msg.User.Content.Blocks)
+			out.BranchNodeID = entry.ID
 		case msg.Assistant != nil:
 			out.Text = blockText(msg.Assistant.Content)
+			out.BranchNodeID = entry.ID
+			for _, block := range msg.Assistant.Content {
+				if block.IsToolCall() {
+					out.BranchNodeID = ""
+					break
+				}
+			}
 			if msg.Assistant.StopReason == aitypes.StopReasonError || msg.Assistant.StopReason == aitypes.StopReasonAborted {
 				out.Status = "error"
 			}
 		case msg.ToolResult != nil:
 			out.Role, out.ToolName = "tool", msg.ToolResult.ToolName
+			out.ToolCallID = msg.ToolResult.ToolCallId
 			out.Text, out.Status = blockText(msg.ToolResult.Content), "done"
 			out.Images = messageImages(msg.ToolResult.Content)
 			if msg.ToolResult.IsError {
@@ -924,6 +1014,9 @@ func (s *Service) idleLocked() error {
 	if s.closed {
 		return errors.New("Pith Desk has closed")
 	}
+	if s.loginCancel != nil {
+		return errors.New("Finish or cancel sign-in first")
+	}
 	if s.probeCancel != nil {
 		return errors.New("Wait for the connection test to finish or cancel it")
 	}
@@ -959,9 +1052,9 @@ func (s *Service) refreshSettingsLocked() {
 	}
 	hasConnections := false
 	for _, connection := range s.config.Connections {
-		hasConnections = hasConnections || connection.APIKey != ""
+		hasConnections = hasConnections || connectionReady(connection)
 	}
-	s.state.Settings = Settings{HasConnections: hasConnections, Provider: s.config.Provider, ModelName: name, ThinkingLevel: s.config.ThinkingLevel, ThinkingLevels: thinkingLevels(model), BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: s.config.APIKey != "", Appearance: s.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
+	s.state.Settings = Settings{HasConnections: hasConnections, Provider: s.config.Provider, ModelName: name, ThinkingLevel: s.config.ThinkingLevel, ThinkingLevels: thinkingLevels(model), BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: connectionReady(s.config.Connections[s.config.Provider]), Appearance: s.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
 }
 
 func (s *Service) persistCatalogLocked() error {
