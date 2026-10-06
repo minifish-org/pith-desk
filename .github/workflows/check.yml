@@ -31,7 +31,9 @@ jobs:
       - run: npm --prefix frontend ci
       - run: npm run check
       - name: Check concurrency
-        run: go test -race ./internal/...
+        # Packages each exercise their own concurrent execution. Run one
+        # package at a time to avoid competing race-instrumented runtimes.
+        run: go test -race -p 1 ./internal/...
         env:
           CGO_ENABLED: "1"
       - name: Cross-build supported targets

@@ -86,6 +86,13 @@ and coding-agent race tests passed; an added regression verifies independent
 host bindings, VM state and runtime lifetimes. Three consecutive MCP permission
 runs passed without increasing the existing five-second state deadline.
 
+A later remote run passed the MCP checks but exceeded the large-image test's
+completion deadline. CPU profiling of the 3 MiB image test showed race
+instrumentation dominating JSON processing; three local repeats passed. CI now
+runs race-instrumented packages sequentially, preserving concurrent execution
+within each package, and the large-image completion wait permits 90 seconds.
+The test still verifies the full upload, authenticated history and exact bytes.
+
 An isolated native test bundle with a distinct bundle identifier and disposable
 data verified cold launch, provider OAuth controls, a local compatible endpoint's
 streaming/tool probe, a real guarded README read through Pith, Stop, and restored

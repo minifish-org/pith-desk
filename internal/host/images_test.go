@@ -62,13 +62,16 @@ func TestImageUploadEndpointAndAuthenticatedHistory(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatalf("image never reached provider: phase=%s error=%s", s.service.Snapshot().Runtime.Phase, s.service.Snapshot().Error)
 	}
-	deadline := time.Now().Add(30 * time.Second)
+	// The padded upload is deliberately large. Race instrumentation makes the
+	// transcript and durable journal's JSON processing much slower on CI; this
+	// checks completion and retained bytes, rather than a latency contract.
+	deadline := time.Now().Add(90 * time.Second)
 	for s.service.Snapshot().Running && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	st := s.service.Snapshot()
 	if st.Running || st.Error != "" {
-		t.Fatal("image run did not complete", st.Error)
+		t.Fatalf("image run did not complete: running=%t phase=%s error=%s", st.Running, st.Runtime.Phase, st.Error)
 	}
 	if len(st.Messages) < 1 || len(st.Messages[0].Images) != 1 {
 		t.Fatal("image-only message was lost")
