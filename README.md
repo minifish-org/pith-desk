@@ -76,7 +76,7 @@ The choice is saved for that conversation and survives restarting the app. It do
 
 ### Continue a running task
 
-While Pith is working, sending a message queues it for when the current task would otherwise finish. In **Pending messages**, edit or delete individual messages, or click **Steer** to turn one into an **Instruction** for the next turn boundary. Steering waits for the current model response and tool batch; it does not interrupt a running command. Editing preserves attached images. Messages already received by the agent cannot be edited or deleted. Stop cancels the task and clears its pending messages; they are not carried into a later task or another conversation.
+While Pith is working, the send button becomes **Stop** when the composer is empty. Adding text or images switches it back to send; sending a message queues it for when the current task would otherwise finish. In **Pending messages**, edit or delete individual messages, or click **Steer** to turn one into an **Instruction** for the next turn boundary. Steering waits for the current model response and tool batch; it does not interrupt a running command. Editing preserves attached images. Messages already received by the agent cannot be edited or deleted. Stop cancels the task and clears its pending messages; they are not carried into a later task or another conversation.
 
 ### Run status and recovery
 
@@ -164,7 +164,7 @@ for image-capable models. Markdown exports mark image attachments but do not
 embed their bytes.
 
 Download the
-[`v0.1.0-rc.8` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.8).
+[`v0.1.0-rc.9` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.9).
 
 
 ## Develop

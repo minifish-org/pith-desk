@@ -171,7 +171,7 @@ $('app').innerHTML = `
             <button id="attach-images" type="button" class="quiet-icon attach-images" data-action="attach-images" aria-label="Attach images" title="Attach images">${icon('image')}</button>
             <label class="permission-control" id="permission-control">${icon('shield')}<span class="sr-only">Conversation permissions</span><select id="permission-mode" aria-describedby="permission-description"><option value="ask">Ask before changes</option><option value="workspace-write">Allow workspace changes</option><option value="full-access">Full access</option></select>${icon('down')}</label>
           </div>
-          <div class="composer-actions"><button id="composer-model" type="button" class="composer-model" data-action="model" data-idle-action aria-label="Choose model">Choose model</button><label class="composer-thinking"><span class="sr-only">Thinking effort</span><select id="composer-thinking" aria-label="Thinking effort"></select></label><button id="send-button" class="send-button" type="submit" aria-label="Send message">${icon('arrow')}</button><button id="stop-button" class="stop-button" type="button" data-action="stop" aria-label="Stop agent" hidden>${icon('stop')}<span>Stop</span></button></div>
+          <div class="composer-actions"><button id="composer-model" type="button" class="composer-model" data-action="model" data-idle-action aria-label="Choose model">Choose model</button><label class="composer-thinking"><span class="sr-only">Thinking effort</span><select id="composer-thinking" aria-label="Thinking effort"></select></label><button id="send-button" class="send-button" type="submit" aria-label="Send message">${icon('arrow')}</button></div>
         </div>
       </form>
       <p id="image-guidance" class="composer-note image-guidance" hidden></p>
@@ -276,12 +276,19 @@ function render(): void {
   $('inline-error').hidden = !error || (!localError && !!state.failure);
   $('inline-error').textContent = error;
   $('connection-status').hidden = connection !== 'reconnecting';
-  $('stop-button').hidden = !state.running;
-  $('send-button').hidden = false;
-  $<HTMLButtonElement>('send-button').disabled = !snapshotLoaded || requestBusy || readingImages || (!input.value.trim() && !draftImages.length) || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey;
-  $('send-button').setAttribute('aria-label', state.running ? 'Queue message' : 'Send message');
+  const hasDraft = !!input.value.trim() || draftImages.length > 0;
+  const stopping = state.running && !hasDraft;
+  const sendButton = $<HTMLButtonElement>('send-button');
+  const buttonType = stopping ? 'button' : 'submit';
+  if (sendButton.type !== buttonType) sendButton.innerHTML = icon(stopping ? 'stop' : 'arrow');
+  sendButton.type = buttonType;
+  sendButton.classList.toggle('is-stop', stopping);
+  if (stopping) sendButton.dataset.action = 'stop'; else delete sendButton.dataset.action;
+  sendButton.disabled = stopping ? requestBusy : !snapshotLoaded || requestBusy || readingImages || !hasDraft || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey;
+  const buttonLabel = stopping ? 'Stop agent' : state.running ? 'Queue message' : 'Send message';
+  sendButton.setAttribute('aria-label', buttonLabel);
+  sendButton.title = buttonLabel;
   input.placeholder = !snapshotLoaded ? 'Connecting to Pith…' : !state.settings.hasApiKey ? state.settings.hasConnections ? 'Choose a model beside the message box' : 'Connect a provider in Settings to get started' : !workspace ? 'Choose a workspace to get started' : state.running ? 'Send a message to queue it…' : 'Ask Pith to help with your work…';
-  $<HTMLButtonElement>('stop-button').disabled = requestBusy;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-idle-action]')) button.disabled = requestBusy || state.running;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = requestBusy;
 }
@@ -1379,7 +1386,7 @@ document.addEventListener('click', async (event) => {
       if (!ok) $('mcp-error').textContent = error;
       break;
     }
-    case 'stop': await mutate('/api/abort', {}); break;
+    case 'stop': if (state.running && !requestBusy) await mutate('/api/abort', {}); break;
     case 'menu': $('sidebar').classList.add('open'); $('sidebar-scrim').classList.add('visible'); break;
   }
 });

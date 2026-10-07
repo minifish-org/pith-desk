@@ -1,6 +1,6 @@
 # Pith SDK integration
 
-These capabilities are included in the rc.8 preview. Desk supplies controls and local persistence; the
+These capabilities are included in the rc.9 preview. Desk supplies controls and local persistence; the
 SDK continues to own model protocols, session history, resources, tools and
 execution. No new Go or npm application dependency was added.
 

@@ -62,7 +62,10 @@ workspace. Keep its model and connection settings separate from everyday data.
    count. Check that saved tokens/environment values are not filled back into the
    form. In Ask before changes, an MCP call must require its own approval.
 4. While a task is running, send several messages (including duplicate text and
-   image attachments). All must enter the ordinary queue. Edit one, delete one,
+   image attachments). An empty composer must show Stop in the send button's
+   original position; adding a draft must switch that same button to send.
+   Empty Enter must not stop the task. All messages must enter the ordinary
+   queue. Edit one, delete one,
    and click Steer on another. Only the steered entry becomes an Instruction;
    it must precede ordinary pending input at the next turn boundary. Edits must
    retain attachments and consumed messages must appear only once. Quit and
@@ -78,10 +81,18 @@ workspace. Keep its model and connection settings separate from everyday data.
 
 ## Latest verification
 
-The rc.8 candidate pins published Pith revision `92adcb39fd33`. With `GOWORK=off`,
-the complete frontend/Go tests, vet and internal race checks passed. The ARM64
-app embeds the versioned SDK with CGO disabled, and its ad-hoc signature
-verified.
+The rc.9 candidate keeps published Pith revision `92adcb39fd33`. With
+`GOWORK=off`, the complete frontend/Go tests and vet passed. The ARM64 app embeds
+the versioned SDK with CGO disabled, and its ad-hoc signature verified. CI also
+runs the internal race checks, supported-target cross-builds and native build.
+
+The 2026-10-07 UI follow-up checked 14px conversation/composer text, a 1.5 line
+height, tighter paragraphs/lists/code blocks, and larger supporting controls in
+an isolated native window. Local provider fixtures verified the single composer
+button switching between Stop and queue/send, empty Enter leaving the run
+active, queueing once, Stop clearing pending input, and saved state after restart.
+Cold launch, Settings connection probes and both native save-dialog Cancel paths
+also passed. No live provider, user credentials or user conversation was used.
 
 The 2026-10-07 follow-up verified pending-message edit/delete/Steer with native
 SDK IDs, preserved images, durable mutation recovery and rejection after

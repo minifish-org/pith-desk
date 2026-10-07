@@ -1,6 +1,15 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.8:
+New in rc.9:
+
+- The composer uses one button for sending and stopping. During a task, an empty
+  composer shows a square Stop icon in the send button's original position.
+  Adding text or images switches it back to send and queues the message.
+- Conversation text and the composer use 14px type with a 1.5 line height.
+  Paragraphs, lists, code blocks and messages have tighter spacing, and common
+  controls and supporting labels are slightly larger.
+
+Recent queue and timing improvements:
 
 - Messages sent during a task enter the ordinary pending queue. Edit or delete
   an individual message, or click **Steer** to turn it into an **Instruction**
