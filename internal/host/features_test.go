@@ -41,6 +41,34 @@ func featureRequest(t *testing.T, s *Server, method, path string, body any, auth
 	return resp.StatusCode, string(data), resp.Header
 }
 
+func TestSendAndAbortRequireConversationIdentity(t *testing.T) {
+	s := testServer(t)
+	w, err := s.service.AddWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.service.CreateConversation(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.service.CreateConversation(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"", a.ID} {
+		status, body, _ := featureRequest(t, s, "POST", "/api/send", map[string]any{"id": id, "text": "stale send"}, true)
+		if status != 400 || !strings.Contains(body, "conversation changed") {
+			t.Fatalf("stale send was redirected: %d %s", status, body)
+		}
+	}
+	if status, _, _ := featureRequest(t, s, "POST", "/api/abort", map[string]string{}, true); status != 400 {
+		t.Fatal("untargeted stop accepted")
+	}
+	if s.service.Snapshot().ActiveID != b.ID {
+		t.Fatal("stale mutation changed selection")
+	}
+}
+
 func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 	s := testServer(t)
 	for _, path := range []string{"/api/resources", "/api/artifacts", "/api/mcp", "/api/export", "/api/diagnostics"} {

@@ -9,6 +9,7 @@ type API = {
   request: <T>(path: string, payload?: unknown) => Promise<T>;
   mutate: (path: string, payload: unknown) => Promise<boolean>;
   error: () => string;
+  workspaceBusy: (id: string) => boolean;
   workspace: () => { id: string; name: string; path: string } | undefined;
   draft: (text: string) => void;
   refreshResources: () => Promise<void>;
@@ -80,8 +81,8 @@ export function createSDKUI(api: API) {
     const seq = open(path ? 'Edit workspace resource' : `Create ${kind}`, '<p>Loading…</p>');
     const content = path ? (await api.request<{ content: string }>(`/api/resource-content?workspaceId=${encodeURIComponent(workspace.id)}&path=${encodeURIComponent(path)}`)).content : kind === 'skill' ? '---\nname: my-skill\ndescription: Describe when to use this skill.\n---\n\nWrite the instructions here.\n' : kind === 'template' ? '---\ndescription: Describe this prompt.\n---\n\nHelp me with $@.\n' : '# Project instructions\n\n';
     if (seq !== generation) return;
-    const editable = !path || path.startsWith(workspace.path.replace(/\/$/, '') + '/');
-    open(editable ? (path ? 'Edit workspace resource' : `Create ${kind}`) : 'Inherited instructions', `<p class="file-path">${escape(path || workspace.path)}</p>${!editable ? '<p>Inherited instructions are read-only here. Add workspace instructions to specialize them.</p>' : ''}<form id="resource-form">${!path && kind !== 'instructions' ? '<label class="field-label">Name<input id="resource-name" required pattern="[A-Za-z0-9]([A-Za-z0-9_]|-)*" placeholder="my-resource" /></label>' : ''}<label class="field-label" for="resource-body">Markdown</label><textarea id="resource-body" class="resource-editor" ${!editable ? 'readonly' : ''}>${escape(content)}</textarea><div class="modal-footer">${path && editable ? '<button type="button" id="delete-resource" class="secondary-button destructive-button">Delete resource</button>' : ''}<button type="button" class="secondary-button" data-close="sdk-dialog">Close</button>${editable ? '<button type="submit" class="primary-button">Save</button>' : ''}</div></form>`);
+    const editable = !api.workspaceBusy(workspace.id) && (!path || path.startsWith(workspace.path.replace(/\/$/, '') + '/'));
+    open(editable ? (path ? 'Edit workspace resource' : `Create ${kind}`) : 'Workspace resource', `<p class="file-path">${escape(path || workspace.path)}</p>${!editable ? `<p>${api.workspaceBusy(workspace.id) ? 'Stop this workspace’s task before editing resources.' : 'Inherited instructions are read-only here. Add workspace instructions to specialize them.'}</p>` : ''}<form id="resource-form">${!path && kind !== 'instructions' ? '<label class="field-label">Name<input id="resource-name" required pattern="[A-Za-z0-9]([A-Za-z0-9_]|-)*" placeholder="my-resource" /></label>' : ''}<label class="field-label" for="resource-body">Markdown</label><textarea id="resource-body" class="resource-editor" ${!editable ? 'readonly' : ''}>${escape(content)}</textarea><div class="modal-footer">${path && editable ? '<button type="button" id="delete-resource" class="secondary-button destructive-button">Delete resource</button>' : ''}<button type="button" class="secondary-button" data-close="sdk-dialog">Close</button>${editable ? '<button type="submit" class="primary-button">Save</button>' : ''}</div></form>`);
     const save = async (remove = false) => {
       const name = ($('resource-name') as HTMLInputElement | null)?.value || '';
       let content = $<HTMLTextAreaElement>('resource-body').value;
@@ -104,6 +105,10 @@ export function createSDKUI(api: API) {
 
   function render() {
     const state = api.state();
+    const globalActions = new Set(['custom', 'login', 'logout', 'mcp-login', 'mcp-logout', 'remove-connection']);
+    for (const button of document.querySelectorAll<HTMLButtonElement>('[data-sdk]')) {
+      if (globalActions.has(button.dataset.sdk || '')) button.disabled = api.busy() || state.runs.length > 0;
+    }
     for (const button of document.querySelectorAll<HTMLButtonElement>('[data-sdk-idle]')) button.disabled = api.busy() || state.running || !state.activeId || (button.dataset.sdk === 'compact' && !state.messages.length);
     const login = state.login;
     if (!login || dismissedLogin === login.id) return;

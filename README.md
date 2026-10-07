@@ -40,7 +40,7 @@ The model button beside the composer opens a searchable
 picker for configured providers. The thinking selector only shows levels that
 Pith says the selected model supports, including `max` when available. Models
 with no reasoning support hide that control. Changes apply to the next task;
-stop a running task before changing its model or effort. The run details record
+stop all running tasks before changing the shared model or effort. The run details record
 the provider and effort actually selected for that task.
 
 Each provider retains its own endpoint, key and last selection. Switching
@@ -92,7 +92,9 @@ Run metadata is saved beside the sessions. After an interrupted shutdown, the co
 
 The sidebar groups conversations under their workspace folders. Expand or collapse a folder, or use its new-conversation button to start a chat in that workspace. Search conversation titles across workspaces. Each conversation's `…` menu can rename, export or permanently delete that conversation without opening it first. Desktop exports open a native save dialog so you can choose the destination. Titles are recorded through Pith's session API; the desktop catalog indexes them.
 
-**Delete conversation** permanently removes its local session history, image attachments and run receipt. **Remove workspace**, in the folder's `…` menu, unlinks the folder and deletes all its conversations and related application data. Both require confirmation and are blocked while a task is running. Workspace folders and their files—including files created by Pith and exported documents—are never deleted. There is no archive or restore feature. Removing a folder leaves no dangling conversations.
+Current source builds support **concurrent tasks in separate workspace folders**. Add folders, create conversations and switch views while other tasks continue in the background. The sidebar marks each running conversation and shows when it needs approval. Stop, pending input, permissions and run statistics belong to that conversation. A workspace can run one task at a time; nested or overlapping workspace folders share that restriction. An occupied workspace offers **Open running conversation**. Global model, credential and MCP connection changes require all tasks to stop. See [workspace concurrency](docs/WORKSPACE_CONCURRENCY.md) for the execution contract and validation. This change is not included in previously published preview packages.
+
+**Delete conversation** permanently removes its local session history, image attachments and run receipt. **Remove workspace**, in the folder's `…` menu, unlinks the folder and deletes all its conversations and related application data. Both require confirmation. A running conversation cannot be deleted; a workspace with an active task or overlapping active folder cannot be removed. Unrelated idle conversations remain manageable while other tasks run. Workspace folders and their files—including files created by Pith and exported documents—are never deleted. There is no archive or restore feature. Removing a folder leaves no dangling conversations.
 
 Deletion intent is saved before the catalog changes. If cleanup is interrupted, Pith Desk retries committed deletions on startup; uncommitted requests leave their conversation data intact. Cleanup errors are reported and never treated as a successful deletion.
 

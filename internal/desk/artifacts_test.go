@@ -103,12 +103,12 @@ func TestArtifactsUseOnlyActivePithBranch(t *testing.T) {
 		t.Fatalf("branch artifacts: %+v %v", artifacts, err)
 	}
 	s.mu.Lock()
-	s.state.Running = true
+	s.active.Running = true
 	s.mu.Unlock()
 	if _, err := s.Artifacts(conversation.ID); err == nil {
 		t.Fatal("artifact inspection during run accepted")
 	}
 	s.mu.Lock()
-	s.state.Running = false
+	s.active.Running = false
 	s.mu.Unlock()
 }

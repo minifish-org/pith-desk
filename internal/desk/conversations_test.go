@@ -171,7 +171,8 @@ func TestCanonicalRenameSurvivesCatalogSaveFailure(t *testing.T) {
 func TestConversationOperationsRejectActiveRun(t *testing.T) {
 	s, workspace, conversation, _ := productFeatureService(t)
 	s.mu.Lock()
-	s.state.Running = true
+	s.active.Running = true
+	s.active.workspace = workspace
 	s.mu.Unlock()
 	if err := s.RenameConversation(conversation.ID, "blocked"); err == nil {
 		t.Fatal("rename during run accepted")
@@ -186,6 +187,6 @@ func TestConversationOperationsRejectActiveRun(t *testing.T) {
 		t.Fatal("export during run accepted")
 	}
 	s.mu.Lock()
-	s.state.Running = false
+	s.active.Running = false
 	s.mu.Unlock()
 }

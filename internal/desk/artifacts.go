@@ -17,7 +17,7 @@ type Artifact struct {
 func (s *Service) Artifacts(id string) ([]Artifact, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.conversationIdleLocked(id); err != nil {
 		return nil, err
 	}
 	return s.artifactsLocked(id)
@@ -110,7 +110,7 @@ func (s *Service) artifactsLocked(id string) ([]Artifact, error) {
 func (s *Service) ResolveArtifactFile(id, path string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.conversationIdleLocked(id); err != nil {
 		return "", err
 	}
 	artifacts, err := s.artifactsLocked(id)

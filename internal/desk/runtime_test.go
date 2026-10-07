@@ -201,7 +201,7 @@ func TestQueueRejectsAfterPithEndsBeforeServiceCleanup(t *testing.T) {
 	}
 	waitState(t, s, func(st State) bool { return countText(st.Messages, "Working") == 1 })
 	s.mu.Lock()
-	session := s.session
+	session := s.active.session
 	s.mu.Unlock()
 	ended, release := make(chan struct{}), make(chan struct{})
 	var endedOnce, releaseOnce sync.Once

@@ -90,43 +90,44 @@ func classifyFailure(err error, phase string) *Failure {
 	return f
 }
 
-func (s *Service) updateRuntimeLocked(manager *codingagent.SessionManager) {
-	s.updateTimingLocked()
-	if s.session != nil {
-		stats := s.session.Stats()
-		s.state.Runtime.Usage = RunUsage{stats.InputTokens, stats.OutputTokens, stats.CacheRead, stats.CacheWrite, stats.TotalTokens}
+func (r *conversationRuntime) updateRuntimeLocked(manager *codingagent.SessionManager) {
+	r.updateTimingLocked()
+	if r.session != nil {
+		stats := r.session.Stats()
+		r.Runtime.Usage = RunUsage{stats.InputTokens, stats.OutputTokens, stats.CacheRead, stats.CacheWrite, stats.TotalTokens}
 	}
 	if manager != nil {
-		s.state.Runtime.ContextTokens = codingagent.EstimateProjectedContextTokens(manager.BuildSessionProjection(), manager.BuildContextEntries()).Tokens
+		r.Runtime.ContextTokens = codingagent.EstimateProjectedContextTokens(manager.BuildSessionProjection(), manager.BuildContextEntries()).Tokens
 		count := 0
 		for _, entry := range manager.Entries() {
 			if entry.Type == "compaction" {
 				count++
 			}
 		}
-		s.state.Runtime.Compactions = count
+		r.Runtime.Compactions = count
 	}
-	s.state.Runtime.UpdatedAt = timestamp()
+	r.Runtime.UpdatedAt = timestamp()
 }
 
-func (s *Service) updateTimingLocked() {
-	if !s.runStarted.IsZero() {
-		s.state.Runtime.Timing.ElapsedMs = time.Since(s.runStarted).Milliseconds()
+func (r *conversationRuntime) updateTimingLocked() {
+	if !r.runStarted.IsZero() {
+		r.Runtime.Timing.ElapsedMs = time.Since(r.runStarted).Milliseconds()
 	}
 }
 
-func (s *Service) observedCompactionPolicy(model *aitypes.Model, key string) codingagent.RunPolicy {
+func (r *conversationRuntime) observedCompactionPolicy(model *aitypes.Model, key string) codingagent.RunPolicy {
+	s := r.service
 	policy := compactionPolicy(model, key)
 	summarize := policy.Summarize
 	policy.Summarize = func(ctx context.Context, messages []agenttypes.AgentMessage) (string, error) {
 		s.mu.Lock()
-		s.state.Runtime.Phase = "compacting"
+		r.Runtime.Phase = "compacting"
 		s.changedLocked()
 		s.mu.Unlock()
 		result, err := summarize(ctx, messages)
 		if err == nil {
 			s.mu.Lock()
-			s.state.Runtime.Phase = "working"
+			r.Runtime.Phase = "working"
 			s.changedLocked()
 			s.mu.Unlock()
 		}
@@ -137,26 +138,27 @@ func (s *Service) observedCompactionPolicy(model *aitypes.Model, key string) cod
 
 func (s *Service) receiptFile(id string) string { return filepath.Join(s.dataDir, "runs", id+".json") }
 
-func (s *Service) loadRuntimeLocked(id string) error {
+func (r *conversationRuntime) loadRuntimeLocked(id string) error {
+	s := r.service
 	var receipt runReceipt
 	if err := readJSON(s.receiptFile(id), &receipt); err != nil {
 		return err
 	}
-	s.state.Runtime, s.state.Failure = receipt.Runtime, receipt.Failure
+	r.Runtime, r.Failure = receipt.Runtime, receipt.Failure
 	if report, err := s.costsLocked(id, true); err != nil {
-		s.state.Runtime.Cost = CostSummary{Unavailable: true}
+		r.Runtime.Cost = CostSummary{Unavailable: true}
 	} else {
-		s.state.Runtime.Cost = report.CostSummary
+		r.Runtime.Cost = report.CostSummary
 	}
 	switch receipt.Runtime.Phase {
 	case "starting", "working", "tool", "retrying", "compacting":
 		// Never count app downtime as execution or invent a speed for the
 		// unknown interval after the last saved checkpoint.
-		s.state.Runtime.Timing.Partial = true
-		s.state.Runtime.Phase = "interrupted"
-		s.state.Failure = &Failure{Kind: "interrupted", Message: "The previous task was interrupted when the app closed.", Advice: "Review the conversation and existing files before continuing. Completed actions are not automatically replayed.", CanContinue: true}
+		r.Runtime.Timing.Partial = true
+		r.Runtime.Phase = "interrupted"
+		r.Failure = &Failure{Kind: "interrupted", Message: "The previous task was interrupted when the app closed.", Advice: "Review the conversation and existing files before continuing. Completed actions are not automatically replayed.", CanContinue: true}
 	}
-	return s.recoverDurableLocked(id)
+	return r.recoverDurableLocked(id)
 }
 
 // ContinueTask is a new explicit instruction, never a replay of the old request.
@@ -164,15 +166,16 @@ func (s *Service) loadRuntimeLocked(id string) error {
 func (s *Service) ContinueTask(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if id != s.state.ActiveID || s.state.Failure == nil || !s.state.Failure.CanContinue {
+	r := s.active
+	if id != s.state.ActiveID || s.active.Failure == nil || !s.active.Failure.CanContinue {
 		return errors.New("Open an interrupted conversation and review it before continuing")
 	}
-	pending := append([]QueuedMessage(nil), s.state.QueuedMessages...)
+	pending := append([]QueuedMessage(nil), s.active.QueuedMessages...)
 	instruction := "Review the previous conversation and inspect the current workspace before continuing the unfinished task. Successful actions may already have taken effect. Do not repeat completed writes, commands, or external actions. If an external action has an uncertain result, ask me to confirm it before proceeding."
 	var images []aitypes.ImageContent
-	if s.recoveredInput != nil && len(s.state.Messages) == 0 {
-		instruction += "\nThe admitted request was: " + s.recoveredInput.Text
-		images = s.recoveredInput.Images
+	if r.recoveredInput != nil && len(s.active.Messages) == 0 {
+		instruction += "\nThe admitted request was: " + r.recoveredInput.Text
+		images = r.recoveredInput.Images
 	}
 	err := s.sendLocked(instruction, images...)
 	if err != nil {
@@ -180,10 +183,10 @@ func (s *Service) ContinueTask(id string) error {
 	}
 	for _, message := range pending {
 		message.ID = newID()
-		if err := s.durableQueueLocked("desk.queue", message); err != nil {
+		if err := r.durableQueueLocked("desk.queue", message); err != nil {
 			return err
 		}
-		s.state.QueuedMessages = append(s.state.QueuedMessages, message)
+		s.active.QueuedMessages = append(s.active.QueuedMessages, message)
 	}
 	return nil
 }
@@ -236,7 +239,7 @@ func (s *Service) TestConnection(ctx context.Context, input ConfigInput) (Connec
 		Messages: []aitypes.Message{aitypes.NewUserMessageVariant(aitypes.NewUserMessage("Call connection_check with ok=true. Do not write an explanation.", float64(time.Now().UnixMilli())))},
 		Tools:    []aitypes.Tool{{Name: "connection_check", Description: "Confirm that tool calling works. This probe has no effects.", Input: aitypes.JSONSchemaToolInput(json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`))}},
 	})
-	streamFn, streamErr := streamForConfig(ctx, config)
+	streamFn, streamErr := streamForConfigWithAuthGate(ctx, config, s.modelAuthGate)
 	if streamErr != nil {
 		return ConnectionTest{}, streamErr
 	}
@@ -302,9 +305,9 @@ func (s *Service) Diagnostics() (string, error) {
 		ConversationCount  int           `json:"conversationCount"`
 		EnabledConnections int           `json:"enabledConnections"`
 		Cost               string        `json:"cost"`
-	}{Version: Version, PithVersion: pithVersion, OS: runtime.GOOS, Architecture: runtime.GOARCH, GoVersion: runtime.Version(), CreatedAt: timestamp(), Running: s.state.Running, Runtime: s.state.Runtime, WorkspaceCount: len(s.state.Workspaces), ConversationCount: len(s.state.Conversations), Cost: "See request ledger: SDK token usage priced with a recorded catalog or user price snapshot, in USD. Estimates are not provider bills."}
-	if s.state.Failure != nil {
-		diagnostic.FailureKind = s.state.Failure.Kind
+	}{Version: Version, PithVersion: pithVersion, OS: runtime.GOOS, Architecture: runtime.GOARCH, GoVersion: runtime.Version(), CreatedAt: timestamp(), Running: s.active.Running, Runtime: s.active.Runtime, WorkspaceCount: len(s.state.Workspaces), ConversationCount: len(s.state.Conversations), Cost: "See request ledger: SDK token usage priced with a recorded catalog or user price snapshot, in USD. Estimates are not provider bills."}
+	if s.active.Failure != nil {
+		diagnostic.FailureKind = s.active.Failure.Kind
 	}
 	for _, c := range s.mcpConfigs {
 		if c.Enabled {
@@ -318,11 +321,12 @@ func (s *Service) Diagnostics() (string, error) {
 	return string(data) + "\n", nil
 }
 
-func (s *Service) compactionWithStream(model *aitypes.Model, key string, stream agenttypes.StreamFn) codingagent.RunPolicy {
-	policy := s.observedCompactionPolicy(model, key)
+func (r *conversationRuntime) compactionWithStream(model *aitypes.Model, key string, stream agenttypes.StreamFn) codingagent.RunPolicy {
+	s := r.service
+	policy := r.observedCompactionPolicy(model, key)
 	policy.Summarize = func(ctx context.Context, messages []agenttypes.AgentMessage) (string, error) {
 		s.mu.Lock()
-		s.state.Runtime.Phase = "compacting"
+		r.Runtime.Phase = "compacting"
 		s.changedLocked()
 		s.mu.Unlock()
 		bound := func(m *aitypes.Model, t *aitypes.TranscriptContext, o *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream {
@@ -336,7 +340,7 @@ func (s *Service) compactionWithStream(model *aitypes.Model, key string, stream 
 		text, err := codingagent.GenerateSummary(ctx, messages, model, codingagent.DefaultCompactionPolicy.ReserveTokens, bound, nil, nil)
 		if err == nil {
 			s.mu.Lock()
-			s.state.Runtime.Phase = "working"
+			r.Runtime.Phase = "working"
 			s.changedLocked()
 			s.mu.Unlock()
 		}

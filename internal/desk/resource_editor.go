@@ -22,7 +22,7 @@ var resourceName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 func (s *Service) SaveResource(input ResourceInput) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.workspaceIdleLocked(input.WorkspaceID); err != nil {
 		return err
 	}
 	w, ok := s.workspaceLocked(input.WorkspaceID)

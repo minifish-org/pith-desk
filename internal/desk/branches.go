@@ -18,7 +18,7 @@ type HistoryNode struct {
 func (s *Service) History(id string) ([]HistoryNode, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.conversationIdleLocked(id); err != nil {
 		return nil, err
 	}
 	manager, err := s.readConversationSessionLocked(id)
@@ -69,7 +69,7 @@ func (s *Service) History(id string) ([]HistoryNode, error) {
 func (s *Service) BranchConversation(id, nodeID string, before bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.conversationIdleLocked(id); err != nil {
 		return err
 	}
 	if id != s.state.ActiveID {
@@ -120,11 +120,11 @@ func (s *Service) BranchConversation(id, nodeID string, before bool) error {
 	if err = manager.Branch(target); err != nil {
 		return err
 	}
-	s.state.Messages = messagesFrom(manager)
-	s.state.Failure = nil
-	s.state.Runtime.Phase = "ready"
-	s.updateRuntimeLocked(manager)
-	if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: s.state.Runtime}); err != nil {
+	s.active.Messages = messagesFrom(manager)
+	s.active.Failure = nil
+	s.active.Runtime.Phase = "ready"
+	s.active.updateRuntimeLocked(manager)
+	if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: s.active.Runtime}); err != nil {
 		return err
 	}
 	s.changedLocked()

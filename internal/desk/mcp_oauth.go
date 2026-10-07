@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
@@ -48,7 +47,7 @@ func mcpFlow(config savedMCP, store mcp.McpOAuthStateStore, redirect func(string
 }
 
 type mcpTokenProvider struct {
-	mu       sync.Mutex
+	gate     chan struct{}
 	config   savedMCP
 	store    mcpOAuthFile
 	provider mcp.AuthProvider
@@ -56,18 +55,26 @@ type mcpTokenProvider struct {
 
 func newMCPTokenProvider(config savedMCP, store mcpOAuthFile) *mcpTokenProvider {
 	flow := mcpFlow(config, store, func(string) error { return errors.New("Sign in to this MCP connection again") })
-	return &mcpTokenProvider{config: config, store: store, provider: mcp.AdaptOAuthProvider(flow)}
+	return &mcpTokenProvider{gate: make(chan struct{}, 1), config: config, store: store, provider: mcp.AdaptOAuthProvider(flow)}
 }
 
 func (p *mcpTokenProvider) OnUnauthorized(ctx context.Context, challenge mcp.UnauthorizedContext) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	select {
+	case p.gate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-p.gate }()
 	return p.provider.(mcp.UnauthorizedHandler).OnUnauthorized(ctx, challenge)
 }
 
 func (p *mcpTokenProvider) Token(ctx context.Context) (string, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	select {
+	case p.gate <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-p.gate }()
 	state, err := p.store.Load()
 	if err != nil {
 		return "", errors.New("MCP OAuth credentials could not be read")

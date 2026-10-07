@@ -475,9 +475,9 @@ func TestDurableAdmissionQueueRecoveryPaginationAndDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	journal, err := s.admitDurableLocked(c.ID, w, s.config, model, durableInput{Text: "Admitted but not started", RunID: "fixture"})
+	journal, err := s.active.admitDurableLocked(c.ID, w, s.config, model, durableInput{Text: "Admitted but not started", RunID: "fixture"})
 	if err == nil {
-		s.durable = journal
+		s.active.durable = journal
 	}
 	s.mu.Unlock()
 	if err != nil {
@@ -496,7 +496,7 @@ func TestDurableAdmissionQueueRecoveryPaginationAndDeletion(t *testing.T) {
 	}
 	image := aitypes.ImageContent{Type: "image", MimeType: "image/png", Data: "fixture-image"}
 	s.mu.Lock()
-	err = s.durableQueueLocked("desk.queue", QueuedMessage{ID: "pending", Text: "Afterward", Mode: QueueFollowUp, Images: []aitypes.ImageContent{image}, ImageCount: 1})
+	err = s.active.durableQueueLocked("desk.queue", QueuedMessage{ID: "pending", Text: "Afterward", Mode: QueueFollowUp, Images: []aitypes.ImageContent{image}, ImageCount: 1})
 	s.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -505,7 +505,7 @@ func TestDurableAdmissionQueueRecoveryPaginationAndDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	s.durable = nil
+	s.active.durable = nil
 	s.mu.Unlock()
 	s.Close()
 	reopened, err := New(dir)
@@ -517,7 +517,7 @@ func TestDurableAdmissionQueueRecoveryPaginationAndDeletion(t *testing.T) {
 	if state.Failure == nil || state.Failure.Kind != "interrupted" || len(state.QueuedMessages) != 1 || state.QueuedMessages[0].Images[0].Data != "fixture-image" {
 		t.Fatalf("durable recovery: %+v", state)
 	}
-	if reopened.recoveredInput == nil || reopened.recoveredInput.Text != "Admitted but not started" {
+	if reopened.active.recoveredInput == nil || reopened.active.recoveredInput.Text != "Admitted but not started" {
 		t.Fatal("original admission lost")
 	}
 	if state.Running {

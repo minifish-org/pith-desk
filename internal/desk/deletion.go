@@ -16,7 +16,7 @@ const deletionFile = "pending-deletions.json"
 func (s *Service) DeleteConversation(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.conversationIdleLocked(id); err != nil {
 		return err
 	}
 	if s.conversationIndexLocked(id) < 0 {
@@ -30,7 +30,7 @@ func (s *Service) DeleteConversation(id string) error {
 func (s *Service) RemoveWorkspace(id string, conversationCount int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.workspaceIdleLocked(id); err != nil {
 		return err
 	}
 	if _, ok := s.workspaceLocked(id); !ok {
@@ -119,17 +119,17 @@ func (s *Service) deleteDataLocked(workspaceID string, ids []string) error {
 	}
 	activeRemoved := s.state.ActiveID != next.ActiveID
 	s.state.Workspaces, s.state.Conversations, s.state.ActiveID = next.Workspaces, next.Conversations, next.ActiveID
-	if activeRemoved {
-		s.state.Messages = []Message{}
-		s.state.Runtime, s.state.Failure = RuntimeStatus{}, nil
-		s.state.PendingApproval = nil
-		s.clearQueueLocked()
+	for _, id := range ids {
+		delete(s.runtimes, id)
 	}
-	s.state.Error = ""
+	if activeRemoved {
+		s.selectRuntimeLocked(s.newRuntimeLocked(""))
+	}
+	s.active.Error = ""
 	s.changedLocked()
 	if err := s.cleanupDeletionsLocked(); err != nil {
-		s.state.Error = "Deletion saved, but local data cleanup failed. Restart Pith Desk to retry: " + err.Error()
-		return errors.New(s.state.Error)
+		s.active.Error = "Deletion saved, but local data cleanup failed. Restart Pith Desk to retry: " + err.Error()
+		return errors.New(s.active.Error)
 	}
 	return nil
 }

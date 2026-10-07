@@ -76,7 +76,7 @@ func (s *Service) reconcileSessionTitlesLocked() error {
 func (s *Service) RenameConversation(id, title string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.conversationIdleLocked(id); err != nil {
 		return err
 	}
 	index := s.conversationIndexLocked(id)
@@ -111,7 +111,7 @@ func (s *Service) RenameConversation(id, title string) error {
 func (s *Service) ExportConversation(id string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.conversationIdleLocked(id); err != nil {
 		return "", err
 	}
 	index := s.conversationIndexLocked(id)

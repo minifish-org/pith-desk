@@ -68,8 +68,12 @@ func (s *Service) ListMCP() []MCPServerView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	statuses := map[string]codingagent.MCPServerStatus{}
-	if s.mcpRuntime != nil {
-		for _, status := range s.mcpRuntime.Statuses() {
+	runtime := s.mcpRuntime
+	if s.active.Running && s.active.mcpRuntime != nil {
+		runtime = s.active.mcpRuntime
+	}
+	if runtime != nil {
+		for _, status := range runtime.Statuses() {
 			statuses[status.Name] = status
 		}
 	}
@@ -164,6 +168,7 @@ func (s *Service) SaveMCP(input MCPInput) error {
 	}
 	old := s.mcpRuntime
 	s.mcpConfigs, s.mcpRuntime = configs, nil
+	s.mcpTokens = map[string]*mcpTokenProvider{}
 	s.changedLocked()
 	s.mu.Unlock()
 	closeMCPRuntime(old)
@@ -203,6 +208,7 @@ func (s *Service) RemoveMCP(name string) error {
 	}
 	old := s.mcpRuntime
 	s.mcpConfigs, s.mcpRuntime = configs, nil
+	s.mcpTokens = map[string]*mcpTokenProvider{}
 	s.changedLocked()
 	s.mu.Unlock()
 	closeMCPRuntime(old)
@@ -250,9 +256,7 @@ func (config savedMCP) sdkConfig() codingagent.MCPServerConfig {
 	return result
 }
 
-func (s *Service) ConnectMCP(ctx context.Context) error { return s.connectMCP(ctx, false) }
-
-func (s *Service) connectMCP(ctx context.Context, duringRun bool) error {
+func (s *Service) ConnectMCP(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -261,13 +265,9 @@ func (s *Service) connectMCP(ctx context.Context, duringRun bool) error {
 	}
 	defer s.releaseMCP()
 	s.mu.Lock()
-	if s.closed || (!duringRun && s.state.Running) {
+	if s.closed || s.anyRunningLocked() {
 		s.mu.Unlock()
 		return errors.New("Wait for the task to stop before connecting MCP servers")
-	}
-	if duringRun && s.mcpRuntime != nil {
-		s.mu.Unlock()
-		return nil
 	}
 	configs := make([]codingagent.MCPServerConfig, 0, len(s.mcpConfigs))
 	for _, config := range s.mcpConfigs {
@@ -291,43 +291,7 @@ func (s *Service) connectMCP(ctx context.Context, duringRun bool) error {
 	s.mu.Unlock()
 	defer cancel()
 	closeMCPRuntime(old)
-	runtime := codingagent.NewMCPRuntime(codingagent.MCPRuntimeOptions{ClientName: "pith-desk", ClientVersion: "1",
-		TransportFactory: func(config codingagent.MCPServerConfig) (mcp.Transport, error) {
-			if config.Type != "http" {
-				return safeMCPTransport(config)
-			}
-			var saved savedMCP
-			s.mu.Lock()
-			for _, candidate := range s.mcpConfigs {
-				if candidate.Name == config.Name {
-					saved = candidate
-				}
-			}
-			s.mu.Unlock()
-			if !saved.OAuth {
-				return safeMCPTransport(config)
-			}
-			return mcp.NewStreamableHTTPTransport(config.URL, &mcp.HTTPOptions{AuthProvider: newMCPTokenProvider(saved, s.mcpOAuthStore(saved))}), nil
-		},
-		OnError: func(_ string, _ error) {
-			// Pith's runtime supplies connection status diagnostics. Avoid logging
-			// raw transport errors, which may contain echoed HTTP credentials.
-		},
-	})
-	loadFinished, watcherFinished := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(watcherFinished)
-		select {
-		case <-connectCtx.Done():
-			// This SDK's HTTP Send uses the transport lifetime context. Close
-			// cancels it even when initialization is awaiting response headers.
-			closeMCPRuntime(runtime)
-		case <-loadFinished:
-		}
-	}()
-	diagnostics := runtime.Load(connectCtx, configs)
-	close(loadFinished)
-	<-watcherFinished
+	runtime, diagnostics := s.loadMCPRuntime(connectCtx, configs)
 	s.mu.Lock()
 	s.mcpConnectCancel, s.mcpConnecting = nil, false
 	if s.closed || connectCtx.Err() != nil {
@@ -450,13 +414,18 @@ func (s *Service) redactMCPLocked(text string) string {
 	return text
 }
 
-func (s *Service) mcpDefinitions() []codingagent.ToolDefinition {
+func (s *Service) mcpDefinitions() []codingagent.ToolDefinition { return s.mcpDefinitionsFor(nil) }
+
+func (s *Service) mcpDefinitionsFor(owner *conversationRuntime) []codingagent.ToolDefinition {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.mcpRuntime == nil {
+	runtime := s.mcpRuntime
+	if owner != nil && owner.Running {
+		runtime = owner.mcpRuntime
+	}
+	if runtime == nil {
 		return nil
 	}
-	runtime := s.mcpRuntime
 	definitions := runtime.ToolDefinitions()
 	for i := range definitions {
 		execute := definitions[i].Execute
@@ -467,10 +436,13 @@ func (s *Service) mcpDefinitions() []codingagent.ToolDefinition {
 				select {
 				case <-ctx.Done():
 					s.mu.Lock()
+					if owner != nil && owner.mcpRuntime == runtime {
+						owner.mcpRuntime = nil
+					}
 					if s.mcpRuntime == runtime {
 						s.mcpRuntime = nil
-						s.changedLocked()
 					}
+					s.changedLocked()
 					s.mu.Unlock()
 					closeMCPRuntime(runtime)
 				case <-finished:
@@ -489,4 +461,95 @@ func (s *Service) mcpDefinitions() []codingagent.ToolDefinition {
 		}
 	}
 	return definitions
+}
+
+// Each execution gets its own transports. Canceling one SDK tool must never
+// close the MCP connection serving another workspace.
+func (s *Service) loadMCPRuntime(ctx context.Context, configs []codingagent.MCPServerConfig) (*codingagent.MCPRuntime, []codingagent.MCPDiagnostic) {
+	runtime := codingagent.NewMCPRuntime(codingagent.MCPRuntimeOptions{ClientName: "pith-desk", ClientVersion: "1",
+		TransportFactory: func(config codingagent.MCPServerConfig) (mcp.Transport, error) {
+			if config.Type != "http" {
+				return safeMCPTransport(config)
+			}
+			var saved savedMCP
+			s.mu.Lock()
+			for _, candidate := range s.mcpConfigs {
+				if candidate.Name == config.Name {
+					saved = candidate
+				}
+			}
+			if !saved.OAuth {
+				s.mu.Unlock()
+				return safeMCPTransport(config)
+			}
+			store := s.mcpOAuthStore(saved)
+			provider := s.mcpTokens[store.path]
+			if provider == nil {
+				provider = newMCPTokenProvider(saved, store)
+				s.mcpTokens[store.path] = provider
+			}
+			s.mu.Unlock()
+			return mcp.NewStreamableHTTPTransport(config.URL, &mcp.HTTPOptions{AuthProvider: provider}), nil
+		},
+		OnError: func(_ string, _ error) {
+			// Pith's runtime supplies connection status diagnostics. Avoid logging
+			// raw transport errors, which may contain echoed HTTP credentials.
+		},
+	})
+	loadFinished, watcherFinished := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(watcherFinished)
+		select {
+		case <-ctx.Done():
+			// This SDK's HTTP Send uses the transport lifetime context. Close
+			// cancels it even when initialization is awaiting response headers.
+			closeMCPRuntime(runtime)
+		case <-loadFinished:
+		}
+	}()
+	diagnostics := runtime.Load(ctx, configs)
+	close(loadFinished)
+	<-watcherFinished
+	return runtime, diagnostics
+}
+
+func (r *conversationRuntime) connectMCP(ctx context.Context) error {
+	s := r.service
+	s.mu.Lock()
+	var configs []codingagent.MCPServerConfig
+	for _, config := range s.mcpConfigs {
+		if config.Enabled {
+			configs = append(configs, config.sdkConfig())
+		}
+	}
+	s.mu.Unlock()
+	if len(configs) == 0 {
+		return nil
+	}
+	runtime, diagnostics := s.loadMCPRuntime(ctx, configs)
+	s.mu.Lock()
+	if s.closed || ctx.Err() != nil {
+		s.mu.Unlock()
+		closeMCPRuntime(runtime)
+		return context.Canceled
+	}
+	r.mcpRuntime = runtime
+	var messages []string
+	for _, diagnostic := range diagnostics {
+		messages = append(messages, s.redactMCPLocked(diagnostic.Error()))
+	}
+	s.mu.Unlock()
+	if len(messages) > 0 {
+		return fmt.Errorf("MCP connection: %s", strings.Join(messages, "; "))
+	}
+	return nil
+}
+
+func (r *conversationRuntime) closeMCP() {
+	s := r.service
+	s.mu.Lock()
+	runtime := r.mcpRuntime
+	r.mcpRuntime = nil
+	s.mu.Unlock()
+	closeMCPRuntime(runtime)
 }

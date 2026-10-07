@@ -179,8 +179,11 @@ func TestMCPAutoConnectUsesPithAndSeparateExternalPermissions(t *testing.T) {
 		}
 	}
 	views := s.ListMCP()
-	if len(views) != 1 || views[0].Status != "connected" || views[0].ToolCount != 2 {
+	if len(views) != 1 || views[0].Status != "disconnected" {
 		t.Fatalf("wrong MCP status: %+v", views)
+	}
+	if err := s.ConnectMCP(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	policy, err := newFilePolicy(s.Snapshot().Workspaces[0].Path, s.dataDir)
 	if err != nil {

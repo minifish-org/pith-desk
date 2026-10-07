@@ -90,7 +90,7 @@ func (s *Service) resourcesLocked(workspaceID string) (ResourceInventory, error)
 func (s *Service) CreateInstructions(workspaceID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.workspaceIdleLocked(workspaceID); err != nil {
 		return "", err
 	}
 	workspace, ok := s.workspaceLocked(workspaceID)

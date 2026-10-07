@@ -129,6 +129,12 @@ func (s *Service) RemoveModelConnection(id string) error {
 }
 
 func streamForConfig(ctx context.Context, config savedConfig) (func(*aitypes.Model, *aitypes.TranscriptContext, *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream, error) {
+	return streamForConfigWithAuthGate(ctx, config, nil)
+}
+
+// Serialize credential refresh against the shared auth file, releasing the
+// gate before streaming. Independent model requests continue concurrently.
+func streamForConfigWithAuthGate(ctx context.Context, config savedConfig, gate chan struct{}) (func(*aitypes.Model, *aitypes.TranscriptContext, *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream, error) {
 	runtime, err := runtimeForConfig(config)
 	if err != nil {
 		return nil, err
@@ -149,7 +155,17 @@ func streamForConfig(ctx context.Context, config savedConfig) (func(*aitypes.Mod
 			request.APIKey = &unused
 		}
 		if config.Connections[config.Provider].UseOAuth {
+			if gate != nil {
+				select {
+				case gate <- struct{}{}:
+				case <-ctx.Done():
+					return failedModelStream("Model authentication was canceled")
+				}
+			}
 			auth, authErr := runtime.GetAuth(ctx, *model)
+			if gate != nil {
+				<-gate
+			}
 			if authErr != nil || auth == nil {
 				return failedModelStream("Sign in again: model authentication failed")
 			}

@@ -75,10 +75,22 @@ func (s *Service) Costs(id string) (CostReport, error) {
 	if s.conversationIndexLocked(id) < 0 {
 		return CostReport{}, errors.New("Conversation not found")
 	}
-	return s.costsLocked(id, id == s.state.ActiveID)
+	return s.costsLocked(id, true)
 }
 
 func (s *Service) costsLocked(id string, includeRun bool) (CostReport, error) {
+	runID := ""
+	if includeRun {
+		if r := s.runtimes[id]; r != nil {
+			runID = r.Runtime.RunID
+		} else {
+			var receipt runReceipt
+			if err := readJSON(s.receiptFile(id), &receipt); err != nil {
+				return CostReport{}, err
+			}
+			runID = receipt.Runtime.RunID
+		}
+	}
 	report := CostReport{Currency: "USD", Estimated: true, Requests: []RequestCost{}}
 	file, err := os.Open(s.costFile(id))
 	if errors.Is(err, os.ErrNotExist) {
@@ -97,7 +109,7 @@ func (s *Service) costsLocked(id string, includeRun bool) (CostReport, error) {
 			return report, err
 		}
 		report.Requests = append(report.Requests, request)
-		report.add(request, includeRun && request.RunID == s.state.Runtime.RunID)
+		report.add(request, includeRun && request.RunID == runID)
 	}
 	return report, nil
 }
@@ -134,17 +146,20 @@ func (s *Service) recordCost(id, runID, purpose string, model *aitypes.Model, co
 	record := RequestCost{ID: newID(), RunID: runID, Time: timestamp(), Provider: string(model.Provider), ProviderName: config.Connections[config.Provider].Name, Model: model.Id, ModelName: model.Name, Purpose: purpose, Status: string(response.StopReason), Usage: usage, Price: model.Cost, Source: source, Known: known}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if id == s.state.ActiveID && runID == s.state.Runtime.RunID && s.state.Runtime.Timing.StartedAt != "" {
+	r := s.runtimes[id]
+	if r != nil && runID == r.Runtime.RunID && r.Runtime.Timing.StartedAt != "" {
 		// Usage remains useful even when this endpoint has no known price.
 		if usage.Output >= 0 && !math.IsNaN(usage.Output) && !math.IsInf(usage.Output, 0) {
-			s.state.Runtime.Timing.OutputTokens += usage.Output
+			r.Runtime.Timing.OutputTokens += usage.Output
 		}
-		s.updateTimingLocked()
+		r.updateTimingLocked()
 	}
 	if err := os.MkdirAll(filepath.Dir(s.costFile(id)), 0700); err != nil {
-		s.state.Error = err.Error()
-		if id == s.state.ActiveID {
-			s.state.Runtime.Cost.Unavailable = true
+		if r != nil {
+			r.Error = err.Error()
+		}
+		if r != nil {
+			r.Runtime.Cost.Unavailable = true
 		}
 		s.changedLocked()
 		return
@@ -161,14 +176,16 @@ func (s *Service) recordCost(id, runID, purpose string, model *aitypes.Model, co
 		}
 	}
 	if err != nil {
-		s.state.Error = "Could not save request usage: " + err.Error()
-		if id == s.state.ActiveID {
-			s.state.Runtime.Cost.Unavailable = true
+		if r != nil {
+			r.Error = "Could not save request usage: " + err.Error()
 		}
-	} else if id == s.state.ActiveID {
+		if r != nil {
+			r.Runtime.Cost.Unavailable = true
+		}
+	} else if r != nil {
 		// The ledger is read once on opening a conversation. Streaming snapshots
 		// use this small aggregate instead of rereading or sending all requests.
-		s.state.Runtime.Cost.add(record, runID == s.state.Runtime.RunID)
+		r.Runtime.Cost.add(record, runID == r.Runtime.RunID)
 	}
 	s.changedLocked()
 }

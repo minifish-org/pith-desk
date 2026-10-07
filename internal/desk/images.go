@@ -71,7 +71,7 @@ func (s *Service) ConversationImage(id, messageID string, index int) ([]byte, st
 	if s.closed || index < 0 || s.conversationIndexLocked(id) < 0 {
 		return nil, "", errors.New("Image attachment not found")
 	}
-	manager := s.activeManager
+	manager := s.active.activeManager
 	if id != s.state.ActiveID || manager == nil {
 		var err error
 		manager, err = s.readConversationSessionLocked(id)

@@ -242,14 +242,20 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/api/send":
 		var in struct {
+			ID     string                 `json:"id"`
 			Text   string                 `json:"text"`
 			Images []aitypes.ImageContent `json:"images"`
 		}
 		if err = decode(&in); err == nil {
-			err = s.service.Send(in.Text, in.Images...)
+			err = s.service.SendConversation(in.ID, in.Text, in.Images...)
 		}
 	case "/api/abort":
-		s.service.Abort()
+		var in struct {
+			ID string `json:"id"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.AbortConversation(in.ID)
+		}
 	case "/api/approval":
 		var in struct {
 			ID          string `json:"id"`

@@ -33,7 +33,8 @@ type durableInput struct {
 
 func (s *Service) durableDir(id string) string { return filepath.Join(s.dataDir, "durable", id) }
 
-func (s *Service) admitDurableLocked(id string, workspace Workspace, config savedConfig, model *aitypes.Model, input durableInput) (*deskDurable, error) {
+func (r *conversationRuntime) admitDurableLocked(id string, workspace Workspace, config savedConfig, model *aitypes.Model, input durableInput) (*deskDurable, error) {
+	s := r.service
 	path := s.durableDir(id)
 	if err := os.MkdirAll(path, 0700); err != nil {
 		return nil, err
@@ -55,7 +56,7 @@ func (s *Service) admitDurableLocked(id string, workspace Workspace, config save
 		})
 	}
 	definition.Phases["execute"] = func(ctx context.Context, record durable.TaskRecord, runtime durable.TaskRuntime) error {
-		if record.ID != s.durableTaskID() {
+		if record.ID != r.durableTaskID() {
 			// Historical in-flight tasks are settled as interrupted before the
 			// new reviewed task can execute. Never invoke their saved prompt.
 			return settle(ctx, runtime, durable.OutcomeFailed, "Interrupted; review before continuing")
@@ -70,9 +71,9 @@ func (s *Service) admitDurableLocked(id string, workspace Workspace, config save
 		if _, err = runtime.Memo(ctx, "execution-admitted", json.RawMessage(`true`)); err != nil {
 			return err
 		}
-		s.run(ctx, id, workspace, config, model, input.Text, input.Images, input.Compact)
+		r.run(ctx, id, workspace, config, model, input.Text, input.Images, input.Compact)
 		s.mu.Lock()
-		phase := s.state.Runtime.Phase
+		phase := r.Runtime.Phase
 		closed := s.closed
 		s.mu.Unlock()
 		if closed || ctx.Err() != nil {
@@ -119,16 +120,18 @@ func (s *Service) admitDurableLocked(id string, workspace Workspace, config save
 	return journal, nil
 }
 
-func (s *Service) durableTaskID() durable.TaskID {
+func (r *conversationRuntime) durableTaskID() durable.TaskID {
+	s := r.service
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.durable == nil {
+	if r.durable == nil {
 		return 0
 	}
-	return s.durable.task
+	return r.durable.task
 }
 
-func (s *Service) durableQueueLocked(kind string, message QueuedMessage) error {
+func (r *conversationRuntime) durableQueueLocked(kind string, message QueuedMessage) error {
+	s := r.service
 	payload, err := json.Marshal(struct {
 		Message QueuedMessage          `json:"message"`
 		Images  []aitypes.ImageContent `json:"images,omitempty"`
@@ -136,32 +139,33 @@ func (s *Service) durableQueueLocked(kind string, message QueuedMessage) error {
 	if err != nil {
 		return err
 	}
-	if s.durable == nil {
+	if r.durable == nil {
 		// Recovered input remains editable before reviewed continuation. Use the
 		// transactional kernel without resuming interrupted tasks or model calls.
-		if s.state.Failure == nil || s.state.Failure.Kind != "interrupted" || s.recoveredJournal == 0 {
+		if r.Failure == nil || r.Failure.Kind != "interrupted" || r.recoveredJournal == 0 {
 			return errors.New("The pending-message journal is no longer available")
 		}
-		storage, err := jsonl.Open(context.Background(), s.durableDir(s.state.ActiveID), jsonl.Options{Fsync: true})
+		storage, err := jsonl.Open(context.Background(), s.durableDir(r.id), jsonl.Options{Fsync: true})
 		if err != nil {
 			return err
 		}
 		journal := durable.NewSession(storage)
 		defer journal.Close(context.Background())
-		id := s.recoveredJournal
+		id := r.recoveredJournal
 		return journal.CommitTransaction(context.Background(), durable.TransactionScope{ConversationID: &id}, func(tx *durable.Transaction) error {
 			_, err := tx.AppendEntry(context.Background(), id, durable.EntryDraft{Kind: kind, Data: payload})
 			return err
 		})
 	}
-	return s.durable.harness.CommitConversation(context.Background(), s.durable.conversation, func(tx *durable.Transaction) error {
-		_, err := tx.AppendEntry(context.Background(), s.durable.conversation, durable.EntryDraft{Kind: kind, Data: payload})
+	return r.durable.harness.CommitConversation(context.Background(), r.durable.conversation, func(tx *durable.Transaction) error {
+		_, err := tx.AppendEntry(context.Background(), r.durable.conversation, durable.EntryDraft{Kind: kind, Data: payload})
 		return err
 	})
 }
 
-func (s *Service) recoverDurableLocked(id string) error {
-	s.recoveredJournal = 0
+func (r *conversationRuntime) recoverDurableLocked(id string) error {
+	s := r.service
+	r.recoveredJournal = 0
 	path := s.durableDir(id)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -173,7 +177,7 @@ func (s *Service) recoverDurableLocked(id string) error {
 	defer storage.Close(context.Background())
 	interrupted := false
 	var conversationID durable.ConversationID
-	s.recoveredInput = nil
+	r.recoveredInput = nil
 	var cursor durable.Cursor
 	for {
 		page, err := storage.ScanTasks(context.Background(), durable.TaskQuery{}, 256, cursor)
@@ -186,7 +190,7 @@ func (s *Service) recoverDurableLocked(id string) error {
 				conversationID = task.ConversationID
 				var input durableInput
 				if json.Unmarshal(task.Input, &input) == nil {
-					s.recoveredInput = &input
+					r.recoveredInput = &input
 				}
 			}
 		}
@@ -198,9 +202,9 @@ func (s *Service) recoverDurableLocked(id string) error {
 	if !interrupted {
 		return nil
 	}
-	s.recoveredJournal = conversationID
-	s.state.Runtime.Phase = "interrupted"
-	s.state.Failure = &Failure{Kind: "interrupted", Message: "A durable task was interrupted.", Advice: "Review and continue from the saved transcript. Uncertain commands and external actions are not replayed automatically.", CanContinue: true}
+	r.recoveredJournal = conversationID
+	r.Runtime.Phase = "interrupted"
+	r.Failure = &Failure{Kind: "interrupted", Message: "A durable task was interrupted.", Advice: "Review and continue from the saved transcript. Uncertain commands and external actions are not replayed automatically.", CanContinue: true}
 	entries := []durable.EntryRecord{}
 	cursor = nil
 	for {
@@ -250,10 +254,10 @@ func (s *Service) recoverDurableLocked(id string) error {
 			order = nil
 		}
 	}
-	s.state.QueuedMessages = nil
+	r.QueuedMessages = nil
 	for _, key := range order {
 		if message, ok := pending[key]; ok {
-			s.state.QueuedMessages = append(s.state.QueuedMessages, message)
+			r.QueuedMessages = append(r.QueuedMessages, message)
 		}
 	}
 	return nil

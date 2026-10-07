@@ -296,6 +296,11 @@ func globPattern(pattern string) (*regexp.Regexp, error) {
 }
 
 func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, error) {
+	return s.active.buildTools(policy)
+}
+
+func (r *conversationRuntime) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, error) {
+	s := r.service
 	read := codingagent.CreateReadToolDefinition(policy.path, &codingagent.ReadToolOptions{Operations: policy})
 	write := codingagent.CreateWriteToolDefinition(policy.path, &codingagent.WriteToolOptions{Operations: policy})
 	edit := codingagent.CreateEditToolDefinition(policy.path, &codingagent.EditToolOptions{Operations: editOperations{policy}})
@@ -323,18 +328,18 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 		definitions[i].Name = names[i]
 	}
 	external := map[string]bool{}
-	for _, definition := range s.mcpDefinitions() {
+	for _, definition := range s.mcpDefinitionsFor(r) {
 		external[definition.Name] = true
 		definitions = append(definitions, definition)
 	}
 	s.mu.Lock()
-	s.externalTools = external
+	r.externalTools = external
 	s.mu.Unlock()
 	definitions[4].Description = "Find files by glob pattern inside the workspace. Directory symlinks and .git are excluded."
 	registry, err := codingagent.NewToolRegistry(policy.path, definitions, names, codingagent.AllToolNames,
 		codingagent.ToolHooks{Before: func(ctx context.Context, call codingagent.ToolCall) error {
 			if external[call.Name] {
-				return s.requestApproval(ctx, call)
+				return r.requestApproval(ctx, call)
 			}
 			switch call.Name {
 			case "read_file", "write_file", "edit_file", "grep_files", "find_files", "list_files":
@@ -353,7 +358,7 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 			}
 			switch call.Name {
 			case "write_file", "edit_file", "run_command":
-				return s.requestApproval(ctx, call)
+				return r.requestApproval(ctx, call)
 			}
 			return ctx.Err()
 		}})
@@ -388,13 +393,14 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 	return registry, nil
 }
 
-func (s *Service) requestApproval(ctx context.Context, call codingagent.ToolCall) error {
+func (r *conversationRuntime) requestApproval(ctx context.Context, call codingagent.ToolCall) error {
+	s := r.service
 	select {
-	case s.approvalGate <- struct{}{}:
+	case r.approvalGate <- struct{}{}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	defer func() { <-s.approvalGate }()
+	defer func() { <-r.approvalGate }()
 	approval := &Approval{ID: newID(), ToolName: call.Name, Args: append(json.RawMessage(nil), call.Arguments...)}
 	if call.Name == "run_command" {
 		approval.Warning = "This command runs with your computer account's permissions. It can access files and network outside the workspace. There is no OS sandbox."
@@ -403,25 +409,25 @@ func (s *Service) requestApproval(ctx context.Context, call codingagent.ToolCall
 	}
 	decision := make(chan bool, 1)
 	s.mu.Lock()
-	if s.closed || s.aborting || ctx.Err() != nil {
+	if s.closed || r.aborting || ctx.Err() != nil {
 		s.mu.Unlock()
 		return context.Canceled
 	}
 	// A previous call may have waited in the gate while the user changed mode.
 	// Recheck under the service lock immediately before creating an approval.
-	if s.permissionAllowsLocked(call.Name) {
+	if r.permissionAllowsLocked(call.Name) {
 		s.mu.Unlock()
 		return ctx.Err()
 	}
-	s.state.PendingApproval, s.approval = approval, decision
-	s.approvalCtx = ctx
+	r.PendingApproval, r.approval = approval, decision
+	r.approvalCtx = ctx
 	s.changedLocked()
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
-		if s.state.PendingApproval != nil && s.state.PendingApproval.ID == approval.ID {
-			s.state.PendingApproval, s.approval = nil, nil
-			s.approvalCtx = nil
+		if r.PendingApproval != nil && r.PendingApproval.ID == approval.ID {
+			r.PendingApproval, r.approval = nil, nil
+			r.approvalCtx = nil
 			s.changedLocked()
 		}
 		s.mu.Unlock()

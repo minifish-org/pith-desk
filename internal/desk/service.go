@@ -19,7 +19,6 @@ import (
 	agenttypes "github.com/minifish-org/pith/packages/agent/types"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
-	"github.com/minifish-org/pith/packages/durable"
 )
 
 type Settings struct {
@@ -106,11 +105,17 @@ type Approval struct {
 }
 
 type State struct {
-	Login           *LoginStatus    `json:"login,omitempty"`
-	Settings        Settings        `json:"settings"`
-	Workspaces      []Workspace     `json:"workspaces"`
-	Conversations   []Conversation  `json:"conversations"`
-	ActiveID        string          `json:"activeId"`
+	Login         *LoginStatus   `json:"login,omitempty"`
+	Settings      Settings       `json:"settings"`
+	Workspaces    []Workspace    `json:"workspaces"`
+	Conversations []Conversation `json:"conversations"`
+	ActiveID      string         `json:"activeId"`
+	Runs          []RunSummary   `json:"runs"`
+	ConversationState
+}
+
+// ConversationState belongs to one conversation, independent of UI selection.
+type ConversationState struct {
 	Messages        []Message       `json:"messages"`
 	QueuedMessages  []QueuedMessage `json:"queuedMessages"`
 	Running         bool            `json:"running"`
@@ -138,9 +143,8 @@ type catalogState struct {
 }
 
 type Service struct {
-	durable          *deskDurable
-	recoveredInput   *durableInput
-	recoveredJournal durable.ConversationID
+	active           *conversationRuntime
+	runtimes         map[string]*conversationRuntime
 	loginCancel      context.CancelFunc
 	loginDone        chan struct{}
 	loginAnswer      chan string
@@ -149,23 +153,9 @@ type Service struct {
 	config           savedConfig
 	state            State
 	closed           bool
-	aborting         bool
 	changes          chan struct{}
-	runCancel        context.CancelFunc
-	runDone          chan struct{}
-	runStarted       time.Time
-	session          *codingagent.AgentSession
-	activeManager    *codingagent.SessionManager
-	approval         chan bool
-	approvalCtx      context.Context
-	approvalGate     chan struct{}
 	dataLock         *flock.Flock
 	closeDone        chan struct{}
-	queueReady       bool
-	queueClosing     bool
-	queueInitialSeen bool
-	queueDispatched  map[string]bool
-	externalTools    map[string]bool
 	mcpGate          chan struct{}
 	mcpConfigs       []savedMCP
 	mcpRuntime       *codingagent.MCPRuntime
@@ -173,6 +163,8 @@ type Service struct {
 	mcpConnectCancel context.CancelFunc
 	probeCancel      context.CancelFunc
 	probeDone        chan struct{}
+	modelAuthGate    chan struct{}
+	mcpTokens        map[string]*mcpTokenProvider
 }
 
 func New(dataDir string) (*Service, error) {
@@ -206,11 +198,12 @@ func New(dataDir string) (*Service, error) {
 	if err := os.Chmod(abs, 0700); err != nil {
 		return nil, err
 	}
-	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), approvalGate: make(chan struct{}, 1),
-		mcpGate: make(chan struct{}, 1), queueDispatched: map[string]bool{}, externalTools: map[string]bool{},
+	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), runtimes: map[string]*conversationRuntime{},
+		mcpGate: make(chan struct{}, 1), modelAuthGate: make(chan struct{}, 1), mcpTokens: map[string]*mcpTokenProvider{},
 		dataLock: dataLock, closeDone: make(chan struct{}),
 		config: savedConfig{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", Appearance: AppearanceSystem},
-		state:  State{Workspaces: []Workspace{}, Conversations: []Conversation{}, Messages: []Message{}, QueuedMessages: []QueuedMessage{}}}
+		state:  State{Workspaces: []Workspace{}, Conversations: []Conversation{}}}
+	s.selectRuntimeLocked(s.newRuntimeLocked(""))
 	if err := readJSON(filepath.Join(abs, "settings.json"), &s.config); err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
@@ -238,12 +231,12 @@ func New(dataDir string) (*Service, error) {
 		return nil, fmt.Errorf("finish deleting local conversation data: %w", err)
 	}
 	if err := s.reconcileSessionTitlesLocked(); err != nil {
-		s.state.Error = err.Error()
+		s.active.Error = err.Error()
 	}
 	s.refreshSettingsLocked()
 	if saved.ActiveID != "" {
 		if err := s.loadMessagesLocked(saved.ActiveID); err != nil {
-			s.state.Error = err.Error()
+			s.active.Error = err.Error()
 		}
 	}
 	ready = true
@@ -258,8 +251,15 @@ func (s *Service) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := s.state
-	if !s.runStarted.IsZero() {
-		out.Runtime.Timing.ElapsedMs = time.Since(s.runStarted).Milliseconds()
+	out.ConversationState = *s.active.ConversationState
+	if !s.active.runStarted.IsZero() {
+		out.Runtime.Timing.ElapsedMs = time.Since(s.active.runStarted).Milliseconds()
+	}
+	out.Runs = []RunSummary{}
+	for _, entry := range s.state.Conversations {
+		if r := s.runtimes[entry.ID]; r != nil && r.Running {
+			out.Runs = append(out.Runs, RunSummary{ConversationID: r.id, WorkspaceID: r.workspace.ID, Phase: r.Runtime.Phase, NeedsApproval: r.PendingApproval != nil})
+		}
 	}
 	if out.Login != nil {
 		login := *out.Login
@@ -269,11 +269,11 @@ func (s *Service) Snapshot() State {
 	out.Settings.ThinkingLevels = append([]string{}, s.state.Settings.ThinkingLevels...)
 	out.Workspaces = append([]Workspace{}, s.state.Workspaces...)
 	out.Conversations = append([]Conversation{}, s.state.Conversations...)
-	out.Messages = append([]Message{}, s.state.Messages...)
+	out.Messages = append([]Message{}, s.active.Messages...)
 	for i := range out.Messages {
 		out.Messages[i].Images = append([]MessageImage(nil), out.Messages[i].Images...)
 	}
-	out.QueuedMessages = append([]QueuedMessage{}, s.state.QueuedMessages...)
+	out.QueuedMessages = append([]QueuedMessage{}, s.active.QueuedMessages...)
 	for i := range out.QueuedMessages {
 		out.QueuedMessages[i].Images = append([]aitypes.ImageContent(nil), out.QueuedMessages[i].Images...)
 	}
@@ -309,13 +309,13 @@ func (s *Service) saveConfigLocked(next savedConfig) error {
 	}
 	s.config = next
 	s.refreshSettingsLocked()
-	s.state.Error = ""
-	if affectsActive && s.state.Failure != nil && !s.state.Failure.CanContinue {
-		previous := *s.state.Failure
-		s.state.Failure.CanContinue = true
-		s.state.Failure.Advice = "Model settings changed. Test the connection, then review the conversation before continuing."
-		if err := writeJSON(s.receiptFile(s.state.ActiveID), runReceipt{Runtime: s.state.Runtime, Failure: s.state.Failure}); err != nil {
-			s.state.Failure = &previous
+	s.active.Error = ""
+	if affectsActive && s.active.Failure != nil && !s.active.Failure.CanContinue {
+		previous := *s.active.Failure
+		s.active.Failure.CanContinue = true
+		s.active.Failure.Advice = "Model settings changed. Test the connection, then review the conversation before continuing."
+		if err := writeJSON(s.receiptFile(s.state.ActiveID), runReceipt{Runtime: s.active.Runtime, Failure: s.active.Failure}); err != nil {
+			s.active.Failure = &previous
 			s.changedLocked()
 			return fmt.Errorf("settings saved, but task status could not be updated: %w", err)
 		}
@@ -327,7 +327,7 @@ func (s *Service) saveConfigLocked(next savedConfig) error {
 func (s *Service) AddWorkspace(path string) (Workspace, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.availableLocked(); err != nil {
 		return Workspace{}, err
 	}
 	path, err := canonicalDirectory(path)
@@ -357,7 +357,7 @@ func (s *Service) AddWorkspace(path string) (Workspace, error) {
 func (s *Service) CreateConversation(workspaceID string) (Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
+	if err := s.availableLocked(); err != nil {
 		return Conversation{}, err
 	}
 	if _, ok := s.workspaceLocked(workspaceID); !ok {
@@ -372,9 +372,8 @@ func (s *Service) CreateConversation(workspaceID string) (Conversation, error) {
 		s.state.ActiveID = oldActive
 		return Conversation{}, err
 	}
-	s.state.Messages = []Message{}
-	s.state.Runtime, s.state.Failure = RuntimeStatus{}, nil
-	s.state.Error = ""
+	s.selectRuntimeLocked(s.newRuntimeLocked(conversation.ID))
+	s.active.Error = ""
 	s.changedLocked()
 	return conversation, nil
 }
@@ -382,20 +381,20 @@ func (s *Service) CreateConversation(workspaceID string) (Conversation, error) {
 func (s *Service) OpenConversation(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
-		return err
-	}
-	if err := s.loadMessagesLocked(id); err != nil {
+	if err := s.availableLocked(); err != nil {
 		return err
 	}
 	old := s.state.ActiveID
-	s.state.ActiveID = id
-	if err := s.persistCatalogLocked(); err != nil {
-		s.state.ActiveID = old
-		_ = s.loadMessagesLocked(old)
+	previous := s.active
+	if err := s.loadMessagesLocked(id); err != nil {
 		return err
 	}
-	s.state.Error = ""
+	if err := s.persistCatalogLocked(); err != nil {
+		s.selectRuntimeLocked(previous)
+		s.state.ActiveID = old
+		return err
+	}
+	s.active.Error = ""
 	s.changedLocked()
 	return nil
 }
@@ -406,19 +405,29 @@ func (s *Service) Send(text string, images ...aitypes.ImageContent) error {
 	return s.sendLocked(text, images...)
 }
 
+func (s *Service) SendConversation(id, text string, images ...aitypes.ImageContent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id == "" || id != s.state.ActiveID {
+		return errors.New("The conversation changed; review your message before sending")
+	}
+	return s.sendLocked(text, images...)
+}
+
 func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error {
 	return s.startTaskLocked(text, images, false)
 }
 
 func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, compact bool) error {
-	if err := s.idleLocked(); err != nil {
+	if err := s.availableLocked(); err != nil {
 		return err
 	}
+	r := s.active
 	text = strings.TrimSpace(text)
 	if text == "" && len(images) == 0 && !compact {
 		return errors.New("Write a message or attach an image first")
 	}
-	index := s.conversationIndexLocked(s.state.ActiveID)
+	index := s.conversationIndexLocked(r.id)
 	if index < 0 {
 		return errors.New("Create a conversation first")
 	}
@@ -427,6 +436,10 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	if !ok {
 		return errors.New("The conversation's workspace is missing")
 	}
+	if err := s.workspaceIdleLocked(workspace.ID); err != nil {
+		return err
+	}
+	r.workspace = workspace
 	currentPath, err := canonicalDirectory(workspace.Path)
 	if err != nil || currentPath != workspace.Path {
 		return errors.New("The workspace has moved or is no longer available; add its current folder again")
@@ -457,43 +470,43 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 		s.state.Conversations[index] = conversation
 		return err
 	}
-	previousRuntime, previousFailure := s.state.Runtime, s.state.Failure
-	s.runDone = make(chan struct{})
-	s.state.Running = true
-	s.state.Failure = nil
-	s.state.Runtime.Phase, s.state.Runtime.Model, s.state.Runtime.ContextWindow = "starting", model.Id, model.ContextWindow
-	s.state.Runtime.Provider, s.state.Runtime.ThinkingLevel = s.config.Provider, s.config.ThinkingLevel
-	s.state.Runtime.RunID = newID()
-	s.runStarted = time.Now()
-	s.state.Runtime.Timing = TaskTiming{StartedAt: s.runStarted.UTC().Format(time.RFC3339Nano)}
-	s.state.Runtime.Cost.RunTotal, s.state.Runtime.Cost.RunRequests, s.state.Runtime.Cost.RunUnknownRequests = 0, 0, 0
-	s.state.Runtime.UpdatedAt = timestamp()
-	if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: s.state.Runtime}); err != nil {
-		s.runStarted = time.Time{}
-		s.state.Running = false
-		s.state.Runtime, s.state.Failure = previousRuntime, previousFailure
-		s.runCancel = nil
-		close(s.runDone)
+	previousRuntime, previousFailure := r.Runtime, r.Failure
+	r.runDone = make(chan struct{})
+	r.Running = true
+	r.Failure = nil
+	r.Runtime.Phase, r.Runtime.Model, r.Runtime.ContextWindow = "starting", model.Id, model.ContextWindow
+	r.Runtime.Provider, r.Runtime.ThinkingLevel = s.config.Provider, s.config.ThinkingLevel
+	r.Runtime.RunID = newID()
+	r.runStarted = time.Now()
+	r.Runtime.Timing = TaskTiming{StartedAt: r.runStarted.UTC().Format(time.RFC3339Nano)}
+	r.Runtime.Cost.RunTotal, r.Runtime.Cost.RunRequests, r.Runtime.Cost.RunUnknownRequests = 0, 0, 0
+	r.Runtime.UpdatedAt = timestamp()
+	if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: r.Runtime}); err != nil {
+		r.runStarted = time.Time{}
+		r.Running = false
+		r.Runtime, r.Failure = previousRuntime, previousFailure
+		r.runCancel = nil
+		close(r.runDone)
 		return err
 	}
-	s.aborting = false
-	s.clearQueueLocked()
-	s.queueClosing = false
-	s.state.Error = ""
+	r.aborting = false
+	r.clearQueueLocked()
+	r.queueClosing = false
+	r.Error = ""
 	s.changedLocked()
-	done := s.runDone
-	journal, err := s.admitDurableLocked(conversation.ID, workspace, s.config, model, durableInput{RunID: s.state.Runtime.RunID, Text: text, Images: images, Compact: compact})
+	done := r.runDone
+	journal, err := r.admitDurableLocked(conversation.ID, workspace, s.config, model, durableInput{RunID: r.Runtime.RunID, Text: text, Images: images, Compact: compact})
 	if err != nil {
-		s.state.Running = false
-		s.state.Runtime, s.state.Failure = previousRuntime, previousFailure
-		s.runStarted = time.Time{}
+		r.Running = false
+		r.Runtime, r.Failure = previousRuntime, previousFailure
+		r.runStarted = time.Time{}
 		_ = writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: previousRuntime, Failure: previousFailure})
-		close(s.runDone)
-		s.runCancel = nil
+		close(r.runDone)
+		r.runCancel = nil
 		return err
 	}
-	s.durable = journal
-	s.runCancel = func() { _, _ = journal.harness.AbortTask(context.Background(), journal.task) }
+	r.durable = journal
+	r.runCancel = func() { _, _ = journal.harness.AbortTask(context.Background(), journal.task) }
 	go func() {
 		runErr := journal.harness.Resume()
 		if runErr == nil {
@@ -501,32 +514,35 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 		}
 		_ = journal.harness.Close(context.Background())
 		s.mu.Lock()
-		if s.durable == journal {
-			s.durable = nil
+		if r.durable == journal {
+			r.durable = nil
 		}
 		if runErr != nil && !s.closed {
-			s.state.Error = "Durable task: " + runErr.Error()
+			r.Error = "Durable task: " + runErr.Error()
 		}
 		// Admission may fail before run's cleanup can freeze the timer.
-		if !s.runStarted.IsZero() {
-			s.updateTimingLocked()
-			s.runStarted = time.Time{}
-			if s.aborting || s.closed || errors.Is(runErr, context.Canceled) {
-				s.state.Runtime.Phase = "stopped"
-				s.state.Failure = &Failure{Kind: "stopped", Message: "You stopped this task.", Advice: "Completed actions remain in place. Review before continuing.", CanContinue: true}
+		if !r.runStarted.IsZero() {
+			r.updateTimingLocked()
+			r.runStarted = time.Time{}
+			if r.aborting || s.closed || errors.Is(runErr, context.Canceled) {
+				r.Runtime.Phase = "stopped"
+				r.Failure = &Failure{Kind: "stopped", Message: "You stopped this task.", Advice: "Completed actions remain in place. Review before continuing.", CanContinue: true}
 			} else if runErr != nil {
-				s.state.Runtime.Phase = "error"
-				s.state.Failure = classifyFailure(runErr, "starting")
+				r.Runtime.Phase = "error"
+				r.Failure = classifyFailure(runErr, "starting")
 			} else {
-				s.state.Runtime.Phase = "complete"
+				r.Runtime.Phase = "complete"
 			}
-			s.state.Runtime.UpdatedAt = timestamp()
-			if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: s.state.Runtime, Failure: s.state.Failure}); err != nil {
-				s.state.Error = err.Error()
+			r.Runtime.UpdatedAt = timestamp()
+			if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
+				r.Error = err.Error()
 			}
 		}
-		s.state.Running = false
-		s.runCancel = nil
+		r.Running = false
+		r.runCancel = nil
+		if s.active != r {
+			delete(s.runtimes, r.id)
+		}
 		close(done)
 		s.changedLocked()
 		s.mu.Unlock()
@@ -536,20 +552,28 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 
 func (s *Service) Abort() {
 	s.mu.Lock()
-	cancel, session := s.runCancel, s.session
-	if s.state.Running {
-		s.aborting = true
-		// The SDK propagates cancellation to tool contexts asynchronously.
-		// Invalidate the UI action immediately so a reply after Abort cannot
-		// create a lasting grant before that propagation completes.
-		s.state.PendingApproval, s.approval, s.approvalCtx = nil, nil, nil
-		if err := s.durableQueueLocked("desk.clear-queue", QueuedMessage{}); err != nil {
-			s.state.Error = err.Error()
-		}
-		s.clearQueueLocked()
-		s.queueClosing = true
-		s.changedLocked()
+	id := s.state.ActiveID
+	s.mu.Unlock()
+	_ = s.AbortConversation(id)
+}
+
+// AbortConversation targets the submitted conversation even after UI navigation.
+func (s *Service) AbortConversation(id string) error {
+	s.mu.Lock()
+	r := s.runtimes[id]
+	if r == nil || !r.Running {
+		s.mu.Unlock()
+		return errors.New("This conversation has no running task")
 	}
+	cancel, session := r.runCancel, r.session
+	r.aborting = true
+	r.PendingApproval, r.approval, r.approvalCtx = nil, nil, nil
+	if err := r.durableQueueLocked("desk.clear-queue", QueuedMessage{}); err != nil {
+		r.Error = err.Error()
+	}
+	r.clearQueueLocked()
+	r.queueClosing = true
+	s.changedLocked()
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -557,6 +581,7 @@ func (s *Service) Abort() {
 	if session != nil {
 		session.Abort()
 	}
+	return nil
 }
 
 func (s *Service) DecideApproval(id string, allow bool) error {
@@ -580,8 +605,9 @@ func (s *Service) SetPermissionMode(id string, mode PermissionMode) error {
 	if err := s.persistPermissionModeLocked(id, mode); err != nil {
 		return err
 	}
-	if s.state.PendingApproval != nil && s.permissionAllowsLocked(s.state.PendingApproval.ToolName) && s.approval != nil {
-		s.resolveApprovalLocked(true)
+	r := s.active
+	if r.PendingApproval != nil && r.permissionAllowsLocked(r.PendingApproval.ToolName) && r.approval != nil {
+		r.resolveApprovalLocked(true)
 	}
 	s.changedLocked()
 	return nil
@@ -590,23 +616,34 @@ func (s *Service) SetPermissionMode(id string, mode PermissionMode) error {
 func (s *Service) DecideApprovalWithScope(id string, allow, alwaysAllow bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var r *conversationRuntime
+	for _, candidate := range s.runtimes {
+		if candidate.PendingApproval != nil && candidate.PendingApproval.ID == id {
+			r = candidate
+			break
+		}
+	}
+	// Standalone guarded-tool tests also use the blank conversation runtime.
+	if r == nil && s.active.PendingApproval != nil && s.active.PendingApproval.ID == id {
+		r = s.active
+	}
 	// Validate before writing any permission. A stale/canceled browser request
 	// must never turn into a lasting grant for another pending action.
-	if s.closed || s.aborting || s.state.PendingApproval == nil || s.state.PendingApproval.ID != id || s.approval == nil || (s.approvalCtx != nil && s.approvalCtx.Err() != nil) {
+	if r == nil || s.closed || r.aborting || r.PendingApproval == nil || r.PendingApproval.ID != id || r.approval == nil || (r.approvalCtx != nil && r.approvalCtx.Err() != nil) {
 		return errors.New("This approval is no longer pending")
 	}
 	if alwaysAllow {
 		if !allow {
 			return errors.New("Approve the action to allow future workspace changes")
 		}
-		if tool := s.state.PendingApproval.ToolName; tool != "write_file" && tool != "edit_file" {
+		if tool := r.PendingApproval.ToolName; tool != "write_file" && tool != "edit_file" {
 			return errors.New("Always allow applies to workspace file changes; use the permission selector for full access")
 		}
-		if err := s.persistPermissionModeLocked(s.state.ActiveID, PermissionWorkspaceWrite); err != nil {
+		if err := s.persistPermissionModeLocked(r.id, PermissionWorkspaceWrite); err != nil {
 			return err
 		}
 	}
-	s.resolveApprovalLocked(allow)
+	r.resolveApprovalLocked(allow)
 	s.changedLocked()
 	return nil
 }
@@ -625,18 +662,19 @@ func (s *Service) persistPermissionModeLocked(id string, mode PermissionMode) er
 	return nil
 }
 
-func (s *Service) permissionModeLocked() PermissionMode {
-	if index := s.conversationIndexLocked(s.state.ActiveID); index >= 0 {
+func (r *conversationRuntime) permissionModeLocked() PermissionMode {
+	s := r.service
+	if index := s.conversationIndexLocked(r.id); index >= 0 {
 		return normalizedPermissionMode(s.state.Conversations[index].PermissionMode)
 	}
 	return PermissionAsk
 }
 
-func (s *Service) resolveApprovalLocked(allow bool) {
-	s.approval <- allow // Each decision channel is buffered and answered once.
-	s.approval = nil    // Prevent a second reply from blocking or changing the decision.
-	s.approvalCtx = nil
-	s.state.PendingApproval = nil
+func (r *conversationRuntime) resolveApprovalLocked(allow bool) {
+	r.approval <- allow // Each decision channel is buffered and answered once.
+	r.approval = nil    // Prevent a second reply from blocking or changing the decision.
+	r.approvalCtx = nil
+	r.PendingApproval = nil
 }
 
 func (s *Service) Close() {
@@ -648,45 +686,55 @@ func (s *Service) Close() {
 		return
 	}
 	s.closed = true
-	cancel, done, mcpCancel := s.runCancel, s.runDone, s.mcpConnectCancel
-	journal := s.durable
+	mcpCancel := s.mcpConnectCancel
 	probeCancel, probeDone := s.probeCancel, s.probeDone
-	s.clearQueueLocked()
-	s.queueClosing = true
 	loginCancel, loginDone := s.loginCancel, s.loginDone
+	type closingRun struct {
+		journal *deskDurable
+		done    chan struct{}
+	}
+	var runs []closingRun
+	for _, r := range s.runtimes {
+		if r.Running {
+			runs = append(runs, closingRun{r.durable, r.runDone})
+			r.clearQueueLocked()
+			r.queueClosing = true
+		}
+	}
 	s.mu.Unlock()
 	if loginCancel != nil {
 		loginCancel()
 	}
-	if loginDone != nil {
-		<-loginDone
-	}
 	if probeCancel != nil {
 		probeCancel()
-	}
-	if probeDone != nil {
-		<-probeDone
 	}
 	if mcpCancel != nil {
 		mcpCancel()
 	}
-	if journal != nil {
-		_ = journal.harness.Close(context.Background())
-	} else if cancel != nil {
-		cancel()
+	// Cancel every harness before waiting for any one. Close preserves uncertain
+	// tasks for reviewed recovery; explicit Abort instead settles them as stopped.
+	var workers sync.WaitGroup
+	for _, r := range runs {
+		workers.Add(1)
+		go func() { defer workers.Done(); _ = r.journal.harness.Close(context.Background()) }()
 	}
-	if done != nil {
-		<-done
+	workers.Wait()
+	for _, r := range runs {
+		<-r.done
+	}
+	if loginDone != nil {
+		<-loginDone
+	}
+	if probeDone != nil {
+		<-probeDone
 	}
 	s.closeMCP()
-	// Keep the store locked until the final transcript/catalog write finishes.
-	// The OS also releases this advisory lock if the process crashes. Leave the
-	// lock file in place so another process cannot lock a different inode.
 	_ = s.dataLock.Close()
 	close(s.closeDone)
 }
 
-func (s *Service) run(ctx context.Context, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool) {
+func (r *conversationRuntime) run(ctx context.Context, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool) {
+	s := r.service
 	var manager *codingagent.SessionManager
 	var session *codingagent.AgentSession
 	var registry *codingagent.ToolRegistry
@@ -702,42 +750,43 @@ func (s *Service) run(ctx context.Context, id string, workspace Workspace, confi
 		if policy != nil {
 			_ = policy.root.Close()
 		}
+		r.closeMCP()
 		s.mu.Lock()
 		if manager != nil {
-			s.updateRuntimeLocked(manager)
-			s.state.Messages = messagesFrom(manager)
+			r.updateRuntimeLocked(manager)
+			r.Messages = messagesFrom(manager)
 			_ = manager.Close()
 		}
 		if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, codingagent.ErrAgentAborted) {
-			s.state.Failure = classifyFailure(runErr, s.state.Runtime.Phase)
-			s.state.Runtime.Phase = "error"
+			r.Failure = classifyFailure(runErr, r.Runtime.Phase)
+			r.Runtime.Phase = "error"
 		} else if ctx.Err() != nil || errors.Is(runErr, codingagent.ErrAgentAborted) {
-			s.state.Runtime.Phase = "stopped"
-			s.state.Failure = &Failure{Kind: "stopped", Message: "You stopped this task.", Advice: "Completed actions remain in place. Review before continuing.", CanContinue: true}
+			r.Runtime.Phase = "stopped"
+			r.Failure = &Failure{Kind: "stopped", Message: "You stopped this task.", Advice: "Completed actions remain in place. Review before continuing.", CanContinue: true}
 		} else {
-			s.state.Runtime.Phase = "complete"
+			r.Runtime.Phase = "complete"
 		}
-		s.state.Runtime.UpdatedAt = timestamp()
-		s.updateTimingLocked()
-		s.runStarted = time.Time{}
-		if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: s.state.Runtime, Failure: s.state.Failure}); err != nil {
-			s.state.Error = "Task history was saved, but run status could not be saved: " + err.Error()
+		r.Runtime.UpdatedAt = timestamp()
+		r.updateTimingLocked()
+		r.runStarted = time.Time{}
+		if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
+			r.Error = "Task history was saved, but run status could not be saved: " + err.Error()
 		}
-		s.session, s.activeManager, s.runCancel = nil, nil, nil
-		s.aborting = false
-		s.clearQueueLocked()
-		s.queueClosing = true
-		s.externalTools = map[string]bool{}
-		s.state.PendingApproval, s.approval = nil, nil
-		s.approvalCtx = nil
+		r.session, r.activeManager, r.runCancel = nil, nil, nil
+		r.aborting = false
+		r.clearQueueLocked()
+		r.queueClosing = true
+		r.externalTools = map[string]bool{}
+		r.PendingApproval, r.approval = nil, nil
+		r.approvalCtx = nil
 		if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, codingagent.ErrAgentAborted) {
-			s.state.Error = redact(runErr.Error(), config.APIKey)
+			r.Error = redact(runErr.Error(), config.APIKey)
 		}
 		if index := s.conversationIndexLocked(id); index >= 0 {
 			s.state.Conversations[index].UpdatedAt = timestamp()
 		}
 		if err := s.persistCatalogLocked(); err != nil {
-			s.state.Error = err.Error()
+			r.Error = err.Error()
 		}
 		s.changedLocked()
 		s.mu.Unlock()
@@ -764,9 +813,9 @@ func (s *Service) run(ctx context.Context, id string, workspace Workspace, confi
 	if runErr = validateRuntimeResources(workspace.Path, s.dataDir); runErr != nil {
 		return
 	}
-	if err := s.connectMCP(ctx, true); err != nil && ctx.Err() == nil {
+	if err := r.connectMCP(ctx); err != nil && ctx.Err() == nil {
 		s.mu.Lock()
-		s.state.Error = err.Error()
+		r.Error = err.Error()
 		s.changedLocked()
 		s.mu.Unlock()
 	}
@@ -778,26 +827,26 @@ func (s *Service) run(ctx context.Context, id string, workspace Workspace, confi
 		return
 	}
 	policy.allowImages = model.SupportsImageInput()
-	registry, runErr = s.buildTools(policy)
+	registry, runErr = r.buildTools(policy)
 	if runErr != nil {
 		return
 	}
 	thinking := agenttypes.ThinkingLevel(config.ThinkingLevel)
 	s.mu.Lock()
-	mode := s.permissionModeLocked()
+	mode := r.permissionModeLocked()
 	s.mu.Unlock()
-	stream, streamErr := streamForConfig(ctx, config)
+	stream, streamErr := streamForConfigWithAuthGate(ctx, config, s.modelAuthGate)
 	if streamErr != nil {
 		runErr = streamErr
 		return
 	}
 	s.mu.Lock()
-	runID := s.state.Runtime.RunID
+	runID := r.Runtime.RunID
 	s.mu.Unlock()
 	stream = s.meteredStream(ctx, id, runID, config, stream, func() string {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if s.state.Runtime.Phase == "compacting" {
+		if r.Runtime.Phase == "compacting" {
 			return "compaction"
 		}
 		return "agent"
@@ -807,9 +856,9 @@ func (s *Service) run(ctx context.Context, id string, workspace Workspace, confi
 		Model: codingagent.ModelOptions{Model: model, ThinkingLevel: thinking, StreamFn: stream,
 			APIKey: func(context.Context, string) (string, error) { return config.APIKey, nil }},
 		Resources: codingagent.ResourceOptions{Cwd: workspace.Path, SystemPrompt: deskPrompt(mode)},
-		Policy:    s.compactionWithStream(model, config.APIKey, stream),
+		Policy:    r.compactionWithStream(model, config.APIKey, stream),
 		OnProviderStreamEvent: func(data any, _ *aitypes.Model) error {
-			s.appendProviderText(data)
+			r.appendProviderText(data)
 			return ctx.Err()
 		},
 	})
@@ -817,13 +866,13 @@ func (s *Service) run(ctx context.Context, id string, workspace Workspace, confi
 		return
 	}
 	s.mu.Lock()
-	s.session, s.activeManager = session, manager
-	s.state.Runtime.Phase = "working"
-	s.updateRuntimeLocked(manager)
+	r.session, r.activeManager = session, manager
+	r.Runtime.Phase = "working"
+	r.updateRuntimeLocked(manager)
 	s.changedLocked()
 	s.mu.Unlock()
 	unsubscribe := session.Subscribe(func(event codingagent.SessionEvent) {
-		s.observe(event, manager)
+		r.observe(event, manager)
 	})
 	defer unsubscribe()
 	if compact {
@@ -832,7 +881,7 @@ func (s *Service) run(ctx context.Context, id string, workspace Workspace, confi
 		_, runErr = session.Prompt(ctx, text, codingagent.PromptOptions{Images: images})
 	}
 	s.mu.Lock()
-	s.queueClosing = true
+	r.queueClosing = true
 	s.mu.Unlock()
 }
 
@@ -878,41 +927,42 @@ func compactionPolicy(model *aitypes.Model, apiKey string) codingagent.RunPolicy
 	}
 }
 
-func (s *Service) observe(event codingagent.SessionEvent, manager *codingagent.SessionManager) {
+func (r *conversationRuntime) observe(event codingagent.SessionEvent, manager *codingagent.SessionManager) {
+	s := r.service
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch event.Type {
 	case codingagent.SessionEventMessageEnd:
-		s.state.Messages = messagesFrom(manager)
-		s.updateRuntimeLocked(manager)
-		s.state.Runtime.Phase = "working"
-		s.observeQueuedMessageLocked(event)
-		if err := writeJSON(s.receiptFile(s.state.ActiveID), runReceipt{Runtime: s.state.Runtime}); err != nil {
-			s.state.Error = "Run status could not be saved: " + err.Error()
+		r.Messages = messagesFrom(manager)
+		r.updateRuntimeLocked(manager)
+		r.Runtime.Phase = "working"
+		r.observeQueuedMessageLocked(event)
+		if err := writeJSON(s.receiptFile(r.id), runReceipt{Runtime: r.Runtime}); err != nil {
+			r.Error = "Run status could not be saved: " + err.Error()
 		}
 	case codingagent.SessionEventAgentEnd:
-		s.queueClosing = true
+		r.queueClosing = true
 	case codingagent.SessionEventAutoRetryStart:
-		s.state.Runtime.Phase = "retrying"
-		s.queueClosing = false
-		s.queueReady = true
+		r.Runtime.Phase = "retrying"
+		r.queueClosing = false
+		r.queueReady = true
 		// Pith preserves pending queues across retry; dispatch only new messages.
-		s.dispatchQueueLocked()
+		r.dispatchQueueLocked()
 	case codingagent.SessionEventAutoRetryEnd:
-		s.state.Runtime.Phase = "working"
+		r.Runtime.Phase = "working"
 	case codingagent.SessionEventToolExecutionStart:
-		s.state.Runtime.Phase = "tool"
-		s.state.Messages = append(s.state.Messages, Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, ToolCallID: event.ToolCallID, Text: "Running…", Status: "running"})
+		r.Runtime.Phase = "tool"
+		r.Messages = append(r.Messages, Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, ToolCallID: event.ToolCallID, Text: "Running…", Status: "running"})
 	case codingagent.SessionEventToolExecutionEnd:
-		s.state.Runtime.Phase = "working"
+		r.Runtime.Phase = "working"
 		if event.IsError {
-			s.state.Runtime.ToolFailures++
+			r.Runtime.ToolFailures++
 		}
-		for i := range s.state.Messages {
-			if s.state.Messages[i].ID == "tool-"+event.ToolCallID {
-				s.state.Messages[i].Status = "done"
+		for i := range r.Messages {
+			if r.Messages[i].ID == "tool-"+event.ToolCallID {
+				r.Messages[i].Status = "done"
 				if event.IsError {
-					s.state.Messages[i].Status = "error"
+					r.Messages[i].Status = "error"
 				}
 			}
 		}
@@ -924,7 +974,8 @@ func (s *Service) observe(event codingagent.SessionEvent, manager *codingagent.S
 
 // SessionEvent.Text also carries reasoning/tool argument deltas. The provider's
 // parsed content field lets us stream only actual assistant text into the UI.
-func (s *Service) appendProviderText(data any) {
+func (r *conversationRuntime) appendProviderText(data any) {
+	s := r.service
 	chunk, ok := data.(map[string]any)
 	if !ok {
 		return
@@ -947,12 +998,12 @@ func (s *Service) appendProviderText(data any) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	last := len(s.state.Messages) - 1
-	if last < 0 || s.state.Messages[last].Status != "streaming" {
-		s.state.Messages = append(s.state.Messages, Message{ID: newID(), Role: "assistant", Status: "streaming"})
+	last := len(r.Messages) - 1
+	if last < 0 || r.Messages[last].Status != "streaming" {
+		r.Messages = append(r.Messages, Message{ID: newID(), Role: "assistant", Status: "streaming"})
 		last++
 	}
-	s.state.Messages[last].Text += content
+	r.Messages[last].Text += content
 	s.changedLocked()
 }
 
@@ -1017,22 +1068,32 @@ func (s *Service) loadMessagesLocked(id string) error {
 	if s.conversationIndexLocked(id) < 0 {
 		return errors.New("Conversation not found")
 	}
+	if r := s.runtimes[id]; r != nil && r.Running {
+		s.selectRuntimeLocked(r)
+		return nil
+	}
 	manager, err := s.readConversationSessionLocked(id)
 	if err != nil {
 		return err
 	}
-	if manager == nil {
-		s.state.Messages = []Message{}
-		return s.loadRuntimeLocked(id)
+	previous := s.runtimes[id]
+	r := s.newRuntimeLocked(id)
+	if manager != nil {
+		defer manager.Close()
+		r.Messages = messagesFrom(manager)
 	}
-	defer manager.Close()
-	s.state.Messages = messagesFrom(manager)
-	if err := s.loadRuntimeLocked(id); err != nil {
+	if err := r.loadRuntimeLocked(id); err != nil {
+		if previous != nil {
+			s.runtimes[id] = previous
+		} else {
+			delete(s.runtimes, id)
+		}
 		return err
 	}
 	if index := s.conversationIndexLocked(id); index >= 0 {
 		s.state.Conversations[index].Title = latestSessionTitle(manager, s.state.Conversations[index].Title)
 	}
+	s.selectRuntimeLocked(r)
 	return nil
 }
 
@@ -1041,6 +1102,16 @@ func (s *Service) sessionFile(id string) string {
 }
 
 func (s *Service) idleLocked() error {
+	if err := s.availableLocked(); err != nil {
+		return err
+	}
+	if s.anyRunningLocked() {
+		return errors.New("Stop all running tasks before changing global settings or connections")
+	}
+	return nil
+}
+
+func (s *Service) availableLocked() error {
 	if s.closed {
 		return errors.New("Pith Desk has closed")
 	}
@@ -1049,9 +1120,6 @@ func (s *Service) idleLocked() error {
 	}
 	if s.probeCancel != nil {
 		return errors.New("Wait for the connection test to finish or cancel it")
-	}
-	if s.state.Running {
-		return errors.New("Stop the current task before changing the conversation or settings")
 	}
 	return nil
 }

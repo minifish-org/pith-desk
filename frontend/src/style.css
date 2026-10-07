@@ -574,3 +574,6 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .cost-table td, .cost-table th { border-bottom: 1px solid var(--border); padding: 12px 8px; text-align: left; vertical-align: top; }
 .cost-table td:first-child { min-width: 220px; overflow-wrap: anywhere; }
 .cost-table pre { white-space: pre-wrap; }
+.history-run { margin-left: auto; padding-left: 6px; color: var(--accent); font-size: 10px; flex-shrink: 0; }
+.history-run.needs-approval { color: var(--danger, #c66b55); }
+.workspace-busy { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }

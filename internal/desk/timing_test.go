@@ -113,8 +113,8 @@ func TestTaskOutputIncludesUnpricedRequestsAndSummaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	s.state.Runtime.RunID = "latest"
-	s.state.Runtime.Timing = TaskTiming{StartedAt: timestamp()}
+	s.active.Runtime.RunID = "latest"
+	s.active.Runtime.Timing = TaskTiming{StartedAt: timestamp()}
 	s.mu.Unlock()
 	response := aitypes.NewAssistantMessage(model.Api, model.Provider, model.Id, 1)
 	response.Usage = aitypes.Usage{Input: 1000, Output: 10, CacheRead: 9000, TotalTokens: 10010}

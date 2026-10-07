@@ -50,7 +50,7 @@ func TestImageUploadEndpointAndAuthenticatedHistory(t *testing.T) {
 	// PNG permits trailing bytes. Exercise an upload larger than the old 2 MiB JSON limit.
 	data := append(pngBytes.Bytes(), make([]byte, 3<<20)...)
 	img := aitypes.NewImageContent(base64.StdEncoding.EncodeToString(data), "image/png")
-	payload := map[string]any{"text": "", "images": []aitypes.ImageContent{img}}
+	payload := map[string]any{"id": conversation.ID, "text": "", "images": []aitypes.ImageContent{img}}
 	if status, _, _ := featureRequest(t, s, "POST", "/api/send", payload, false); status != 401 {
 		t.Fatal("unauthenticated upload accepted")
 	}
@@ -101,7 +101,7 @@ func TestImageUploadEndpointAndAuthenticatedHistory(t *testing.T) {
 		}
 	}
 	invalid := aitypes.NewImageContent(base64.StdEncoding.EncodeToString([]byte("<svg onload='alert(1)'/>")), "image/svg+xml")
-	if status, _, _ := featureRequest(t, s, "POST", "/api/send", map[string]any{"images": []aitypes.ImageContent{invalid}}, true); status != 400 {
+	if status, _, _ := featureRequest(t, s, "POST", "/api/send", map[string]any{"id": conversation.ID, "images": []aitypes.ImageContent{invalid}}, true); status != 400 {
 		t.Fatal("SVG upload accepted")
 	}
 	if status, body, _ := featureRequest(t, s, "GET", "/api/state", nil, true); status != 200 || strings.Contains(body, img.Data) {

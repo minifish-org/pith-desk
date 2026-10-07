@@ -29,11 +29,12 @@ type QueuedMessage struct {
 func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageContent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || !s.state.Running || s.aborting || s.queueClosing {
-		return errors.New("The task has stopped; send a new message instead")
+	r := s.runtimes[id]
+	if id == "" || r == nil {
+		return errors.New("Conversation not found")
 	}
-	if id == "" || id != s.state.ActiveID {
-		return errors.New("Queue a message for the active conversation only")
+	if s.closed || !r.Running || r.aborting || r.queueClosing {
+		return errors.New("The task has stopped; send a new message instead")
 	}
 	text = strings.TrimSpace(text)
 	if text == "" && len(images) == 0 {
@@ -54,17 +55,17 @@ func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageCon
 		return err
 	}
 	message := QueuedMessage{ID: newID(), Text: text, Mode: QueueMode(mode), Images: images, ImageCount: len(images)}
-	if err := s.durableQueueLocked("desk.queue", message); err != nil {
+	if err := r.durableQueueLocked("desk.queue", message); err != nil {
 		return err
 	}
-	s.state.QueuedMessages = append(s.state.QueuedMessages, message)
-	if s.queueReady && s.session != nil {
-		if err := s.dispatchMessageLocked(message); err != nil {
-			if rollbackErr := s.durableQueueLocked("desk.delivered", message); rollbackErr != nil {
+	r.QueuedMessages = append(r.QueuedMessages, message)
+	if r.queueReady && r.session != nil {
+		if err := r.dispatchMessageLocked(message); err != nil {
+			if rollbackErr := r.durableQueueLocked("desk.delivered", message); rollbackErr != nil {
 				s.changedLocked()
 				return fmt.Errorf("Message saved for recovery but not queued: %w; %v", err, rollbackErr)
 			}
-			s.state.QueuedMessages = s.state.QueuedMessages[:len(s.state.QueuedMessages)-1]
+			r.QueuedMessages = r.QueuedMessages[:len(r.QueuedMessages)-1]
 			return err
 		}
 	}
@@ -78,13 +79,17 @@ func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageCon
 func (s *Service) MutateQueuedMessage(id, messageID, action, text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || s.aborting || s.queueClosing {
+	r := s.runtimes[id]
+	if id == "" || r == nil {
+		return errors.New("Conversation not found")
+	}
+	if s.closed || r.aborting || r.queueClosing {
 		return errors.New("The task has stopped; its pending messages cannot be changed")
 	}
-	if id == "" || id != s.state.ActiveID || messageID == "" {
-		return errors.New("Choose a pending message in the active conversation")
+	if messageID == "" {
+		return errors.New("Choose a pending message in this conversation")
 	}
-	for index, original := range s.state.QueuedMessages {
+	for index, original := range r.QueuedMessages {
 		if original.ID != messageID {
 			continue
 		}
@@ -97,7 +102,7 @@ func (s *Service) MutateQueuedMessage(id, messageID, action, text string) error 
 				return errors.New("Write a message first")
 			}
 		case "steer":
-			if !s.state.Running {
+			if !r.Running {
 				return errors.New("Continue the task before steering it")
 			}
 			message.Mode = QueueSteer
@@ -106,16 +111,16 @@ func (s *Service) MutateQueuedMessage(id, messageID, action, text string) error 
 		default:
 			return errors.New("Choose edit, delete or steer")
 		}
-		persist := func() error { return s.durableQueueLocked(kind, message) }
-		if s.queueDispatched[messageID] {
-			if s.session == nil {
+		persist := func() error { return r.durableQueueLocked(kind, message) }
+		if r.queueDispatched[messageID] {
+			if r.session == nil {
 				return errors.New("The pending message is no longer available")
 			}
 			mode := "followUp"
 			if message.Mode == QueueSteer {
 				mode = "steer"
 			}
-			err := s.session.UpdatePendingMessage(messageID, codingagent.PendingMessageUpdate{
+			err := r.session.UpdatePendingMessage(messageID, codingagent.PendingMessageUpdate{
 				Text: message.Text, Mode: mode, Options: codingagent.PromptOptions{Images: message.Images},
 				Delete: action == "delete", BeforeCommit: persist,
 			})
@@ -126,15 +131,15 @@ func (s *Service) MutateQueuedMessage(id, messageID, action, text string) error 
 			return err
 		}
 		if action == "delete" || message.Mode != original.Mode {
-			s.state.QueuedMessages = append(s.state.QueuedMessages[:index], s.state.QueuedMessages[index+1:]...)
+			r.QueuedMessages = append(r.QueuedMessages[:index], r.QueuedMessages[index+1:]...)
 			if action == "delete" {
-				delete(s.queueDispatched, messageID)
+				delete(r.queueDispatched, messageID)
 			} else {
 				// Promotion appends after existing instructions, including recovery.
-				s.state.QueuedMessages = append(s.state.QueuedMessages, message)
+				r.QueuedMessages = append(r.QueuedMessages, message)
 			}
 		} else {
-			s.state.QueuedMessages[index] = message
+			r.QueuedMessages[index] = message
 		}
 		s.changedLocked()
 		return nil
@@ -142,65 +147,66 @@ func (s *Service) MutateQueuedMessage(id, messageID, action, text string) error 
 	return codingagent.ErrPendingMessageNotFound
 }
 
-func (s *Service) dispatchMessageLocked(message QueuedMessage) error {
+func (r *conversationRuntime) dispatchMessageLocked(message QueuedMessage) error {
 	var err error
 	options := codingagent.PromptOptions{Images: message.Images, QueueID: message.ID}
 	if message.Mode == QueueSteer {
-		err = s.session.Steer(message.Text, options)
+		err = r.session.Steer(message.Text, options)
 	} else {
-		err = s.session.FollowUp(message.Text, options)
+		err = r.session.FollowUp(message.Text, options)
 	}
 	if err == nil {
-		s.queueDispatched[message.ID] = true
+		r.queueDispatched[message.ID] = true
 	}
 	return err
 }
 
-func (s *Service) dispatchQueueLocked() {
-	if s.session == nil || !s.queueReady || s.aborting || s.closed || s.queueClosing {
+func (r *conversationRuntime) dispatchQueueLocked() {
+	s := r.service
+	if r.session == nil || !r.queueReady || r.aborting || s.closed || r.queueClosing {
 		return
 	}
-	for _, message := range s.state.QueuedMessages {
-		if !s.queueDispatched[message.ID] {
-			if err := s.dispatchMessageLocked(message); err != nil {
-				s.state.Error = err.Error()
+	for _, message := range r.QueuedMessages {
+		if !r.queueDispatched[message.ID] {
+			if err := r.dispatchMessageLocked(message); err != nil {
+				r.Error = err.Error()
 				return
 			}
 		}
 	}
 }
 
-func (s *Service) observeQueuedMessageLocked(event codingagent.SessionEvent) {
+func (r *conversationRuntime) observeQueuedMessageLocked(event codingagent.SessionEvent) {
 	if event.Message == nil || event.Message.Message == nil || event.Message.Message.Role != aitypes.UserMessageRole || event.Message.Message.User == nil {
 		return
 	}
-	if !s.queueInitialSeen {
+	if !r.queueInitialSeen {
 		// The initial prompt is accepted after optional compaction. Dispatching
 		// earlier would place messages on the agent that compaction rebuilds.
-		s.queueInitialSeen, s.queueReady = true, true
-		s.dispatchQueueLocked()
+		r.queueInitialSeen, r.queueReady = true, true
+		r.dispatchQueueLocked()
 		return
 	}
 	// Native IDs disambiguate identical input and survive SDK expansion/rebuilds.
-	for i, message := range s.state.QueuedMessages {
-		if message.ID == event.Message.QueueID && s.queueDispatched[message.ID] {
-			if err := s.durableQueueLocked("desk.delivered", message); err != nil {
-				s.state.Error = err.Error()
+	for i, message := range r.QueuedMessages {
+		if message.ID == event.Message.QueueID && r.queueDispatched[message.ID] {
+			if err := r.durableQueueLocked("desk.delivered", message); err != nil {
+				r.Error = err.Error()
 			}
-			delete(s.queueDispatched, message.ID)
-			s.state.QueuedMessages = append(s.state.QueuedMessages[:i], s.state.QueuedMessages[i+1:]...)
+			delete(r.queueDispatched, message.ID)
+			r.QueuedMessages = append(r.QueuedMessages[:i], r.QueuedMessages[i+1:]...)
 			return
 		}
 	}
 }
 
-func (s *Service) clearQueueLocked() {
-	s.state.QueuedMessages = []QueuedMessage{}
-	s.queueDispatched = map[string]bool{}
-	s.queueReady, s.queueInitialSeen = false, false
+func (r *conversationRuntime) clearQueueLocked() {
+	r.QueuedMessages = []QueuedMessage{}
+	r.queueDispatched = map[string]bool{}
+	r.queueReady, r.queueInitialSeen = false, false
 }
 
-func (s *Service) permissionAllowsLocked(tool string) bool {
-	mode := s.permissionModeLocked()
-	return mode.allows(tool) || (mode == PermissionFullAccess && s.externalTools[tool])
+func (r *conversationRuntime) permissionAllowsLocked(tool string) bool {
+	mode := r.permissionModeLocked()
+	return mode.allows(tool) || (mode == PermissionFullAccess && r.externalTools[tool])
 }
