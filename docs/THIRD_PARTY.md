@@ -53,7 +53,7 @@ The Go toolchain and standard library are provided by the Go project under its B
 
 TypeScript, Vite, `mygo-cli 0.2.1`, and their development dependencies are used to build the application. Their exact versions and declared licenses are recorded in the two npm lockfiles. They are not installed on an end user's computer by Pith Desk. Type declarations, including `@types/trusted-types`, are erased from the frontend output.
 
-The application uses macOS's system WKWebView or Linux's installed GTK3/WebKitGTK libraries; it does not bundle Node.js or an Electron browser. External MCP servers may need their own runtimes and retain their own licenses.
+The application uses macOS's system WKWebView; it does not bundle Node.js or an Electron browser. External MCP servers may need their own runtimes and retain their own licenses.
 
 ## Updating or distributing
 

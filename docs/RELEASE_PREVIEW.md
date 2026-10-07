@@ -1,6 +1,12 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.9:
+New in rc.10:
+
+- Generated files are collapsed by default into one row with a file count.
+  Expand the row to see paths and Open/Reveal actions. Refreshes keep the current
+  expanded state; switching conversations collapses the section again.
+
+Recent composer and typography improvements:
 
 - The composer uses one button for sending and stopping. During a task, an empty
   composer shows a square Stop icon in the send button's original position.

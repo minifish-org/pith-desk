@@ -96,9 +96,9 @@ The sidebar groups conversations under their workspace folders. Expand or collap
 
 Deletion intent is saved before the catalog changes. If cleanup is interrupted, Pith Desk retries committed deletions on startup; uncommitted requests leave their conversation data intact. Cleanup errors are reported and never treated as a successful deletion.
 
-Press `⌘N` (`Ctrl+N` on Linux) to start a conversation in the current workspace.
+Press `⌘N` to start a conversation in the current workspace.
 
-After a task finishes, successful file writes and edits appear as generated-file cards. **Open** uses the default application; **Reveal** shows the file in your file manager. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview shows paths but native file actions require the desktop app.
+After a task finishes, successful file writes and edits appear in the **Generated files** section, collapsed by default with a file count. Expand it to see the file cards. **Open** uses the default application; **Reveal** shows the file in Finder. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview shows paths but native file actions require the desktop app.
 
 ### Workspace instructions, skills and prompt templates
 
@@ -164,12 +164,12 @@ for image-capable models. Markdown exports mark image attachments but do not
 embed their bytes.
 
 Download the
-[`v0.1.0-rc.9` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.9).
+[`v0.1.0-rc.10` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.10).
 
 
 ## Develop
 
-Requirements: Go 1.27.1 or later, Node.js 22.12 or later, npm, and macOS 12 or later for the first desktop target.
+Requirements: Go 1.27.1 or later, Node.js 22.12 or later, npm, and macOS 12 or later on Apple Silicon.
 
 ```sh
 npm ci
@@ -219,9 +219,7 @@ This is an experimental local desktop product. It has no computer-control tools,
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 
-Pith Desk targets macOS on Apple Silicon (ARM64) and Linux. Intel Mac and Windows are not supported. Native application testing and the current CI workflow cover Mac ARM64; Linux runtime testing and public release packages are still pending. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Preview downloads use manual replacement of the app bundle; no automatic updater is available. See [release packaging and signing](docs/RELEASING.md).
-
-CGO-disabled cross-builds have passed for Linux on amd64 and arm64. This establishes compilation only. Linux needs GTK3 and WebKitGTK at runtime; CGO-disabled builds do not remove these system WebView dependencies.
+Pith Desk supports only macOS on Apple Silicon (ARM64). Intel Mac, Linux and Windows are outside the supported scope. Native application testing and release packages target Mac ARM64. CI also checks Linux compilation without testing its desktop runtime or publishing Linux packages. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Preview downloads use manual replacement of the app bundle; no automatic updater is available. See [release packaging and signing](docs/RELEASING.md).
 
 The interface draws on the workspace-and-conversation layout of DeepSeek Harness, but uses its own host and Pith SDK integration. It does not load Harness plugins or copy its application runtime.
 

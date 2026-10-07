@@ -67,10 +67,15 @@ the end. Partial secret configuration fails rather than silently producing an
 unsigned package. Never put signing files or credentials into release assets.
 
 Keep package.json, mygo.config.ts and the backend Version constant aligned when
-changing the app version. Test native cold launch, Settings connection tests,
-normal task execution, Stop, restart, and both save-dialog cancellation paths
-before tagging. Intel Mac is outside the supported scope. Run Linux runtime checks on actual hosts;
-cross-compilation alone is not runtime verification.
+changing the app version. Before tagging, run automated checks and the native
+checks affected by the change. Reuse completed checks for unchanged code instead
+of repeating the full native checklist for a UI-only release. Changes to the
+host, SDK, providers or runtime require the applicable cold-launch, Settings
+connection, task execution, Stop, restart and save-dialog checks. Verify the
+downloaded archive's checksum, source revision, SDK dependency and signature;
+repeat its native launch when host or packaging changes affect startup. Only
+Apple Silicon Mac is supported; Intel Mac, Linux and Windows are outside the
+supported scope.
 
 Automatic updates are intentionally absent. Users can quit the app and replace
 the old bundle; their settings and sessions are stored outside it. Back up that

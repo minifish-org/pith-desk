@@ -81,10 +81,21 @@ workspace. Keep its model and connection settings separate from everyday data.
 
 ## Latest verification
 
-The rc.9 candidate keeps published Pith revision `92adcb39fd33`. With
+The rc.10 candidate keeps published Pith revision `92adcb39fd33`. With
 `GOWORK=off`, the complete frontend/Go tests and vet passed. The ARM64 app embeds
 the versioned SDK with CGO disabled, and its ad-hoc signature verified. CI also
-runs the internal race checks, supported-target cross-builds and native build.
+runs the internal race checks, checks Linux amd64/arm64 compilation and builds
+the Apple Silicon app. Linux compilation does not establish desktop support or
+runtime verification.
+
+On 2026-10-07, the generated-file folding change passed the TypeScript/frontend
+build and ARM64 native packaging. An isolated native app with two fixture files
+verified the default collapsed count, expansion with paths and Open/Reveal
+buttons, keyboard toggling, hiding the section in an empty conversation, and
+collapsing it again when returning to the original conversation. Both Linux
+compilation checks passed with the published SDK and `GOWORK=off`. This change
+reuses the earlier composer/runtime/native-dialog checks below because those
+paths are unchanged.
 
 The 2026-10-07 UI follow-up checked 14px conversation/composer text, a 1.5 line
 height, tighter paragraphs/lists/code blocks, and larger supporting controls in
@@ -164,7 +175,7 @@ checks validate integration behavior; they do not measure a live model's quality
 
 Desktop export uses MyGo's save dialog rather than the WebView download path.
 Native policies are registered before navigation, and the window is shown when
-MyGo reports it is ready. Linux runtime testing remains pending.
+MyGo reports it is ready. Native verification targets Apple Silicon Mac only.
 
 ## Open-source review
 
@@ -189,8 +200,9 @@ separate step requiring the accompanying notices and corresponding source.
 After the fixes, the full Go tests, vet, internal race tests, TypeScript/frontend
 build, Mac ARM64 application packaging, and ad-hoc signature verification
 passed. CGO-disabled builds also passed for Intel Mac and Linux amd64/arm64.
-These cross-builds establish compilation only; they do not add native runtime
-coverage for those targets.
+These historical cross-builds establish compilation only. Intel Mac and Linux
+are outside the supported scope; current CI retains Linux compilation checks
+without testing its desktop runtime or publishing Linux packages.
 
 ## Release and run-status checks
 
@@ -300,9 +312,9 @@ a hyphenated skill name without browser errors. Light and Dark layouts were
 inspected, and incomplete custom price input was rejected rather than silently
 treating missing categories as free.
 
-Live vendor OAuth, a real external MCP OAuth server, and Linux desktop runtime
-compatibility are not established by these fixtures. Release checks must be
-repeated with the published SDK dependency and `GOWORK=off`.
+Live vendor OAuth and a real external MCP OAuth server are not established by
+these fixtures. Release checks must be repeated with the published SDK dependency
+and `GOWORK=off`.
 
 ## Inline branching and message layout (2026-10-06)
 

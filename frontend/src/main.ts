@@ -154,7 +154,7 @@ $('app').innerHTML = `
     <section id="chat-scroll" class="chat-scroll" aria-label="Conversation">
       <div id="welcome" class="welcome"></div>
       <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text"></div>
-      <section id="artifacts" class="artifacts" aria-label="Generated files" hidden></section>
+      <details id="artifacts" class="artifacts" aria-label="Generated files" hidden></details>
     </section>
     <div class="composer-region">
       <div id="approval" class="approval-region"></div>
@@ -636,7 +636,7 @@ function setState(next: State): void {
   const runFinished = state.running && !next.running;
   state = { ...next, queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
   runtimeReceivedAt = performance.now();
-  if (activeChanged) { clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; }
+  if (activeChanged) { clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; $<HTMLDetailsElement>('artifacts').open = false; }
   snapshotLoaded = true;
   render();
   if (shouldLoadArtifacts && next.activeId) void loadArtifacts(next.activeId);
@@ -798,7 +798,7 @@ function renderArtifacts(): void {
   if (signature === artifactsSignature) return;
   artifactsSignature = signature;
   region.hidden = !state.activeId || (!artifacts.length && !artifactsError && !artifactsLoading);
-  region.innerHTML = `<div class="section-heading">Generated files</div>${artifactsLoading ? '<p class="feature-hint">Looking for files…</p>' : ''}${artifacts.map((file) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(file.name)}</strong><span class="file-path">${escape(file.path)}</span></div>${fileActions('artifact', state.activeId || '', file.path)}</article>`).join('')}${artifactsError ? `<p class="form-error" role="alert">${escape(artifactsError)}</p>` : ''}`;
+  region.innerHTML = `<summary>${icon('file')}<span class="artifacts-label">Generated files</span><span class="artifacts-count">${artifacts.length} ${artifacts.length === 1 ? 'file' : 'files'}</span>${artifactsLoading ? '<span class="artifacts-status">Looking for files…</span>' : ''}${artifactsError ? '<span class="artifacts-error">Unavailable</span>' : ''}${icon('down')}</summary><div class="artifacts-content">${artifacts.map((file) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(file.name)}</strong><span class="file-path">${escape(file.path)}</span></div>${fileActions('artifact', state.activeId || '', file.path)}</article>`).join('')}${artifactsError ? `<p class="form-error" role="alert">${escape(artifactsError)}</p>` : ''}</div>`;
 }
 
 async function loadArtifacts(id: string): Promise<void> {

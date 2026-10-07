@@ -4,7 +4,7 @@ Pith Desk is an experimental desktop client built around the Pith Go SDK. Small,
 
 ## Scope
 
-macOS is the first tested desktop target. Linux is a target with compilation checks and system WebView requirements; Windows is not supported. See the [README](README.md) for the current capabilities and limits. Discuss changes that introduce another runtime, large dependencies, or a new agent engine in an issue before implementing them.
+Only macOS on Apple Silicon (ARM64) is supported. Intel Mac, Linux and Windows are outside the supported scope. See the [README](README.md) for the current capabilities and limits. Discuss changes that introduce another runtime, large dependencies, or a new agent engine in an issue before implementing them.
 
 ## Development and checks
 
