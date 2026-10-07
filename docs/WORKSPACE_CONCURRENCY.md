@@ -1,6 +1,7 @@
 # Workspace concurrency
 
-This describes current source builds, not previously published previews.
+Included in the rc.11 preview and current source builds. Earlier previews keep
+the application-wide single-task restriction.
 
 ## Execution contract
 

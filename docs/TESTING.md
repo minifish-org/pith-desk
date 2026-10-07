@@ -57,7 +57,10 @@ workspace. Keep its model and connection settings separate from everyday data.
    workspace. All original workspace files must remain unchanged. Re-add the
    folder: old conversations must not return. Restart and repeat the checks.
    Check menu keyboard access and Escape/outside-click dismissal. Running tasks
-   must block deletion, workspace removal and switching conversations.
+   must block deletion of their conversation and removal of an overlapping
+   workspace. Switching conversations and adding disjoint workspaces remain
+   available; confirm independent approvals and stopping one task while another
+   continues. Sending a second task into an occupied workspace must be blocked.
 3. Configure an HTTP or installed stdio MCP server. Connect and inspect the tool
    count. Check that saved tokens/environment values are not filled back into the
    form. In Ask before changes, an MCP call must require its own approval.
@@ -81,12 +84,22 @@ workspace. Keep its model and connection settings separate from everyday data.
 
 ## Latest verification
 
-The rc.10 candidate keeps published Pith revision `92adcb39fd33`. With
+The rc.11 candidate keeps published Pith revision `92adcb39fd33`. With
 `GOWORK=off`, the complete frontend/Go tests and vet passed. The ARM64 app embeds
 the versioned SDK with CGO disabled, and its ad-hoc signature verified. CI also
 runs the internal race checks, checks Linux amd64/arm64 compilation and builds
 the Apple Silicon app. Linux compilation does not establish desktop support or
 runtime verification.
+
+The workspace-concurrency change passed 143 Go tests, the complete internal
+race suite, vet, TypeScript/frontend checks, ARM64 packaging and signature
+verification with `GOWORK=off`. Local provider and MCP fixtures cover concurrent
+streams, independent approvals/permissions/queues/costs, stale request rejection,
+overlapping folders, one-task cancellation, shutdown/recovery and rollback after
+a failed conversation switch. An isolated browser verified adding workspace B
+while A runs, both approvals and tasks, the occupied-workspace navigation/send
+guard, and stopping A while B continues to normal completion. No live provider
+or user credentials were used.
 
 On 2026-10-07, the generated-file folding change passed the TypeScript/frontend
 build and ARM64 native packaging. An isolated native app with two fixture files

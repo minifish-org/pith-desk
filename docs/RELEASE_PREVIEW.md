@@ -1,6 +1,21 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.10:
+New in rc.11:
+
+- Run tasks concurrently in different, non-overlapping workspace folders.
+  Switch conversations, add a workspace or create a conversation while another
+  task continues. The sidebar shows running tasks and pending approvals.
+- Each task owns its input queue, approvals, cancellation, MCP connections,
+  transcript, recovery journal and usage records. Stopping one task leaves
+  other workspaces running.
+- A workspace, including overlapping parent/child folders, still runs one task
+  at a time. An occupied workspace offers **Open running conversation** so you
+  can return to its task and queue a message.
+- Model/effort and connection settings remain shared and require all tasks to
+  stop before changing them. File tools keep their workspace boundary, and
+  process environment inheritance is unchanged.
+
+Recent generated-file improvements:
 
 - Generated files are collapsed by default into one row with a file count.
   Expand the row to see paths and Open/Reveal actions. Refreshes keep the current
