@@ -37,6 +37,22 @@ model or identity-provider credentials are used. Live vendor OAuth and actual
 MCP authorization-server compatibility still need account-backed smoke tests;
 the mocked flow verifies host integration, not vendor availability.
 
+## Subscription and OpenAI catalog verification (2026-10-08)
+
+The rc.13 changes use the pinned SDK's V1 OpenAI and OpenAI Codex records.
+Regression tests compare complete model metadata across shared, OAuth-auth-path
+and custom-connection runtimes. A local SSE fixture verifies GPT-6.1 Sol through
+the native Codex adapter with saved OAuth credentials and account headers.
+Picker tests verify images and provider-specific thinking levels.
+
+An isolated browser fixture verified that Codex has no API-key requirement,
+login refreshes an already-open Settings window, logout preserves the selected
+provider, API-key providers retain their requirement, and custom endpoints keep
+keys optional. The native ARM64 app was also checked read-only: its signed-in
+Codex Settings displayed "No API key is needed" without a key input, and an
+existing GPT-6.1 Sol task had completed. No live login, logout, connection test
+or extra model request was initiated during this release verification.
+
 ## Native smoke test
 
 Build with `npm run build`. Close other instances using the same data directory.

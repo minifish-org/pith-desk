@@ -23,7 +23,7 @@ interface RunUsage { input: number; output: number; cacheRead: number; cacheWrit
 interface TaskTiming { startedAt?: string; elapsedMs: number; outputTokens: number; partial?: boolean }
 interface RuntimeStatus { runId?: string; cost?: CostSummary; timing?: TaskTiming; provider?: string; thinkingLevel?: string; phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
 interface Failure { kind: string; message: string; advice: string; canContinue: boolean }
-export interface ProviderChoice { oauth?: boolean; signedIn?: boolean; custom?: boolean; id: string; name: string; baseUrl: string; hasApiKey: boolean; hasSavedKey?: boolean; model?: string; thinkingLevel?: string }
+export interface ProviderChoice { oauth?: boolean; apiKeySupported: boolean; signedIn?: boolean; custom?: boolean; id: string; name: string; baseUrl: string; hasApiKey: boolean; hasSavedKey?: boolean; model?: string; thinkingLevel?: string }
 interface ModelChoice { id: string; name: string; provider: string; api: string; supportsImages: boolean; contextWindow: number; maxTokens: number; thinkingLevels: string[] }
 interface ModelCatalog { providers: ProviderChoice[]; models: ModelChoice[]; source: string }
 export interface State {
@@ -80,6 +80,7 @@ let runtimeReceivedAt = performance.now();
 let connection: 'connecting' | 'connected' | 'reconnecting' = 'connecting';
 let requestBusy = false;
 let connectionProbe: AbortController | null = null;
+let refreshSettingsAuth: ((provider: string) => void) | null = null;
 let localError = '';
 let messagesSignature = '';
 let renderedActiveId: string | null = null;
@@ -217,6 +218,7 @@ const sdkUI = createSDKUI({
   state: () => state, request, mutate, error: () => localError,
   busy: () => requestBusy || !snapshotLoaded,
   workspace: selectedWorkspace, workspaceBusy: (id) => !!workspaceRun(id), settings: openSettings,
+  refreshProviderAuth: (provider) => refreshSettingsAuth?.(provider),
   draft: (text) => { input.value = text + input.value; resizeComposer(); input.focus(); render(); },
   refreshResources: loadResources, refreshMCP: loadMCP,
 });
@@ -1069,7 +1071,7 @@ function openSettings(): void {
   const appearanceSection = `<section class="appearance-settings" aria-labelledby="appearance-title"><div><h3 id="appearance-title">Appearance</h3><p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p></div><label class="sr-only" for="appearance-mode">Appearance</label><select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select><div id="appearance-error" class="form-error" role="alert"></div></section>`;
   connectionProbe?.abort();
   connectionProbe = null;
-  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button><form id="settings-form"><label class="field-label" for="settings-provider">Provider</label><select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select><div id="provider-actions"></div><details id="provider-advanced" class="provider-advanced"><summary>Advanced connection settings</summary><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div><p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p></details><label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p><button class="remove-key" id="remove-key" type="button" hidden>Remove saved API key</button><div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-global-idle data-idle-action>Test connection</button><p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-global-idle type="submit">Save settings</button></div></form>`;
+  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button><form id="settings-form"><label class="field-label" for="settings-provider">Provider</label><select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select><div id="provider-actions"></div><details id="provider-advanced" class="provider-advanced"><summary>Advanced connection settings</summary><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div><p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p></details><p id="provider-auth-hint" class="field-hint" hidden></p><div id="provider-api-key"><label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p><button class="remove-key" id="remove-key" type="button" hidden>Remove saved API key</button></div><div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-global-idle data-idle-action>Test connection</button><p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-global-idle type="submit">Save settings</button></div></form>`;
   renderAppearance();
   $<HTMLDialogElement>('settings-dialog').showModal();
   let catalog: ModelCatalog | null = null;
@@ -1086,11 +1088,30 @@ function openSettings(): void {
     const retained = !!provider?.hasSavedKey && provider.baseUrl === $<HTMLInputElement>('base-url').value.trim().replace(/\/+$/, '');
     $('key-status').textContent = provider?.signedIn ? 'Signed in' : retained ? 'Configured' : 'Not configured';
     const key = $<HTMLInputElement>('api-key');
-    key.required = !retained && !provider?.signedIn && !provider?.custom;
-    key.placeholder = retained ? 'Leave blank to keep this provider’s key' : provider?.signedIn ? 'Leave blank to keep provider sign-in' : provider?.custom ? 'Optional API key for this endpoint' : 'Paste this provider’s API key';
+    const signInOnly = !!provider?.oauth && !provider.apiKeySupported;
+    const useSignIn = signInOnly || !!provider?.signedIn;
+    $('provider-api-key').hidden = useSignIn;
+    key.disabled = useSignIn;
+    key.required = !useSignIn && !retained && !provider?.custom;
+    const hint = $('provider-auth-hint');
+    hint.hidden = !useSignIn;
+    hint.textContent = provider?.signedIn ? 'Signed in with your provider account. No API key is needed.' : 'Sign in with your provider account above. No API key is needed.';
+    key.placeholder = retained ? 'Leave blank to keep this provider’s key' : provider?.custom ? 'Optional API key for this endpoint' : 'Paste this provider’s API key';
     $('remove-key').hidden = !retained || !!provider?.signedIn;
-    if (provider?.custom) key.required = false;
     if (provider) $('provider-actions').innerHTML = sdkUI.providerActions(provider);
+  };
+  refreshSettingsAuth = (providerID) => {
+    if (!isCurrent()) return;
+    void request<ModelCatalog>('/api/models').then((result) => {
+      if (!isCurrent()) return;
+      catalog = result;
+      const select = $<HTMLSelectElement>('settings-provider');
+      for (const option of select.options) {
+        const provider = result.providers.find((entry) => entry.id === option.value);
+        if (provider) option.textContent = `${provider.name}${provider.signedIn ? ' · Signed in' : provider.hasApiKey ? ' · Configured' : ''}`;
+      }
+      if (select.value === providerID) keyStatus();
+    }).catch((error) => { if (isCurrent()) $('settings-error').textContent = String(error); });
   };
   $<HTMLButtonElement>('save-settings').disabled = true;
   void request<ModelCatalog>('/api/models').then((result) => {

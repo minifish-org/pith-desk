@@ -14,6 +14,7 @@ type API = {
   draft: (text: string) => void;
   refreshResources: () => Promise<void>;
   settings: () => void;
+  refreshProviderAuth: (provider: string) => void;
   refreshMCP: () => Promise<void>;
 };
 
@@ -111,10 +112,12 @@ export function createSDKUI(api: API) {
     }
     for (const button of document.querySelectorAll<HTMLButtonElement>('[data-sdk-idle]')) button.disabled = api.busy() || state.running || !state.activeId || (button.dataset.sdk === 'compact' && !state.messages.length);
     const login = state.login;
-    if (!login || dismissedLogin === login.id) return;
+    if (!login) return;
     const signature = JSON.stringify(login);
     if (signature === loginSignature) return;
     loginSignature = signature;
+    if (login.phase === 'complete') api.refreshProviderAuth(login.provider);
+    if (dismissedLogin === login.id) return;
     $('oauth-content').innerHTML = heading('Provider sign-in', 'oauth-dialog') + `<p>${escape(login.message)}</p>${login.url ? `<p><a href="${escape(login.url)}" target="_blank" rel="noopener noreferrer">Open sign-in page in your browser ↗</a></p>` : ''}${login.code ? `<p>Verification code: <strong>${escape(login.code)}</strong></p>` : ''}${login.phase === 'prompt' ? `<form id="oauth-answer"><label class="field-label" for="oauth-value">${escape(login.prompt)}</label>${login.options?.length ? `<select id="oauth-value" class="feature-select">${login.options.map((o) => `<option value="${escape(o.id)}">${escape(o.label)}</option>`).join('')}</select>` : `<input id="oauth-value" type="${login.promptType === 'secret' ? 'password' : 'text'}" required autocomplete="off" />`}<button type="submit" class="primary-button">Continue</button></form>` : ''}<div id="oauth-error" class="form-error" role="alert"></div><div class="modal-footer">${['complete', 'error'].includes(login.phase) ? '<button class="secondary-button" data-close="oauth-dialog">Close</button>' : '<button class="secondary-button" data-sdk="cancel-login">Cancel sign-in</button>'}</div>`;
     if (!$<HTMLDialogElement>('oauth-dialog').open) $<HTMLDialogElement>('oauth-dialog').showModal();
     const form = document.getElementById('oauth-answer');
@@ -137,7 +140,7 @@ export function createSDKUI(api: API) {
         case 'mcp-login': dismissedLogin = ''; await act('/api/mcp/oauth/start', { name: target.dataset.id }); break;
         case 'mcp-logout': if (await act('/api/mcp/oauth/logout', { name: target.dataset.id })) await api.refreshMCP(); break;
         case 'login': dismissedLogin = ''; await act('/api/oauth/start', { provider: target.dataset.id }); break;
-        case 'logout': if (await act('/api/oauth/logout', { provider: target.dataset.id })) api.settings(); break;
+        case 'logout': if (await act('/api/oauth/logout', { provider: target.dataset.id })) api.refreshProviderAuth(target.dataset.id!); break;
         case 'cancel-login': await act('/api/oauth/cancel', {}); break;
         case 'remove-connection':
           if (target.dataset.confirm !== 'yes') { target.dataset.confirm = 'yes'; target.textContent = 'Confirm remove'; }

@@ -31,7 +31,7 @@ func runtimeForConfig(config savedConfig) (*codingagent.ModelRuntime, error) {
 	if !custom && config.AuthPath == "" {
 		return modelRuntime()
 	}
-	runtime, err := codingagent.CreateModelRuntime(codingagent.CreateModelRuntimeOptions{AuthPath: config.AuthPath})
+	runtime, err := createModelRuntime(config.AuthPath)
 	if err != nil {
 		return nil, err
 	}

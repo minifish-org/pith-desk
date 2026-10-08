@@ -1,6 +1,16 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.12:
+New in rc.13:
+
+- OpenAI Codex subscription sign-in no longer shows or requires an API key.
+  Settings refresh the provider's sign-in state immediately after login or
+  logout, including when the sign-in dialog was already dismissed.
+- OpenAI and OpenAI Codex use the Pith SDK's newer bundled model catalog,
+  making GPT-6.1 Sol available with its image and thinking-effort capabilities.
+  Native provider authentication and streaming remain in use. The catalog is
+  bundled with the app; it is not fetched from OpenAI during startup.
+
+Recent completion improvements (rc.12):
 
 - Compact sidebar status icons replace the Running/Approval text badges.
   A blue ring with a fixed gap rotates during execution; it indicates activity

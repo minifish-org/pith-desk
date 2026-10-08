@@ -38,6 +38,24 @@ func TestModelCatalogUsesSDKCapabilitiesAndDoesNotExposeCredentials(t *testing.T
 			t.Fatal("OAuth provider must advertise its login method")
 		}
 	}
+	for _, provider := range []string{"openai", "openai-codex"} {
+		found := false
+		levels := []string{"low", "medium", "high", "xhigh", "max"}
+		if provider == "openai-codex" {
+			levels = append([]string{"minimal"}, levels...)
+		}
+		for _, model := range catalog.Models {
+			if model.Provider == provider && model.ID == "gpt-6.1-sol" {
+				found = true
+				if !model.SupportsImages || !reflect.DeepEqual(model.ThinkingLevels, levels) {
+					t.Fatalf("GPT-6.1 lost picker capabilities: %+v", model)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("picker catalog is missing %s/gpt-6.1-sol", provider)
+		}
+	}
 	for _, model := range catalog.Models {
 		if model.Provider == "deepseek" && model.ID == "deepseek-flash" {
 			if !model.SupportsImages || !reflect.DeepEqual(model.ThinkingLevels, []string{"off", "low", "high", "max"}) {

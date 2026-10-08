@@ -2,6 +2,7 @@ package desk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/minifish-org/pith/packages/ai"
+	"github.com/minifish-org/pith/packages/ai/catalog"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
@@ -24,22 +26,63 @@ var sdkModels struct {
 
 func modelRuntime() (*codingagent.ModelRuntime, error) {
 	sdkModels.Do(func() {
-		sdkModels.runtime, sdkModels.err = codingagent.CreateModelRuntime(codingagent.CreateModelRuntimeOptions{})
+		sdkModels.runtime, sdkModels.err = createModelRuntime("")
 	})
 	return sdkModels.runtime, sdkModels.err
 }
 
+// The SDK's OpenAI provider constructors still expose the legacy catalog.
+// Use its newer release records while retaining native streams and auth.
+type releaseCatalogProvider struct {
+	ai.Provider
+	models []aitypes.Model
+}
+
+func (p releaseCatalogProvider) GetModels() []aitypes.Model {
+	return append([]aitypes.Model(nil), p.models...)
+}
+
+func createModelRuntime(authPath string) (*codingagent.ModelRuntime, error) {
+	runtime, err := codingagent.CreateModelRuntime(codingagent.CreateModelRuntimeOptions{AuthPath: authPath})
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range []string{"openai", "openai-codex"} {
+		models := []aitypes.Model{}
+		for _, record := range catalog.V1Models(id, "chat") {
+			var model aitypes.Model
+			if err := json.Unmarshal(record, &model); err != nil {
+				return nil, fmt.Errorf("Read Pith release catalog for %s: %w", id, err)
+			}
+			models = append(models, model)
+		}
+		if len(models) == 0 {
+			return nil, fmt.Errorf("Pith release catalog for %s is empty", id)
+		}
+		provider := runtime.GetProvider(id)
+		if provider == nil {
+			return nil, fmt.Errorf("Pith provider %s is unavailable", id)
+		}
+		runtime.RegisterNativeProvider(releaseCatalogProvider{Provider: provider, models: models})
+		if message := runtime.GetError(); message != "" {
+			return nil, errors.New(message)
+		}
+	}
+	return runtime, nil
+}
+
 type ProviderChoice struct {
-	OAuth         bool   `json:"oauth"`
-	SignedIn      bool   `json:"signedIn"`
-	Custom        bool   `json:"custom"`
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	BaseURL       string `json:"baseUrl"`
-	HasAPIKey     bool   `json:"hasApiKey"`
-	HasSavedKey   bool   `json:"hasSavedKey"`
-	Model         string `json:"model,omitempty"`
-	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+	OAuth           bool   `json:"oauth"`
+	APIKeySupported bool   `json:"apiKeySupported"`
+	SignedIn        bool   `json:"signedIn"`
+	Custom          bool   `json:"custom"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	BaseURL         string `json:"baseUrl"`
+	HasAPIKey       bool   `json:"hasApiKey"`
+	HasSavedKey     bool   `json:"hasSavedKey"`
+	Model           string `json:"model,omitempty"`
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
 }
 
 type ModelChoice struct {
@@ -213,6 +256,7 @@ func (s *Service) Models(providerID string) (ModelCatalog, error) {
 		if !seen[id] {
 			seen[id] = true
 			choice := ProviderChoice{OAuth: provider.Auth().OAuth != nil, SignedIn: s.config.Connections[id].UseOAuth, HasSavedKey: s.config.Connections[id].APIKey != "", Custom: s.config.Connections[id].API != "", ID: id, Name: provider.Name(), BaseURL: provider.BaseURL(), Model: codingagent.DefaultModelPerProvider[id]}
+			choice.APIKeySupported = provider.Auth().APIKey != nil || choice.Custom
 			if preferred := runtime.GetModel(id, choice.Model); preferred != nil {
 				choice.ThinkingLevel = string(ai.ClampThinkingLevel(*preferred, aitypes.ModelThinkingLevel(codingagent.DefaultThinkingLevel)))
 			}
