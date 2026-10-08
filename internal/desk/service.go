@@ -58,6 +58,8 @@ type Conversation struct {
 	WorkspaceID    string         `json:"workspaceId"`
 	UpdatedAt      string         `json:"updatedAt"`
 	PermissionMode PermissionMode `json:"permissionMode"`
+	CompletedRunID string         `json:"completedRunId,omitempty"`
+	Unread         bool           `json:"unread,omitempty"`
 }
 
 type PermissionMode string
@@ -540,6 +542,11 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 		}
 		r.Running = false
 		r.runCancel = nil
+		if !s.closed && runErr == nil && r.Runtime.Phase == "complete" {
+			if err := s.completeConversationLocked(r.id, r.Runtime.RunID); err != nil {
+				r.Error = "Task completed, but its unread status could not be saved: " + err.Error()
+			}
+		}
 		if s.active != r {
 			delete(s.runtimes, r.id)
 		}

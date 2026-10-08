@@ -1,6 +1,23 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.11:
+New in rc.12:
+
+- Compact sidebar status icons replace the Running/Approval text badges.
+  A blue ring with a fixed gap rotates during execution; it indicates activity
+  without estimating task progress. Pending approval uses an amber icon.
+- Successful completion leaves a blue unread dot until the conversation is
+  viewed. Unread status survives restarting the app; old notifications are not
+  replayed. Stopped and failed tasks do not produce completion notices.
+- A task completing in another conversation shows an in-app notice while the
+  app is in the foreground. Background completion sends a silent macOS
+  notification. Both can open the completed conversation. The currently viewed
+  conversation does not show a completion notice.
+- System notifications require macOS permission and remain subject to Focus
+  and screen-sharing rules. If notifications appear in Notification Center but
+  no banner appears, check **System Settings → Notifications → when mirroring
+  or sharing the display**, as well as your Focus settings.
+
+Recent workspace concurrency improvements:
 
 - Run tasks concurrently in different, non-overlapping workspace folders.
   Switch conversations, add a workspace or create a conversation while another

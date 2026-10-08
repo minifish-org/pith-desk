@@ -42,6 +42,27 @@ the application data lock through their final writes. Interrupted tasks are
 recovered independently when opened. They require reviewed continuation;
 commands and external actions are never automatically replayed.
 
+## Completion indicators (rc.12)
+
+The running ring has a fixed gap and rotates without representing a percentage.
+Pending approval takes precedence over the ring. Successful completion is
+recorded only after the durable task and its tools finish cleanup; cancellation,
+failure and shutdown do not create completion notices.
+
+The catalog stores the latest completed run ID and an unread flag per
+conversation. Viewing a result acknowledges that exact run ID, so a delayed
+acknowledgement cannot hide a newer completion. Persistence failures preserve
+the unread flag. Unread dots survive restart, while old completion notifications
+are not replayed on launch.
+
+Other conversations completing in the foreground show a dismissible notice
+with navigation. The currently viewed conversation does not show a notice.
+Background desktop completion uses a silent native notification, subject to OS
+permission, Focus and screen-sharing presentation settings. Clicking it loads the originating
+conversation and restores the window. Completion delivery is deduplicated by
+run ID; the native handler runs outside service and broadcast locks. The UI
+keeps up to three notices and the desktop retains up to 32 native notifications.
+
 ## Remaining Desk boundaries
 
 | Boundary | Current behavior |

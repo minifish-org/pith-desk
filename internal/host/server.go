@@ -42,6 +42,8 @@ type Server struct {
 	revealFile        func(string) error
 	exportMarkdown    func(string) error
 	saveDiagnostics   func(string) error
+	completionAction  func(desk.Conversation, desk.Workspace)
+	completedRuns     map[string]string
 }
 
 func Start(service *desk.Service, picker func() (string, error), appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {
@@ -70,6 +72,7 @@ func Start(service *desk.Service, picker func() (string, error), appearanceChang
 		s.appearanceChanged = appearanceChanged[0]
 	}
 	s.server = &http.Server{Handler: http.HandlerFunc(s.serve), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	s.completedRuns = completionBaseline(service.Snapshot())
 	go func() { _ = s.server.Serve(ln) }()
 	go s.broadcast()
 	return s, nil
@@ -91,7 +94,10 @@ func (s *Server) broadcast() {
 			return
 		case <-s.service.Changes():
 			s.mu.Lock()
-			data := s.snapshot()
+			state := s.service.Snapshot()
+			data, _ := json.Marshal(state)
+			completions := s.newCompletionsLocked(state)
+			action := s.completionAction
 			for ch := range s.clients {
 				select {
 				case ch <- data:
@@ -104,6 +110,16 @@ func (s *Server) broadcast() {
 				}
 			}
 			s.mu.Unlock()
+			if action != nil {
+				for _, entry := range completions {
+					for _, workspace := range state.Workspaces {
+						if workspace.ID == entry.WorkspaceID {
+							action(entry, workspace)
+							break
+						}
+					}
+				}
+			}
 		}
 	}
 }
@@ -239,6 +255,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		if err = decode(&in); err == nil {
 			err = s.service.OpenConversation(in.ID)
+		}
+	case "/api/read":
+		var in struct {
+			ID    string `json:"id"`
+			RunID string `json:"runId"`
+		}
+		if err = decode(&in); err == nil {
+			err = s.service.MarkConversationRead(in.ID, in.RunID)
 		}
 	case "/api/send":
 		var in struct {

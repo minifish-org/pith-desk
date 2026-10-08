@@ -84,6 +84,34 @@ workspace. Keep its model and connection settings separate from everyday data.
 
 ## Latest verification
 
+On 2026-10-08, the sidebar indicators and completion-notification change passed
+150 Go tests, the internal race suite, vet, TypeScript/frontend checks and ARM64
+packaging with `GOWORK=off`. Regression fixtures cover successful completion,
+stopped/failed tasks, unread persistence, stale acknowledgement rejection,
+catalog-write rollback, startup deduplication and native callback delivery
+outside locks.
+
+Isolated browser and native apps verified concurrent running/approval icons,
+an unread dot and foreground notice for another conversation, opening that
+conversation and clearing its unread state, suppression in the viewed
+conversation, and no completion notice after Stop. The native fixture also
+verified foreground acknowledgement and unread preservation while the app is
+hidden. macOS logs confirmed a background notification request was accepted
+without an error after registering the disposable test bundle outside the
+temporary directory. Notification-banner display and clicking the native
+notification remain unverified in this smoke test; the desktop had notifications
+disabled during screen sharing. The real application's settings and data were
+not used. For notification smoke tests, register the isolated test bundle from a
+normal application/build directory and grant that test app notification access;
+macOS can reject notification clients running from temporary bundles.
+
+A subsequent local acceptance check confirmed three notification requests from
+the actual app were accepted by macOS. The second and third were stored in
+Notification Center but their banners were suppressed by the system's DND rule.
+System Settings showed **when mirroring or sharing the display: Notifications
+Off**. Enabling the app's notification permission does not override that global
+rule. No system notification setting was changed during this diagnosis.
+
 The rc.11 candidate keeps published Pith revision `92adcb39fd33`. With
 `GOWORK=off`, the complete frontend/Go tests and vet passed. The ARM64 app embeds
 the versioned SDK with CGO disabled, and its ad-hoc signature verified. CI also

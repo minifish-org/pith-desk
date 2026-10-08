@@ -3,11 +3,12 @@ import DOMPurify from 'dompurify';
 import './style.css';
 import { createSDKUI } from './sdk-features';
 import { createCostUI, formatCost, type CostSummary } from './costs';
+import { createCompletionUI } from './completion';
 
 interface Workspace { id: string; name: string; path: string }
 type AppearanceMode = 'system' | 'light' | 'dark';
 type PermissionMode = 'ask' | 'workspace-write' | 'full-access';
-interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number; permissionMode?: PermissionMode }
+interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number; permissionMode?: PermissionMode; completedRunId?: string; unread?: boolean }
 interface QueuedMessage { id: string; text: string; mode: 'steer' | 'follow-up'; imageCount?: number }
 interface Artifact { path: string; name: string }
 interface WorkspaceResources { workspaceId: string; instructions: { name: string; path: string; content: string }[]; skills: { name: string; path: string; description: string }[]; templates: { name: string; path: string; description: string }[]; diagnostics: string[] }
@@ -192,6 +193,7 @@ $('app').innerHTML = `
       <p class="composer-note" id="permission-description">Pith can read workspace files. Changes and commands require your approval.</p>
     </div>
   </main>
+  <section id="completion-notices" class="completion-notices" aria-label="Completed tasks" aria-live="polite"></section>
   <dialog id="model-dialog" class="modal model-modal" aria-labelledby="model-title"><div id="model-content"></div></dialog>
   <dialog id="settings-dialog" class="modal"><div id="settings-content"></div></dialog>
   <dialog id="workspace-dialog" class="modal"><div id="workspace-content"></div></dialog>
@@ -206,6 +208,11 @@ $('app').innerHTML = `
 const input = $<HTMLTextAreaElement>('composer-input');
 const chatScroll = $('chat-scroll');
 const costUI = createCostUI({ state: () => state, request });
+const completionUI = createCompletionUI({ state: () => state, request, renderHistory, escape, icon });
+const historyStatus = (entry: Conversation) => completionUI.historyStatus(entry);
+const updateCompletions = (initialized: boolean) => completionUI.observe(initialized);
+const acknowledgeViewedCompletion = () => completionUI.acknowledgeViewed();
+const dismissCompletion = (runID: string) => completionUI.dismiss(runID);
 const sdkUI = createSDKUI({
   state: () => state, request, mutate, error: () => localError,
   busy: () => requestBusy || !snapshotLoaded,
@@ -407,7 +414,7 @@ function renderHistory(): void {
     if (search && !children.length) return '';
     const expanded = expandedWorkspaces.has(workspace.id);
     const selected = workspace.id === selectedWorkspace()?.id;
-    return `<section class="workspace-group" aria-label="${escape(workspace.name)}"><div class="workspace-heading ${selected ? 'selected' : ''}"><button class="workspace-toggle" data-toggle-workspace="${escape(workspace.id)}" aria-expanded="${expanded}" aria-controls="workspace-children-${escape(workspace.id)}" title="${escape(workspace.path)}">${icon('chevron', 'workspace-chevron')}${icon('folder')}<span>${escape(workspace.name)}</span></button><button id="workspace-actions-${escape(workspace.id)}" class="quiet-icon workspace-more" data-workspace-menu="${escape(workspace.id)}" aria-label="Actions for workspace ${escape(workspace.name)}" aria-haspopup="menu" aria-expanded="${workspace.id === menuWorkspaceId}" ${disabled}>${icon('more')}</button><button class="quiet-icon workspace-new" data-new-workspace="${escape(workspace.id)}" aria-label="New conversation in ${escape(workspace.name)}" title="New conversation" ${disabled}>${icon('compose')}</button></div><div class="workspace-children" id="workspace-children-${escape(workspace.id)}" ${expanded ? '' : 'hidden'}>${children.map((entry) => `<div class="history-row ${entry.id === state.activeId ? 'active' : ''}"><button class="history-item" data-conversation="${escape(entry.id)}" ${entry.id === state.activeId ? 'aria-current="page"' : ''} title="${escape(entry.title || 'Untitled conversation')}" ${disabled}><span>${escape(entry.title || 'Untitled conversation')}</span>${state.runs.some((run) => run.conversationId === entry.id) ? `<small class="history-run ${state.runs.find((run) => run.conversationId === entry.id)?.needsApproval ? 'needs-approval' : ''}">${state.runs.find((run) => run.conversationId === entry.id)?.needsApproval ? 'Approval' : 'Running'}</small>` : ''}</button><button id="conversation-actions-${escape(entry.id)}" class="quiet-icon history-more" data-conversation-menu="${escape(entry.id)}" aria-label="Actions for ${escape(entry.title || 'Untitled conversation')}" aria-haspopup="menu" aria-expanded="${entry.id === menuConversationId}" ${disabled}>${icon('more')}</button></div>`).join('') || `<p class="workspace-empty">No conversations yet</p>`}</div></section>`;
+    return `<section class="workspace-group" aria-label="${escape(workspace.name)}"><div class="workspace-heading ${selected ? 'selected' : ''}"><button class="workspace-toggle" data-toggle-workspace="${escape(workspace.id)}" aria-expanded="${expanded}" aria-controls="workspace-children-${escape(workspace.id)}" title="${escape(workspace.path)}">${icon('chevron', 'workspace-chevron')}${icon('folder')}<span>${escape(workspace.name)}</span></button><button id="workspace-actions-${escape(workspace.id)}" class="quiet-icon workspace-more" data-workspace-menu="${escape(workspace.id)}" aria-label="Actions for workspace ${escape(workspace.name)}" aria-haspopup="menu" aria-expanded="${workspace.id === menuWorkspaceId}" ${disabled}>${icon('more')}</button><button class="quiet-icon workspace-new" data-new-workspace="${escape(workspace.id)}" aria-label="New conversation in ${escape(workspace.name)}" title="New conversation" ${disabled}>${icon('compose')}</button></div><div class="workspace-children" id="workspace-children-${escape(workspace.id)}" ${expanded ? '' : 'hidden'}>${children.map((entry) => `<div class="history-row ${entry.id === state.activeId ? 'active' : ''}"><button class="history-item" data-conversation="${escape(entry.id)}" ${entry.id === state.activeId ? 'aria-current="page"' : ''} title="${escape(entry.title || 'Untitled conversation')}" ${disabled}><span>${escape(entry.title || 'Untitled conversation')}</span>${historyStatus(entry)}</button><button id="conversation-actions-${escape(entry.id)}" class="quiet-icon history-more" data-conversation-menu="${escape(entry.id)}" aria-label="Actions for ${escape(entry.title || 'Untitled conversation')}" aria-haspopup="menu" aria-expanded="${entry.id === menuConversationId}" ${disabled}>${icon('more')}</button></div>`).join('') || `<p class="workspace-empty">No conversations yet</p>`}</div></section>`;
   }).join('') + (!state.workspaces.length ? `<button class="workspace-item empty-workspace" data-action="workspace">${icon('folder')}<span>Add a workspace</span></button>` : search && !conversations.length ? '<p class="history-empty">No matching conversations.</p>' : '');
 }
 
@@ -662,10 +669,12 @@ function setState(next: State): void {
   const shouldLoadArtifacts = !next.running && (!snapshotLoaded || next.activeId !== state.activeId || state.running);
   const activeChanged = next.activeId !== state.activeId;
   const runFinished = state.runs.length > 0 && !next.runs?.length;
+  const initialized = snapshotLoaded;
   state = { ...next, runs: Array.isArray(next.runs) ? next.runs : [], queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
   runtimeReceivedAt = performance.now();
   if (activeChanged) { input.value = ''; clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; $<HTMLDetailsElement>('artifacts').open = false; }
   snapshotLoaded = true;
+  updateCompletions(initialized);
   render();
   if (shouldLoadArtifacts && next.activeId) void loadArtifacts(next.activeId);
   if (runFinished && $<HTMLDialogElement>('connections-dialog').open) void loadMCP();
@@ -1306,6 +1315,10 @@ document.addEventListener('click', async (event) => {
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand');
   if (!target) return;
+  if (target.dataset.dismissCompletion) {
+    dismissCompletion(target.dataset.dismissCompletion);
+    return;
+  }
   if (target.dataset.queueAction && target.dataset.queuedMessage) {
     if (requestBusy || !state.activeId) return;
     const entry = state.queuedMessages.find((message) => message.id === target.dataset.queuedMessage);
@@ -1347,7 +1360,11 @@ document.addEventListener('click', async (event) => {
   }
   if (target.dataset.prompt) { input.value = target.dataset.prompt; resizeComposer(); render(); input.focus(); return; }
   if (target.dataset.conversation) {
-    if (await mutate('/api/open', { id: target.dataset.conversation })) clearDraftImages(); render(); closeSidebar(); return;
+    if (await mutate('/api/open', { id: target.dataset.conversation })) {
+      clearDraftImages();
+      acknowledgeViewedCompletion();
+    }
+    render(); closeSidebar(); return;
   }
   if (target.dataset.workspace || target.dataset.modalWorkspace) {
     const id = target.dataset.workspace || target.dataset.modalWorkspace!;
@@ -1447,9 +1464,12 @@ document.addEventListener('keydown', (event) => {
 });
 $('history-list').addEventListener('scroll', () => closeConversationMenu(), { passive: true });
 window.addEventListener('resize', () => closeConversationMenu());
+window.addEventListener('focus', acknowledgeViewedCompletion);
+document.addEventListener('visibilitychange', acknowledgeViewedCompletion);
 for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
   if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => { fullAccessTargetId = null; });
   dialog.addEventListener('close', () => {
+    acknowledgeViewedCompletion();
     if (dialog.id === 'queue-edit-dialog') queueEditTarget = null;
     if (dialog.id === 'settings-dialog') { connectionProbe?.abort(); connectionProbe = null; const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; }
     if (dialog.id === 'connections-dialog') { mcpRequest++; const key = document.getElementById('mcp-token') as HTMLInputElement | null; if (key) key.value = ''; const env = document.getElementById('mcp-env') as HTMLTextAreaElement | null; if (env) env.value = ''; }

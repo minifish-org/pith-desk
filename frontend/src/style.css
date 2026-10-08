@@ -574,6 +574,23 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .cost-table td, .cost-table th { border-bottom: 1px solid var(--border); padding: 12px 8px; text-align: left; vertical-align: top; }
 .cost-table td:first-child { min-width: 220px; overflow-wrap: anywhere; }
 .cost-table pre { white-space: pre-wrap; }
-.history-run { margin-left: auto; padding-left: 6px; color: var(--accent); font-size: 10px; flex-shrink: 0; }
-.history-run.needs-approval { color: var(--danger, #c66b55); }
+.history-item { align-items: center; gap: 8px; }
+.history-item > span:first-child { flex: 1; }
+.history-status { width: 18px; height: 18px; flex: 0 0 18px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); }
+.history-status.needs-approval { color: var(--warning-text); }
+.history-status svg { width: 16px; height: 16px; }
+.history-spinner { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: history-spin 1s linear infinite; }
+.history-unread { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+@keyframes history-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .history-spinner { animation: none; } }
+.completion-notices { position: fixed; z-index: 20; right: 24px; top: 96px; width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 320px); overflow-y: auto; display: grid; gap: 10px; pointer-events: none; }
+.completion-notice { display: flex; align-items: flex-start; gap: 12px; padding: 16px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 28px #0003; pointer-events: auto; }
+.completion-check { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: light-dark(#D8F0E1, #254C38); color: light-dark(#286641, #8CD6A7); flex: 0 0 23px; }
+.completion-check .icon { width: 15px; height: 15px; }
+.completion-content { flex: 1; min-width: 0; }
+.completion-content strong { font-size: 13px; }
+.completion-content p { font-size: 12px; color: var(--muted); margin: 5px 0 9px; overflow-wrap: anywhere; }
+.completion-content .text-button { padding: 0; text-decoration: none; }
+.completion-dismiss { width: 22px; height: 22px; flex: 0 0 22px; }
+@media (max-width: 700px) { .completion-notices { right: 16px; top: 76px; } }
 .workspace-busy { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }

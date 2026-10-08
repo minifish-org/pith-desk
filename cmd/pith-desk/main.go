@@ -83,6 +83,9 @@ func runDesktop(dataDir string) error {
 	var server *host.Server
 	var startupErr error
 	var window atomic.Pointer[mygo.Window]
+	var appActive atomic.Bool
+	mygo.App.OnDidBecomeActive(func() { appActive.Store(true) })
+	mygo.App.OnDidResignActive(func() { appActive.Store(false) })
 	var dialogMu sync.Mutex
 
 	mygo.App.WhenReady(func() {
@@ -156,6 +159,40 @@ func runDesktop(dataDir string) error {
 			BackgroundColor: "light-dark(#F7F8FB, #17191C)", StateKey: "main",
 		})
 		window.Store(win)
+		var notifications []*mygo.Notification
+		server.SetCompletionAction(func(entry desk.Conversation, workspace desk.Workspace) {
+			// macOS may retain its key window after the app loses activation.
+			if (appActive.Load() && !mygo.App.IsHidden() && win.IsFocused() && !win.IsMinimized()) || !mygo.NotificationsSupported() {
+				return
+			}
+			notification := mygo.NewNotification(mygo.NotificationOptions{
+				Title: "Task completed", Body: workspace.Name + " · " + entry.Title, Silent: true,
+			})
+			notification.OnClick(func() {
+				// Session loading can touch disk. Keep it off the native UI thread.
+				go func() {
+					if err := service.OpenConversation(entry.ID); err != nil {
+						log.Printf("Open completed conversation: %v", err)
+						return
+					}
+					win.Restore()
+					win.Show()
+					win.Focus()
+					notification.Close()
+				}()
+			})
+			if err := notification.Show(); err != nil {
+				notification.Close()
+				log.Printf("Show task notification: %v", err)
+				return
+			}
+			// Bound retained click handlers and old Notification Center entries.
+			notifications = append(notifications, notification)
+			if len(notifications) > 32 {
+				notifications[0].Close()
+				notifications = notifications[1:]
+			}
+		})
 		win.OnReadyToShow(win.Show)
 		appURL, _ := url.Parse(server.URL)
 		// Exports use the native save dialog. Download navigation bypasses MyGo's
