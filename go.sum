@@ -51,6 +51,8 @@ github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWE
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/minifish-org/pith v0.0.0-20261006174334-92adcb39fd33 h1:86rInhWtvNv+nSAdvs5uqtFyNm02YbiebVY26Hfwtng=
 github.com/minifish-org/pith v0.0.0-20261006174334-92adcb39fd33/go.mod h1:c/l37z7zp1bEQV9HwqMlXjmUHTNIaVp6fRP5Z6jntSQ=
+github.com/minifish-org/pith v0.0.0-20261009171020-a6756ade15ea h1:1Sl0OdOQfxqtrXW72cHQeEYp+M5voOHZgf18wb7rMWE=
+github.com/minifish-org/pith v0.0.0-20261009171020-a6756ade15ea/go.mod h1:c/l37z7zp1bEQV9HwqMlXjmUHTNIaVp6fRP5Z6jntSQ=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
