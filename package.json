@@ -17,6 +17,6 @@
     "release:signed": "node --experimental-strip-types scripts/package-release.ts --signed"
   },
   "devDependencies": {
-    "mygo-cli": "0.2.1"
+    "mygo-cli": "0.3.6"
   }
 }

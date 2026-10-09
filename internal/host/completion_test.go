@@ -1,12 +1,16 @@
 package host
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/minifish-org/pith-desk/internal/desk"
 )
 
@@ -56,7 +60,7 @@ func TestCompletionReadRouteRequiresKnownConversationAndAuthorization(t *testing
 	}
 }
 
-func TestCompletionCallbackRunsOnceAfterSuccessfulSettlement(t *testing.T) {
+func TestCompletionCallbackRunsOnceWithoutBlockingStateBroadcasts(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Done\"}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
@@ -75,13 +79,27 @@ func TestCompletionCallbackRunsOnceAfterSuccessfulSettlement(t *testing.T) {
 	if err := s.service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, strings.Replace(s.URL, "http://", "ws://", 1)+"/api/socket", &websocket.DialOptions{Subprotocols: []string{"pith-desk", "bearer." + s.token}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	if _, _, err = conn.Read(ctx); err != nil {
+		t.Fatal(err)
+	}
 	called := make(chan desk.Conversation, 2)
+	release := make(chan struct{})
+	defer close(release)
 	s.SetCompletionAction(func(entry desk.Conversation, workspace desk.Workspace) {
 		// Native callbacks must run outside the host/service locks.
 		if workspace.ID != w.ID || s.service.Snapshot().Running {
 			t.Error("notification fired before its task settled or for the wrong workspace")
 		}
 		called <- entry
+		// MyGo waits here while macOS asks for notification permission.
+		<-release
 	})
 	if err := s.service.Send("Finish"); err != nil {
 		t.Fatal(err)
@@ -94,6 +112,22 @@ func TestCompletionCallbackRunsOnceAfterSuccessfulSettlement(t *testing.T) {
 	}
 	if completed.ID != c.ID || completed.CompletedRunID == "" || !completed.Unread {
 		t.Fatalf("wrong completion: %+v", completed)
+	}
+	if err := s.service.SetAppearance(desk.AppearanceLight); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("blocked completion callback stopped frontend snapshots: %v", err)
+		}
+		var state desk.State
+		if err := json.Unmarshal(data, &state); err != nil {
+			t.Fatal(err)
+		}
+		if state.Settings.Appearance == desk.AppearanceLight {
+			break
+		}
 	}
 	if err := s.service.MarkConversationRead(c.ID, completed.CompletedRunID); err != nil {
 		t.Fatal(err)

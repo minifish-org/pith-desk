@@ -114,7 +114,9 @@ func (s *Server) broadcast() {
 				for _, entry := range completions {
 					for _, workspace := range state.Workspaces {
 						if workspace.ID == entry.WorkspaceID {
-							action(entry, workspace)
+							// Native notifications may wait for permission. Keep
+							// subsequent state updates flowing to the frontend.
+							go action(entry, workspace)
 							break
 						}
 					}

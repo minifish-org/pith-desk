@@ -4,6 +4,7 @@ import "github.com/minifish-org/pith-desk/internal/desk"
 
 // SetCompletionAction installs the desktop notification handler. The browser
 // preview handles its own foreground toasts and needs no native callback.
+// Callbacks run asynchronously outside the host/service locks and may overlap.
 func (s *Server) SetCompletionAction(action func(desk.Conversation, desk.Workspace)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

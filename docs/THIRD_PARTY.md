@@ -7,7 +7,7 @@ Pith Desk's own code is covered by the root [LICENSE](../LICENSE), GNU Affero Ge
 | Component | Pinned version | License and retained notice |
 | --- | --- | --- |
 | [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261004114236-0fbdc914b818` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
-| [MyGo](https://github.com/egoist/mygo) | `v0.2.1` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
+| [MyGo](https://github.com/egoist/mygo) | `v0.3.6` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
 | [coder/websocket](https://github.com/coder/websocket) | `v1.8.15` | ISC: `WEBSOCKET-LICENSE`. |
 | [gofrs/flock](https://github.com/gofrs/flock) | `v0.13.1` | BSD-3-Clause: `FLOCK-LICENSE`. |
 | [Marked](https://github.com/markedjs/marked) | `16.4.2` | MIT, with upstream Markdown attribution: the complete `MARKED-LICENSE` file is retained. |
@@ -51,7 +51,7 @@ The Go toolchain and standard library are provided by the Go project under its B
 
 ## Development tools and system components
 
-TypeScript, Vite, `mygo-cli 0.2.1`, and their development dependencies are used to build the application. Their exact versions and declared licenses are recorded in the two npm lockfiles. They are not installed on an end user's computer by Pith Desk. Type declarations, including `@types/trusted-types`, are erased from the frontend output.
+TypeScript, Vite, `mygo-cli 0.3.6`, and their development dependencies are used to build the application. Their exact versions and declared licenses are recorded in the two npm lockfiles. They are not installed on an end user's computer by Pith Desk. Type declarations, including `@types/trusted-types`, are erased from the frontend output.
 
 The application uses macOS's system WKWebView; it does not bundle Node.js or an Electron browser. External MCP servers may need their own runtimes and retain their own licenses.
 

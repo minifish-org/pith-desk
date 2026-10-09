@@ -100,6 +100,26 @@ workspace. Keep its model and connection settings separate from everyday data.
 
 ## Latest verification
 
+On 2026-10-09, the MyGo module and CLI upgrade from 0.2.1 to 0.3.6 passed
+the frontend build, Go tests and vet, internal race checks, Linux amd64/arm64
+compilation and ARM64 packaging with `GOWORK=off`. The application binary
+embeds MyGo 0.3.6 with CGO disabled, and its ad-hoc signature verified.
+The retained MyGo license is unchanged. The executable's module graph adds
+no new runtime dependency beyond the MyGo version change.
+
+MyGo now waits for macOS notification permission when showing the first
+notification. Completion callbacks run asynchronously, with synchronized
+notification retention, so that wait cannot block later frontend snapshots.
+The regression test blocks a completion callback and requires a subsequent
+appearance update through the authenticated WebSocket; it fails without the
+asynchronous dispatch and passes with it, including under the race detector.
+
+An isolated native test bundle verified startup, a native workspace-folder
+selection, Settings, Markdown and diagnostics save-dialog cancellation, and
+workspace/conversation restoration after restart. No live model request was
+made. Native notification permission prompts, banners and clicks were not
+exercised in this smoke check.
+
 On 2026-10-08, the sidebar indicators and completion-notification change passed
 150 Go tests, the internal race suite, vet, TypeScript/frontend checks and ARM64
 packaging with `GOWORK=off`. Regression fixtures cover successful completion,

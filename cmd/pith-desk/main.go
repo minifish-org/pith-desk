@@ -159,6 +159,7 @@ func runDesktop(dataDir string) error {
 			BackgroundColor: "light-dark(#F7F8FB, #17191C)", StateKey: "main",
 		})
 		window.Store(win)
+		var notificationsMu sync.Mutex
 		var notifications []*mygo.Notification
 		server.SetCompletionAction(func(entry desk.Conversation, workspace desk.Workspace) {
 			// macOS may retain its key window after the app loses activation.
@@ -187,6 +188,8 @@ func runDesktop(dataDir string) error {
 				return
 			}
 			// Bound retained click handlers and old Notification Center entries.
+			notificationsMu.Lock()
+			defer notificationsMu.Unlock()
 			notifications = append(notifications, notification)
 			if len(notifications) > 32 {
 				notifications[0].Close()
