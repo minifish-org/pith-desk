@@ -9,13 +9,13 @@ import (
 
 const (
 	completionNotificationsFile = "notifications.json"
-	completionNotificationLimit = 32
-	completionNotificationAge   = 7 * 24 * time.Hour
+	completionNotificationLimit = 512
+	completionNotificationAge   = 90 * 24 * time.Hour
 )
 
 // ErrNotificationUnavailable means that the notification cannot safely select
 // a conversation. Its session may have been removed, its result superseded,
-// or its retained seven-day entry may have expired.
+// or its retained ninety-day entry may have expired.
 var ErrNotificationUnavailable = errors.New("This notification has expired or its conversation was removed")
 
 // CompletionNotification is the local target retained independently of a

@@ -275,6 +275,29 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .markdown code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-code); color: var(--text); }
 .markdown pre { background: var(--surface-code); border: 1px solid var(--border); margin: 12px 0; padding: 12px 14px; border-radius: 9px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
 .markdown pre code { border: 0; border-radius: 0; padding: 0; background: transparent; color: var(--text); font-size: inherit; }
+.code-block { margin: 12px 0; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--surface-code); }
+.code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--border); }
+.code-toolbar .code-copy { padding: 4px 9px; font-size: 11px; }
+.markdown .code-block pre { margin: 0; border: 0; border-radius: 0; }
+.conversation-region { position: relative; display: flex; min-height: 0; flex: 1; }
+.back-to-latest { position: absolute; bottom: 12px; right: 30px; display: flex; align-items: center; gap: 6px; font-size: 12px; box-shadow: var(--modal-shadow); }
+.back-to-latest .icon { width: 14px; height: 14px; }
+.conversation-find { display: flex; align-items: center; gap: 7px; padding: 7px 30px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.conversation-find input { flex: 1; min-width: 0; max-width: 420px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; background: var(--surface-input); color: var(--text); font-size: 13px; }
+.conversation-find [data-find-count] { min-width: 65px; color: var(--muted); font-size: 12px; text-align: center; }
+.conversation-find .quiet-icon { padding: 5px; }
+.find-previous .icon { transform: rotate(180deg); }
+mark[data-find-match] { background: var(--warning-code); color: var(--text); border-radius: 2px; }
+mark.find-current { background: var(--accent); color: white; }
+.modal.image-viewer { width: min(1200px, calc(100% - 40px)); max-height: 90dvh; }
+.modal.image-viewer h2 { font-size: 17px; overflow-wrap: anywhere; }
+.image-viewer-viewport { height: 65dvh; overflow: auto; display: flex; background: var(--surface-subtle); border: 1px solid var(--border); border-radius: 8px; }
+.image-viewer-viewport img { display: block; flex: none; max-width: none; margin: auto; object-fit: contain; }
+.image-viewer-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.image-viewer-toolbar [data-image-scale] { color: var(--muted); font-size: 12px; }
+.image-viewer-toolbar > div { display: flex; gap: 6px; }
+.image-viewer-toolbar button { padding: 6px 9px; font-size: 12px; }
+.history-image, .draft-image img, .file-preview-image { cursor: zoom-in; }
 .markdown blockquote { margin: 12px 0; border-left: 3px solid var(--border); padding: 3px 14px; color: var(--muted-tonal); }
 .markdown a { color: var(--accent); text-underline-offset: 3px; }
 .markdown table { display: block; overflow-x: auto; border-collapse: collapse; margin: 12px 0; }

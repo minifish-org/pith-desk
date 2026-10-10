@@ -181,7 +181,7 @@ approval disabled export while leaving new conversations and workspace
 selection available. Standard Cmd+Q still showed the task confirmation;
 Keep working preserved the approval. Idle quit exited without a resident process.
 
-Completion targets are private, bounded to 32 and valid for seven days. Tests
+Completion targets are private, bounded to 512 and valid for 90 days. Tests
 cover service restart and cross-workspace navigation, read acknowledgement,
 deleted/removed/expired/superseded targets, unavailable catalog retries,
 permission denial and final-quit ordering. A real packaged native fixture

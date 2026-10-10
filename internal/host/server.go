@@ -242,7 +242,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyLimit := int64(2 << 20)
 	if r.URL.Path == "/api/send" || r.URL.Path == "/api/queue" {
-		bodyLimit = 32 << 20
+		bodyLimit = 128 << 20
+	} else if r.URL.Path == "/api/draft" {
+		bodyLimit = 64 << 20
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
 	decode := func(dst any) error {

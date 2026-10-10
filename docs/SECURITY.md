@@ -15,7 +15,7 @@ current loading, request and dialog state.
 Completion notification targets are stored in private `notifications.json`
 beside application data. The OS receives an ID, title and workspace/conversation
 label; no token, credential or filesystem path is included in the target ID.
-Targets are bounded to 32 and seven days. Clicks validate the retained session,
+Targets are bounded to 512 and 90 days. Clicks validate the retained session,
 workspace and completed run under the service lock before navigating. A missing,
 expired, deleted or superseded target does not create a conversation or select a
 different target. Delivered valid notifications survive process exit; no
@@ -55,10 +55,11 @@ Generated-file Open, Reveal and Copy file actions accept only successful recorde
 
 Generated-file Preview has the same authenticated, recorded-artifact and
 workspace boundaries. Reads use the workspace root at access time and reject
-non-regular files. Image previews allow PNG/JPEG/GIF/WebP and at most 8 MiB;
-text previews are limited to 256 KiB. Markdown uses the same sanitizer as
-replies, with scripts, embedded content and remote images removed. HTML and
-SVG remain inert text, rather than trusted application pages.
+non-regular files. Image previews allow PNG/JPEG/GIF/WebP and at most 50 MiB;
+text previews are limited to 8 MiB and displayed in pages of up to 256 KiB.
+Small Markdown previews use the same sanitizer as replies, with scripts,
+embedded content and remote images removed. Large Markdown previews, HTML and
+SVG remain inert source text.
 
 Text drafts live in mode-0600 files under the selected data profile's `drafts/`
 directory. They are fetched on demand rather than included in streamed State,

@@ -111,7 +111,7 @@ fixes verified by the integration tests:
 4. Pending input can be edited, deleted or promoted atomically by native queue
    ID, with host persistence committed before delivery. A late promotion at the
    final queue poll is delivered before ordinary follow-up messages.
-5. Codex WebSocket responses use a 16 MiB read limit, avoiding failures when a
+5. Codex WebSocket responses use a configurable 128 MiB read limit, avoiding failures when a
    response exceeds the transport's former 32 KiB default.
 
 The fixes and their regression tests live in Pith, rather than a Desk fork.

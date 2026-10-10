@@ -8,8 +8,21 @@ export function draftKey(scope: DraftScope): string {
 // Revisions let the host reject an older autosave arriving after an unload save
 // or a successful send. Drafts belong to the data profile, not a loopback origin.
 export function createDrafts(request: ApiRequest, error: (message: string) => void, delay = 250) {
-  type Entry = { scope: DraftScope; draft: Draft; saved: number; timer?: ReturnType<typeof setTimeout>; loading?: Promise<Draft> };
+  type Entry = { scope: DraftScope; draft: Draft; saved: number; timer?: ReturnType<typeof setTimeout>; loading?: Promise<Draft>; autosaving?: boolean };
   const entries = new Map<string, Entry>();
+  function schedule(entry: Entry): void {
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(async () => {
+      if (entry.autosaving) return;
+      entry.autosaving = true;
+      const revision = entry.draft.revision;
+      try { await flush(entry.scope); } catch { /* Preserve for explicit retry/quit. */ }
+      finally {
+        entry.autosaving = false;
+        if (entries.get(draftKey(entry.scope)) === entry && entry.draft.revision > revision && entry.saved < entry.draft.revision) schedule(entry);
+      }
+    }, entry.draft.text.length > 64 * 1024 ? Math.max(delay, 1000) : delay);
+  }
   async function load(scope: DraftScope): Promise<Draft> {
     const key = draftKey(scope);
     if (!key) return { text: '', revision: 0 };
@@ -38,8 +51,7 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
     }
     if (entry.loading || entry.draft.text === text) return;
     entry.draft = { text, revision: Math.max(Date.now(), entry.draft.revision + 1) };
-    clearTimeout(entry.timer);
-    entry.timer = setTimeout(() => { void flush(scope).catch(() => {}); }, delay);
+    schedule(entry);
   }
   async function flush(scope: DraftScope, options?: RequestOptions): Promise<void> {
     const entry = entries.get(draftKey(scope));

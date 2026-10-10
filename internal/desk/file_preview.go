@@ -13,8 +13,8 @@ import (
 	"unicode/utf8"
 )
 
-const maxTextPreviewBytes = 256 << 10
-const maxImagePreviewBytes = 8 << 20
+const maxTextPreviewBytes = 8 << 20
+const maxImagePreviewBytes = MaxImageUploadBytes
 
 type ArtifactPreview struct {
 	Kind      string `json:"kind"`
@@ -100,7 +100,7 @@ func (s *Service) PreviewArtifact(id, path string) (ArtifactPreview, error) {
 	truncated := len(data) > limit
 	if supportedImageType(mime) {
 		if truncated {
-			return ArtifactPreview{}, errors.New("This image is too large to preview (8 MiB limit). Use Open to view it")
+			return ArtifactPreview{}, errors.New("This image is too large to preview (50 MiB limit). Use Open to view it")
 		}
 		return ArtifactPreview{Kind: "image", MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)}, nil
 	}

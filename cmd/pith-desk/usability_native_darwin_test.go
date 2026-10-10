@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"image/png"
 	"net/http"
@@ -92,7 +94,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		if t.Failed() {
 			state := service.Snapshot()
 			draft, draftErr := service.Draft(desk.DraftScope{ID: first.ID})
-			t.Logf("saved draft: %+v, error: %v", draft, draftErr)
+			t.Logf("saved draft bytes=%d revision=%d, error: %v", len(draft.Text), draft.Revision, draftErr)
 			t.Logf("fixture requests=%d running=%v phase=%s error=%q hasKey=%v approval=%+v", requests.Load(), state.Running, state.Runtime.Phase, state.Error, state.Settings.HasAPIKey, state.PendingApproval)
 			t.Logf("UI: %v", nativeDropEval(t, win, `({ready:document.querySelector('#composer-input')?.readOnly, sendDisabled:document.querySelector('#send-button')?.disabled, approval:document.querySelector('#approval')?.textContent, failure:document.querySelector('#task-failure')?.textContent, error:document.querySelector('#inline-error')?.textContent, loaded:document.querySelector('#composer-input')?.placeholder})`))
 		}
@@ -168,13 +170,33 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	if err := png.Encode(&imageData, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workspacePath, "picture.png"), imageData.Bytes(), 0644); err != nil {
+	// A valid private ancillary PNG chunk exercises images above the former
+	// 8 MiB ceiling without a huge decoded pixel allocation.
+	chunk := make([]byte, (10<<20)+12)
+	binary.BigEndian.PutUint32(chunk[:4], 10<<20)
+	copy(chunk[4:8], "piTH")
+	binary.BigEndian.PutUint32(chunk[len(chunk)-4:], crc32.ChecksumIEEE(chunk[4:len(chunk)-4]))
+	imageBytes := imageData.Bytes()
+	largeImage := append(append(append([]byte{}, imageBytes[:len(imageBytes)-12]...), chunk...), imageBytes[len(imageBytes)-12:]...)
+	if err := os.WriteFile(filepath.Join(workspacePath, "picture.png"), largeImage, 0644); err != nil {
 		t.Fatal(err)
 	}
 	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="picture.png"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('#file-preview-body img')?.naturalWidth === 2`)
 	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.file-preview-text')?.textContent === 'Plain text 中文'`)
+	largeText := "PREVIEW START\n" + strings.Repeat("中文🙂\n", (8<<20)/11-4) + "\nPREVIEW END"
+	if err := os.WriteFile(filepath.Join(workspacePath, "result.txt"), []byte(largeText), 0644); err != nil {
+		t.Fatal(err)
+	}
+	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('#file-preview-body .preview-pagination') !== null && document.querySelector('.file-preview-text')?.textContent.startsWith('PREVIEW START')`)
+	if nativeDropEval(t, win, `new TextEncoder().encode(document.querySelector('.file-preview-text').textContent).length <= 256*1024`) != true {
+		t.Fatal("large preview rendered all bytes at once")
+	}
+	nativeDropEval(t, win, `const next=document.querySelector('#file-preview-body .preview-pagination button:last-child'); while (!next.disabled) next.click(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('.file-preview-text')?.textContent.endsWith('PREVIEW END')`)
+	saveUsabilityScreenshot(t, win, "large-text-preview.png")
 	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="animation.html"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.file-preview-text')?.textContent.includes('<script>window.__previewUnsafe=true</script>')`)
 	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('#file-preview-body script').length === 0`) != true {
@@ -198,11 +220,11 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	waitSavedDraft(t, service, first.ID, "Last text before reload")
 	// The production quit guard saves before the host and WebView go away,
 	// including keystrokes still waiting for the normal autosave debounce.
-	nativeDropEval(t, win, `const input=document.querySelector('#composer-input'); input.value='Last text before quit'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	nativeDropEval(t, win, `const input=document.querySelector('#composer-input'); input.value='中'.repeat(2796202)+'ab'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
 	if err := flushDesktopDrafts(win); err != nil {
 		t.Fatal(err)
 	}
-	waitSavedDraft(t, service, first.ID, "Last text before quit")
+	waitSavedDraft(t, service, first.ID, strings.Repeat("中", desk.MaxDraftBytes/3)+"ab")
 	t.Log("drafts survived conversation switches, immediate reload and a new host origin; native exit saved the last keystrokes; send cleared only its draft; real write/edit approvals rendered SDK diffs; PNG, Markdown and UTF-8 text previews loaded; HTML and Markdown scripts remained inert")
 }
 

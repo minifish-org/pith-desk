@@ -1,6 +1,34 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.15:
+New in rc.16:
+
+- Click draft attachments, sent images or generated-file images to enlarge
+  them. The viewer offers Fit, Original size and zoom controls; Escape returns
+  to the conversation or the underlying file preview.
+- Fenced code blocks have a Copy button that copies their literal code.
+  Cmd/Ctrl+F finds text in the current conversation, including folded tool
+  results; Enter and Shift+Enter move between matches.
+- Switching conversations remembers reading position and expanded tool results
+  during the current app session. Back to latest returns to the newest output
+  when you are reading earlier messages.
+- Text drafts and text-file previews now allow 8 MiB. Long previews use pages
+  of up to 256 KiB; large Markdown files appear as source text. Image attachments
+  allow 50 MiB total per message, and generated-image previews allow 50 MiB per
+  file. Provider limits may be lower.
+- Larger text changes can show approval previews: up to 2 MiB and 20,000
+  newlines per file, with up to 1 MiB of paged diff. Extensive changes use an
+  accurate replacement diff when minimal-diff calculation reaches its budget.
+- The embedded SDK accepts messages up to 128 MiB on its Codex WebSocket,
+  MCP and agent-proxy paths. MCP tool calls allow ten minutes of inactivity;
+  progress renews that window and user cancellation remains available.
+- Context summaries retain larger tool-result excerpts, including trailing and
+  intermediate error diagnostics. Codemode output budgets and timeout options
+  now follow their documented contracts. Active Mistral/Pi streams no longer
+  stop at a default one-minute total deadline.
+- Completion-notification targets are retained for up to 90 days and 512
+  records, subject to conversation removal or a newer result superseding them.
+
+Previous changes (rc.15):
 
 - Text drafts are saved separately for each conversation and restored when
   switching conversations or restarting the app. Successful sending or queueing
@@ -14,7 +42,7 @@ New in rc.15:
 - Generated files have a Preview button alongside Open, Reveal and Copy file,
   with the same button style. Markdown is rendered, UTF-8 text is displayed,
   and recorded PNG, JPEG, GIF and WebP files can be viewed within Desk.
-  Preview supports images up to 8 MiB and the first 256 KiB of long text.
+  That release supported images up to 8 MiB and the first 256 KiB of long text.
   HTML and SVG remain source text; Open uses the associated application.
 
 File preview does not add an image-generation service. The file list still
@@ -163,7 +191,7 @@ Mac downloads are Apple Silicon only. The embedded Pith SDK preserves queued
 inputs across retries and session rebuilds. Image selection, paste/drop,
 previews, queued image inputs and persistent image history are included.
 PNG, JPEG, GIF and WebP uploads
-must total 20 MiB or less per message; provider limits may be lower. Images
+must total 50 MiB or less per message; provider limits may be lower. Images
 require an image-capable model and are sent to the configured provider.
 
 Download the macOS ARM64 preview ZIP, extract it and move **Pith Desk.app**

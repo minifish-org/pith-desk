@@ -61,7 +61,7 @@ Background desktop completion uses a silent native notification, subject to OS
 permission, Focus and screen-sharing presentation settings. Clicking it loads the originating
 conversation and restores the window. Completion delivery is deduplicated by
 run ID; the native handler runs outside service and broadcast locks. The UI
-keeps up to three notices and the desktop retains up to 32 native notifications.
+keeps up to three notices and the desktop retains up to 512 notification targets.
 
 ## Remaining Desk boundaries
 
@@ -74,7 +74,7 @@ keeps up to three notices and the desktop retains up to 32 native notifications.
 | Model routing | Pith's virtual model routers are not configured by Desk. |
 | File tools | Desk's guarded file tools stay inside the workspace even in full access; inherited resources have additional path checks. Commands and MCP operate under their own permissions. |
 | Process environment | Commands and local MCP processes inherit a small environment allowlist; MCP supports explicit overrides. |
-| Images | PNG/JPEG/GIF/WebP only, up to 20 MiB of decoded images per message. |
+| Images | PNG/JPEG/GIF/WebP only, up to 50 MiB of decoded images per message. |
 | Application instances | One process may own an application data directory. Multiple workspace tasks run inside that process. |
 
 Pi's TypeScript extension packages are also excluded by the current Pith Go SDK

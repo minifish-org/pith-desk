@@ -87,3 +87,33 @@ test('failed saves preserve the local draft for a later flush and deleted conver
   await drafts.flushAll();
   assert.equal(db.saves.length, 1);
 });
+
+test('large autosaves wait for the in-flight write and then save only the latest revision', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const db = storage(), writes = [];
+  let release;
+  const request = async (path, input, options) => {
+    if (input.query) return db.request(path, input, options);
+    writes.push(input.text);
+    if (writes.length === 1) await new Promise((resolve) => { release = resolve; });
+    return db.request(path, input, options);
+  };
+  const drafts = createDrafts(request, () => {}), scope = { id: 'a' };
+  const text = '中'.repeat(70000);
+  await drafts.load(scope);
+  drafts.update(scope, text);
+  t.mock.timers.tick(250);
+  assert.equal(writes.length, 0);
+  t.mock.timers.tick(750);
+  assert.deepEqual(writes, [text]);
+  drafts.update(scope, text + ' intermediate');
+  drafts.update(scope, text + ' latest');
+  t.mock.timers.tick(1000);
+  assert.equal(writes.length, 1);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(1000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(writes, [text, text + ' latest']);
+  assert.equal(db.records.get('conversation:a').text, text + ' latest');
+});

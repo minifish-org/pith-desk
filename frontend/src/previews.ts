@@ -20,6 +20,25 @@ export function renderMarkdown(value: string): string {
     link.setAttribute('target', '_blank');
     link.setAttribute('rel', 'noopener noreferrer');
   }
+  for (const code of container.querySelectorAll('pre > code')) {
+    const pre = code.parentElement!;
+    const block = document.createElement('div');
+    block.className = 'code-block';
+    const toolbar = document.createElement('div');
+    toolbar.className = 'code-toolbar';
+    toolbar.dataset.findIgnore = '';
+    const language = document.createElement('span');
+    language.textContent = [...code.classList].find((name) => name.startsWith('language-'))?.slice(9) || 'Code';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'secondary-button code-copy';
+    copy.dataset.copyCode = '';
+    copy.textContent = 'Copy';
+    copy.setAttribute('aria-label', 'Copy code');
+    toolbar.append(language, copy);
+    pre.replaceWith(block);
+    block.append(toolbar, pre);
+  }
   return container.innerHTML;
 }
 

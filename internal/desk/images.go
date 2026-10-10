@@ -12,7 +12,7 @@ import (
 )
 
 // This bounds local upload memory, independently of any provider's image limits.
-const MaxImageUploadBytes = 20 << 20
+const MaxImageUploadBytes = 50 << 20
 
 // MessageImage is a reference into Pith's transcript, never the image bytes.
 // Large attachments do not get retransmitted with every streaming text update.
@@ -39,7 +39,7 @@ func validateImages(images []aitypes.ImageContent, model *aitypes.Model) ([]aity
 			return nil, errors.New("Use PNG, JPEG, GIF or WebP images")
 		}
 		if len(image.Data) > base64.StdEncoding.EncodedLen(MaxImageUploadBytes-total) {
-			return nil, errors.New("Image attachments must total 20 MiB or less per message")
+			return nil, errors.New("Image attachments must total 50 MiB or less per message")
 		}
 		data, err := base64.StdEncoding.Strict().DecodeString(image.Data)
 		if err != nil || len(data) == 0 || http.DetectContentType(data) != image.MimeType {
@@ -47,7 +47,7 @@ func validateImages(images []aitypes.ImageContent, model *aitypes.Model) ([]aity
 		}
 		total += len(data)
 		if total > MaxImageUploadBytes {
-			return nil, errors.New("Image attachments must total 20 MiB or less per message")
+			return nil, errors.New("Image attachments must total 50 MiB or less per message")
 		}
 	}
 	return out, nil

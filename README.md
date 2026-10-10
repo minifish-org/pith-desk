@@ -108,7 +108,7 @@ app restores the text. A workspace with no conversation can retain its own
 initial draft. Sending or queueing successfully clears only the submitted,
 unchanged text; a rejected request keeps it. Drafts are not sent to the model
 or added to the transcript until submitted. Removing a conversation or
-workspace also removes its drafts. Text drafts have a 256 KiB limit; image
+workspace also removes its drafts. Text drafts have an 8 MiB limit; image
 attachments retain their existing in-memory draft behavior.
 
 The rc.11 preview supports **concurrent tasks in separate workspace folders**. Add folders, create conversations and switch views while other tasks continue in the background. The sidebar marks each running conversation and shows when it needs approval. Stop, pending input, permissions and run statistics belong to that conversation. A workspace can run one task at a time; nested or overlapping workspace folders share that restriction. An occupied workspace offers **Open running conversation**. Global model, credential and MCP connection changes require all tasks to stop. See [workspace concurrency](docs/WORKSPACE_CONCURRENCY.md) for the execution contract and validation. Earlier previews retain the application-wide single-task restriction.
@@ -117,9 +117,9 @@ The rc.12 preview replaces the sidebar's text badges with a small blue spinning 
 
 The local source build retains notification targets across launches on macOS.
 Clicking a valid older notification starts or activates the packaged app and
-opens its workspace conversation. Targets expire after seven days, a newer
+opens its workspace conversation. Targets expire after 90 days, a newer
 completed run in the same conversation, or removal of the conversation/workspace;
-at most 32 are retained. An unavailable target shows a short explanation. macOS
+at most 512 are retained. An unavailable target shows a short explanation. macOS
 starts the normal application data profile; custom `--data-dir` profiles must be
 reopened with the same argument before clicking. The OS does not replay launch
 arguments. Linux and Windows notification backends support current-process
@@ -141,13 +141,24 @@ Deletion intent is saved before the catalog changes. If cleanup is interrupted, 
 Press `⌘N` to start a conversation in the current workspace.
 
 After a reply stops streaming, **Copy response** copies its original text and Markdown.
+Each fenced code block also has **Copy**, which copies only that block's literal
+code, including its line breaks. This is available in Markdown file previews too.
+
+Use **Cmd/Ctrl+F** to find text in the current conversation, including folded
+tool results. **Enter** and **Shift+Enter** move between matches; **Esc** closes
+search. Sidebar search continues to search conversation titles.
+Switching conversations remembers each conversation's reading position and
+expanded tool results for the current app session. New output follows the bottom
+when you are already there; when reading earlier content, **Back to latest**
+returns to the end.
 
 After a task finishes, successful file writes and edits appear in the **Generated files** section, collapsed by default with a file count. Expand it to see the file cards. **Open** uses the default application; **Reveal** shows the file in Finder. **Copy file** places the file on the system clipboard so you can paste it into Finder; the original stays in place. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview offers **Copy path**; native file actions require the desktop app.
 
 **Preview** opens the file in a dialog within Desk: PNG, JPEG, GIF and WebP
-images up to 8 MiB, rendered Markdown, and UTF-8 text. Long text previews show
-the first 256 KiB. HTML and SVG source appear as text; scripts and external
-images do not run in the preview. Use **Open** to view an animation or other
+images up to 50 MiB, rendered Markdown, and UTF-8 text. Long text previews show
+the first 8 MiB in pages of up to 256 KiB. Large Markdown previews use paged source
+text; smaller Markdown previews retain formatted rendering. HTML and SVG source
+appear as text; scripts and external images do not run in the preview. Use **Open** to view an animation or other
 file in its associated application. Preview reads the current recorded file
 through the same workspace checks as the existing file actions.
 
@@ -202,8 +213,11 @@ Deleting a conversation also deletes its local cost ledger and durable journal.
 Use **Attach images** in the composer, drag images onto it, or paste a screenshot.
 Preview and remove attachments before sending. An image can be sent alone, with
 text, or as a queued instruction or next task while the agent is working.
+Click a draft attachment, a sent image, or an image in a file preview to enlarge
+it. The viewer offers **Fit**, **Original size**, and zoom controls; **Esc** closes
+the viewer and returns to the underlying conversation or file preview.
 
-PNG, JPEG, GIF and WebP are accepted, with a **20 MiB total upload limit per
+PNG, JPEG, GIF and WebP are accepted, with a **50 MiB total upload limit per
 message** to bound local upload memory. Provider limits may be lower. Image
 bytes are sent unchanged; this client does not resize or transcode uploads.
 Model capability comes from the pinned Pith catalog. Text-only models reject

@@ -12,8 +12,10 @@ import (
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
 
-const maxApprovalFileBytes = 64 << 10
-const maxApprovalLines = 2000
+const maxApprovalFileBytes = 2 << 20
+const maxApprovalLines = 20_000
+const maxApprovalDiffBytes = 1 << 20
+const maxApprovalDiffSteps = codingagent.DefaultEditDiffSteps
 
 type ApprovalPreview struct {
 	Path      string `json:"path"`
@@ -98,9 +100,9 @@ func fileApprovalPreview(policy *filePolicy, tool string, args json.RawMessage) 
 		preview.Error = "This change is too large to preview. Review the tool arguments"
 		return preview, nil
 	}
-	preview.Diff = codingagent.GenerateUnifiedPatch(in.Path, string(before), after)
-	if len(preview.Diff) > maxApprovalFileBytes {
-		preview.Diff = preview.Diff[:maxApprovalFileBytes]
+	preview.Diff = codingagent.GenerateUnifiedPatchBounded(in.Path, string(before), after, maxApprovalDiffSteps)
+	if len(preview.Diff) > maxApprovalDiffBytes {
+		preview.Diff = preview.Diff[:maxApprovalDiffBytes]
 		for !utf8.ValidString(preview.Diff) {
 			preview.Diff = preview.Diff[:len(preview.Diff)-1]
 		}

@@ -8,6 +8,18 @@ const headers = (json) => {
   return value;
 };
 
+test('large Unicode drafts keep authentication and avoid the browser keepalive quota', async () => {
+  const calls = [];
+  globalThis.fetch = async (_path, options) => { calls.push(options); return Response.json({}); };
+  const { request } = createAPI(headers);
+  await request('/api/draft', { id: 'chat', text: '中'.repeat(40000), revision: 1 }, { keepalive: true });
+  await request('/api/draft', { id: 'chat', text: 'small', revision: 2 }, { keepalive: true });
+  assert.equal(calls[0].keepalive, false);
+  assert.equal(calls[1].keepalive, true);
+  assert.equal(calls[0].headers.get('Authorization'), 'Bearer fixture-token');
+  assert.equal(JSON.parse(calls[0].body).text.length, 40000);
+});
+
 test('typed reads and mutations retain authenticated same-origin requests', async () => {
   const calls = [];
   globalThis.fetch = async (path, options) => {

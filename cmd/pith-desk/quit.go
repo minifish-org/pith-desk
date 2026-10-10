@@ -55,7 +55,7 @@ func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogM
 }
 
 func flushDesktopDrafts(window *mygo.Window) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	value, err := window.Page().EvalContext(ctx, `new Promise(resolve => {
   const event = new CustomEvent('pith:flush-drafts', { cancelable: true, detail: resolve });

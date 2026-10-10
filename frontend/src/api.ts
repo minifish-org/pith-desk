@@ -33,9 +33,13 @@ export function createAPI(headers: (json?: boolean) => Headers): { request: ApiR
   const request = async (path: string, input?: unknown, options?: RequestOptions): Promise<unknown> => {
     const readOptions = input as { query?: object; signal?: AbortSignal } | undefined;
     const read = (readPaths as readonly string[]).includes(path) && (input === undefined || !(mutationPaths as readonly string[]).includes(path) || (typeof input === 'object' && input !== null && 'query' in input));
+    const body = read ? undefined : JSON.stringify(input);
+    // Fetch keepalive has a browser-owned 64 KiB body allowance. Large drafts
+    // use normal authenticated requests; the native quit guard awaits them.
+    const keepalive = options?.keepalive && (!body || new TextEncoder().encode(body).length < 64 * 1024);
     const response = await checked(await fetch(read ? queryURL(path, readOptions?.query) : path, {
       method: read ? 'GET' : 'POST', headers: headers(!read), credentials: 'same-origin',
-      body: read ? undefined : JSON.stringify(input), signal: read ? readOptions?.signal : options?.signal, keepalive: options?.keepalive,
+      body, signal: read ? readOptions?.signal : options?.signal, keepalive,
     }));
     return response.json();
   };

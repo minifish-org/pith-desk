@@ -1,11 +1,14 @@
 import './style.css';
 import { createDrafts, draftKey } from './drafts';
-import { renderMarkdown, renderDiff } from './previews';
+import { renderMarkdown } from './previews';
+import { mountPagedPreview } from './paged-preview';
 import { createSDKUI } from './sdk-features';
 import { createCostUI, formatCost, type CostSummary } from './costs';
 import { createCompletionUI } from './completion';
 import { installWorkspaceFileDrop } from './workspace-files';
 import { installNativeMenu } from './native-menu';
+import { installConversationReader } from './conversation-reader';
+import { imagePreviewBlob, installImageViewer } from './image-viewer';
 
 import { createAPI, parseStream, type MutationPath, type MutationInput, type MutationResponse } from './api';
 import type { State as WireState, Workspace, Conversation, QueuedMessage, Artifact, ResourceInventory as WorkspaceResources, MCPServerView as MCPConnection, ImageContent, RunSummary, Message, RuntimeStatus, ModelCatalog, PermissionMode, AppearanceMode, ProviderChoice, DraftScope } from './contract.generated';
@@ -79,6 +82,7 @@ let refreshSettingsAuth: ((provider: string) => void) | null = null;
 let localError = '';
 let messagesSignature = '';
 let renderedActiveId: string | null = null;
+const conversationFolds = new Map<string, Map<string, boolean>>();
 let approvalSignature = '';
 let eventSocket: WebSocket | null = null;
 let disposed = false;
@@ -169,11 +173,18 @@ $('app').innerHTML = `
       <div class="breadcrumb">${icon('folder')}<span id="workspace-label">No workspace</span>${icon('chevron', 'breadcrumb-chevron')}<span class="breadcrumb-current" id="conversation-label">New conversation</span></div>
       <div class="conversation-actions"><button class="quiet-icon compact-action" data-sdk="compact" data-sdk-idle title="Compress context by summarizing older messages" aria-label="Compress context">${icon('compress')}<span>Compact</span></button></div>
     </header>
-    <section id="chat-scroll" class="chat-scroll" aria-label="Conversation">
+    <section id="conversation-find" class="conversation-find" aria-label="Find in conversation" hidden>
+      <input type="search" aria-label="Find in this conversation" placeholder="Find in this conversation" autocomplete="off" />
+      <span data-find-count role="status" aria-live="polite"></span>
+      <button type="button" class="quiet-icon find-previous" data-find-previous aria-label="Previous match" title="Previous match (Shift+Enter)">${icon('down')}</button>
+      <button type="button" class="quiet-icon" data-find-next aria-label="Next match" title="Next match (Enter)">${icon('down')}</button>
+      <button type="button" class="quiet-icon" data-find-close aria-label="Close search" title="Close (Esc)">${icon('close')}</button>
+    </section>
+    <div class="conversation-region"><section id="chat-scroll" class="chat-scroll" aria-label="Conversation" tabindex="-1">
       <div id="welcome" class="welcome"></div>
       <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text"></div>
       <details id="artifacts" class="artifacts" aria-label="Generated files" hidden></details>
-    </section>
+    </section><button id="back-to-latest" type="button" class="secondary-button back-to-latest" hidden>${icon('down')}<span>Back to latest</span></button></div>
     <div class="composer-region">
       <div id="approval" class="approval-region"></div>
       <div id="workspace-busy" class="workspace-busy" hidden></div><div id="inline-error" class="inline-error" role="alert" hidden></div>
@@ -208,11 +219,18 @@ $('app').innerHTML = `
   <dialog id="resources-dialog" class="modal feature-modal" aria-labelledby="resources-title"><div id="resources-content"></div></dialog>
   <dialog id="connections-dialog" class="modal feature-modal" aria-labelledby="connections-title"><div id="connections-content"></div></dialog>
   <dialog id="preview-dialog" class="modal file-preview-modal" aria-labelledby="preview-title"><div id="preview-content"></div></dialog>
+  <dialog id="image-dialog" class="modal image-viewer" aria-labelledby="image-viewer-title">
+    <div class="modal-heading"><h2 id="image-viewer-title">Image</h2><button type="button" class="quiet-icon" data-image-close aria-label="Close image">${icon('close')}</button></div>
+    <div class="image-viewer-viewport"><img alt="" /></div>
+    <div class="image-viewer-toolbar"><span data-image-scale role="status"></span><div><button type="button" class="secondary-button" data-image-out aria-label="Zoom out">−</button><button type="button" class="secondary-button" data-image-in aria-label="Zoom in">+</button><button type="button" class="secondary-button" data-image-fit>Fit</button><button type="button" class="secondary-button" data-image-original>Original size</button></div></div>
+  </dialog>
 `;
 
 const input = $<HTMLTextAreaElement>('composer-input');
 const drafts = createDrafts(request, (message) => { if (!disposed) { localError = message; render(); } });
 const chatScroll = $('chat-scroll');
+const reader = installConversationReader(chatScroll, $('messages'), $('conversation-find'), $<HTMLButtonElement>('back-to-latest'));
+const imageViewer = installImageViewer($<HTMLDialogElement>('image-dialog'));
 const costUI = createCostUI({ state: () => state, request });
 const completionUI = createCompletionUI({ state: () => state, request, renderHistory, escape, icon });
 const historyStatus = (entry: Conversation) => completionUI.historyStatus(entry);
@@ -291,21 +309,24 @@ function render(): void {
   if ((!menuConversation && !menuWorkspace) || requestBusy) closeConversationMenu();
 
   const hasMessages = state.messages.length > 0;
-  $('welcome').hidden = hasMessages;
-  $('messages').hidden = !hasMessages;
-  if (!hasMessages) renderWelcome(workspace);
-
   const signature = JSON.stringify([state.activeId, state.messages, state.running, state.pendingApproval?.id]);
   if (signature !== messagesSignature) {
-    const nearBottom = chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 150;
     const changedConversation = renderedActiveId !== state.activeId;
-    const folds = new Map<string, boolean>(changedConversation ? [] : Array.from($('messages').querySelectorAll<HTMLDetailsElement>('[data-tool-fold]'), (element) => [element.dataset.toolFold!, element.open] as const));
+    reader.beforeRender(state.activeId || '');
+    $('welcome').hidden = hasMessages;
+    $('messages').hidden = !hasMessages;
+    const currentFolds = new Map(Array.from($('messages').querySelectorAll<HTMLDetailsElement>('[data-tool-fold]'), (element) => [element.dataset.toolFold!, element.open] as const));
+    if (renderedActiveId) conversationFolds.set(renderedActiveId, currentFolds);
+    const folds = changedConversation ? conversationFolds.get(state.activeId || '') || new Map<string, boolean>() : currentFolds;
     $('messages').innerHTML = renderMessages(state.messages, folds) + (state.running && !state.pendingApproval ? '<div class="agent-working" role="status"><span class="working-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Working…</span></div>' : '');
     messagesSignature = signature;
     renderedActiveId = state.activeId;
     loadHistoryImages();
-    if (nearBottom || changedConversation) requestAnimationFrame(() => chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior: changedConversation ? 'instant' : 'smooth' }));
+    reader.afterRender();
+    reader.prune(state.conversations.map((entry) => entry.id));
+    for (const id of conversationFolds.keys()) if (!state.conversations.some((entry) => entry.id === id)) conversationFolds.delete(id);
   }
+  if (!hasMessages) renderWelcome(workspace);
 
   renderApproval();
   renderArtifacts();
@@ -628,7 +649,7 @@ function renderMessages(messages: Message[], folds: Map<string, boolean>): strin
 
 function renderMessage(message: Message, expanded = false, foldKey = ''): string {
   const text = message.text ?? '';
-  const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${state.activeId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" loading="lazy" />`).join('');
+  const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${state.activeId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" role="button" tabindex="0" title="Click to enlarge" loading="lazy" />`).join('');
   const gallery = images ? `<div class="message-images">${images}</div>` : '';
   const copy = message.role === 'assistant' && text && message.status !== 'streaming' ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="Copy response" aria-label="Copy response">${icon('copy')}</button>` : '';
   const branch = message.role === 'assistant' && message.branchNodeId ? `<button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button>` : '';
@@ -639,11 +660,11 @@ function renderMessage(message: Message, expanded = false, foldKey = ''): string
     const status = command ? ({ running: 'Running', done: 'Completed', error: 'Failed' } as Record<string, string>)[message.status || ''] || message.status || 'Result' : message.status || 'Result';
     const exit = command?.exitCode !== undefined ? ` · Exit ${command.exitCode}` : '';
     const output = command ? `<div class="command-output"><span class="tool-field-label">Output</span><pre>${escape(text)}</pre></div>` : `<pre>${escape(text)}</pre>`;
-    return `<details class="tool-message" data-tool-fold="${escape(foldKey)}" ${expanded ? 'open' : ''}><summary>${icon('terminal')}<span>${command ? 'Command' : escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(status + exit)}</span>${icon('down')}</summary>${details}${output}${gallery}</details>`;
+    return `<details class="tool-message" data-reading-id="${escape(message.id)}" data-tool-fold="${escape(foldKey)}" ${expanded ? 'open' : ''}><summary>${icon('terminal')}<span>${command ? 'Command' : escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(status + exit)}</span>${icon('down')}</summary>${details}${output}${gallery}</details>`;
   }
-  if (message.role === 'user') return `<article class="message user-message" aria-label="Your message"><div class="message-content">${gallery}${text ? `<div class="user-text">${escape(text)}</div>` : ''}</div></article>`;
-  if (message.role === 'system') return `<div class="system-message">${escape(text)}</div>`;
-  return `<article class="message assistant-message" aria-label="Agent response"><div class="message-content"><div class="markdown">${renderMarkdown(text)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}${actions}</div></article>`;
+  if (message.role === 'user') return `<article class="message user-message" data-reading-id="${escape(message.id)}" aria-label="Your message"><div class="message-content">${gallery}${text ? `<div class="user-text">${escape(text)}</div>` : ''}</div></article>`;
+  if (message.role === 'system') return `<div class="system-message" data-reading-id="${escape(message.id)}">${escape(text)}</div>`;
+  return `<article class="message assistant-message" data-reading-id="${escape(message.id)}" aria-label="Agent response"><div class="message-content"><div class="markdown">${renderMarkdown(text)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}${actions}</div></article>`;
 }
 
 function renderApproval(): void {
@@ -654,11 +675,24 @@ function renderApproval(): void {
   const warning = approval?.warning || (approval?.toolName === 'run_command' ? 'This command runs with your normal computer permissions. It may access or change files outside this workspace.' : '');
   const canAlwaysAllow = approval?.toolName === 'write_file' || approval?.toolName === 'edit_file';
   const preview = approval?.preview;
-  const previewBody = preview?.error ? `<p class="preview-note" role="status">${escape(preview.error)}</p>` : preview ? `<pre class="approval-diff" aria-label="Proposed file changes">${preview.diff ? renderDiff(preview.diff) : 'No content changes.'}</pre>${preview.truncated ? '<p class="preview-note">Preview shortened. Expand Tool arguments for the complete change.</p>' : ''}` : '';
+  const previewBody = preview?.error ? `<p class="preview-note" role="status">${escape(preview.error)}</p>` : preview ? `<div id="approval-diff-preview"></div>${preview.truncated ? '<p class="preview-note">Preview shortened. Expand Tool arguments for the complete change.</p>' : ''}` : '';
   const previewMarkup = preview ? `<div class="approval-file"><strong>${preview.kind === 'create' ? 'Create file' : 'Modify file'}</strong><code>${escape(preview.path)}</code></div>${previewBody}` : '';
-  const args = `<pre>${escape(typeof approval?.args === 'string' ? approval.args : JSON.stringify(approval?.args, null, 2))}</pre>`;
+  const args = `<div id="approval-args-preview"></div>`;
   $('approval').innerHTML = approval ? `<section class="approval-card" aria-label="Tool approval required"><div class="approval-heading">${icon('shield')}<div><strong>Pith needs your permission</strong><span>Review this action before it runs.</span></div><span class="approval-badge">${escape(approval.toolName)}</span></div>${warning ? `<p class="approval-warning">${escape(warning)}</p>` : ''}${previewMarkup}${preview ? `<details class="approval-arguments" ${preview.error ? 'open' : ''}><summary>Tool arguments</summary>${args}</details>` : args}${canAlwaysAllow ? '<p class="approval-scope">Workspace permission applies to this conversation. Commands and external connection tools still need approval.</p>' : ''}<div class="approval-actions"><button class="secondary-button" data-approval="deny" ${requestBusy ? 'disabled' : ''}>Deny</button>${canAlwaysAllow ? `<button class="secondary-button always-allow-button" data-approval="always" ${requestBusy ? 'disabled' : ''}>Always allow workspace changes</button>` : ''}<button class="primary-button" data-approval="allow" ${requestBusy ? 'disabled' : ''}>${icon('check')}Allow this action</button></div></section>` : '';
   for (const button of $('approval').querySelectorAll<HTMLButtonElement>('[data-approval]')) button.dataset.approvalId = approval?.id || '';
+  if (preview && !preview.error) mountPagedPreview($('approval-diff-preview'), preview.diff || 'No content changes.', 'diff');
+  if (approval) {
+    const argsContainer = $('approval-args-preview');
+    const details = argsContainer.closest('details');
+    let loaded = false;
+    const showArgs = () => {
+      if (loaded || (details && !details.open)) return;
+      loaded = true;
+      mountPagedPreview(argsContainer, typeof approval.args === 'string' ? approval.args : JSON.stringify(approval.args, null, 2), 'text');
+    };
+    details?.addEventListener('toggle', showArgs);
+    showArgs();
+  }
 }
 
 function renderPermissions(): void {
@@ -704,7 +738,7 @@ function setState(next: WireState): void {
   const initialized = snapshotLoaded;
   state = { ...next, workspaces: next.workspaces || [], conversations: next.conversations || [], messages: next.messages || [], runs: Array.isArray(next.runs) ? next.runs : [], queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
   runtimeReceivedAt = performance.now();
-  if (activeChanged) { clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; $<HTMLDetailsElement>('artifacts').open = false; $<HTMLDialogElement>('preview-dialog').close(); }
+  if (activeChanged) { imageViewer.close(); clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; $<HTMLDetailsElement>('artifacts').open = false; $<HTMLDialogElement>('preview-dialog').close(); }
   loadComposerDraft();
   snapshotLoaded = true;
   updateCompletions(initialized);
@@ -927,12 +961,12 @@ async function openArtifactPreview(id: string, path: string): Promise<void> {
     if (sequence !== previewRequest || state.activeId !== id || !dialog.open) return;
     const body = $('file-preview-body');
     if (preview.kind === 'image' && preview.data && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(preview.mimeType || '')) {
-      const bytes = Uint8Array.from(atob(preview.data), (char) => char.charCodeAt(0));
-      previewImageURL = URL.createObjectURL(new Blob([bytes], { type: preview.mimeType }));
-      body.innerHTML = `<img class="file-preview-image" src="${escape(previewImageURL)}" alt="${escape(path.split('/').pop())}" />`;
-    } else if (preview.kind === 'markdown') body.innerHTML = `<div class="markdown">${renderMarkdown(preview.text || '')}</div>`;
-    else body.innerHTML = `<pre class="file-preview-text">${escape(preview.text || '')}</pre>`;
-    if (preview.truncated) body.insertAdjacentHTML('beforeend', '<p class="preview-note">Showing the first 256 KiB. Use Open for the complete file.</p>');
+      const blob = await imagePreviewBlob(preview.data, preview.mimeType!, () => sequence === previewRequest && state.activeId === id && dialog.open);
+      if (!blob) return;
+      previewImageURL = URL.createObjectURL(blob);
+      body.innerHTML = `<img class="file-preview-image" src="${escape(previewImageURL)}" alt="${escape(path.split('/').pop())}" role="button" tabindex="0" title="Click to enlarge" />`;
+    } else mountPagedPreview(body, preview.text || '', preview.kind === 'markdown' ? 'markdown' : 'text');
+    if (preview.truncated) body.insertAdjacentHTML('beforeend', '<p class="preview-note">Showing the first 8 MiB. Use Open for the complete file.</p>');
   } catch (error) {
     if (sequence === previewRequest && dialog.open) $('file-preview-body').textContent = error instanceof Error ? error.message : String(error);
   }
@@ -1331,12 +1365,12 @@ async function addWorkspace(path: string): Promise<void> {
 function closeSidebar(): void { $('sidebar').classList.remove('open'); $('sidebar-scrim').classList.remove('visible'); }
 function renderDraftImages(): void {
   $('draft-images').hidden = !draftImages.length;
-  $('draft-images').innerHTML = draftImages.map((image) => `<figure class="draft-image"><img src="${escape(image.url)}" alt="${escape(image.name)}" /><figcaption>${escape(image.name)}</figcaption><button type="button" class="remove-image" data-remove-image="${image.id}" aria-label="Remove ${escape(image.name)}" ${requestBusy || readingImages ? 'disabled' : ''}>${icon('close')}</button></figure>`).join('');
+  $('draft-images').innerHTML = draftImages.map((image) => `<figure class="draft-image"><img src="${escape(image.url)}" alt="${escape(image.name)}" role="button" tabindex="0" title="Click to enlarge" /><figcaption>${escape(image.name)}</figcaption><button type="button" class="remove-image" data-remove-image="${image.id}" aria-label="Remove ${escape(image.name)}" ${requestBusy || readingImages ? 'disabled' : ''}>${icon('close')}</button></figure>`).join('');
   $<HTMLButtonElement>('attach-images').disabled = requestBusy || readingImages || !snapshotLoaded;
   const guidance = $('image-guidance');
   guidance.hidden = !draftImages.length;
   guidance.textContent = state.settings.supportsImages
-    ? 'Images are saved with this conversation and sent to your configured model provider. Up to 20 MiB total per message.'
+    ? 'Images are saved with this conversation and sent to your configured model provider. Up to 50 MiB total per message.'
     : 'This model does not support images. Choose an image-capable model in Settings, or remove the attachments.';
 }
 
@@ -1357,8 +1391,8 @@ async function addImageFiles(files: File[]): Promise<void> {
   const added: DraftImage[] = [];
   const generation = draftGeneration;
   try {
-    const limit = state.settings.imageUploadLimit || 20 * 1024 * 1024;
-    if (draftImages.reduce((sum, image) => sum + image.size, 0) + files.reduce((sum, file) => sum + file.size, 0) > limit) throw new Error('Image attachments must total 20 MiB or less per message.');
+    const limit = state.settings.imageUploadLimit || 50 * 1024 * 1024;
+    if (draftImages.reduce((sum, image) => sum + image.size, 0) + files.reduce((sum, file) => sum + file.size, 0) > limit) throw new Error('Image attachments must total 50 MiB or less per message.');
     for (const file of files) {
       const mimeType = file.type || ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' } as Record<string, string>)[file.name.split('.').pop()?.toLowerCase() || ''];
       if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mimeType) || !file.size) throw new Error('Use nonempty PNG, JPEG, GIF or WebP images.');
@@ -1438,9 +1472,15 @@ function resizeComposer(): void { input.style.height = 'auto'; input.style.heigh
 
 document.addEventListener('click', async (event) => {
   const clicked = event.target as HTMLElement;
+  if (clicked instanceof HTMLImageElement && clicked.matches('.history-image, .draft-image img, .file-preview-image')) { imageViewer.open(clicked); return; }
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand');
   if (!target) return;
+  if (target.hasAttribute('data-copy-code') && !(target as HTMLButtonElement).disabled) {
+    const code = target.closest('.code-block')?.querySelector('pre > code');
+    if (code) await copyWithFeedback(target as HTMLButtonElement, () => copyText(code.textContent || ''), 'Code copied.');
+    return;
+  }
   if (target.dataset.copyMessage) {
     const message = state.messages.find((entry) => entry.id === target.dataset.copyMessage && entry.role === 'assistant');
     if (message?.text && message.status !== 'streaming' && !(target as HTMLButtonElement).disabled) {
@@ -1588,6 +1628,9 @@ input.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void send(); }
 });
 document.addEventListener('keydown', (event) => {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLImageElement && event.target.matches('.history-image, .draft-image img, .file-preview-image')) {
+    event.preventDefault(); imageViewer.open(event.target); return;
+  }
   if (menuConversationId || menuWorkspaceId) {
     if (event.key === 'Escape') { event.preventDefault(); closeConversationMenu(true); return; }
     if (event.key === 'Tab') closeConversationMenu();

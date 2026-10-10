@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-const MaxDraftBytes = 256 << 10
+const MaxDraftBytes = 8 << 20
 
 // DraftScope also supports an unsent message in a workspace with no conversation.
 type DraftScope struct {
@@ -81,7 +81,7 @@ func (s *Service) SaveDraft(in DraftInput) (Draft, error) {
 		return Draft{}, err
 	}
 	if len(in.Text) > MaxDraftBytes || !utf8.ValidString(in.Text) || in.Revision <= 0 || in.Revision > 9007199254740991 {
-		return Draft{}, errors.New("Draft must be valid text under 256 KiB")
+		return Draft{}, errors.New("Draft must be valid text of 8 MiB or less with a valid revision")
 	}
 	previous, err := readDraft(path)
 	if err != nil {
