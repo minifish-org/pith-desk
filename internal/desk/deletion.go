@@ -54,7 +54,7 @@ func conversationDataFiles(ids []string) ([]string, error) {
 		if id == "" || id == "." || id == ".." || filepath.Base(id) != id || strings.ContainsAny(id, `/\`) {
 			return nil, errors.New("Invalid conversation ID for deletion")
 		}
-		files = append(files, filepath.Join("sessions", id+".jsonl"), filepath.Join("runs", id+".json"), filepath.Join("costs", id+".jsonl"), filepath.Join("durable", id))
+		files = append(files, filepath.Join("sessions", id+".jsonl"), filepath.Join("runs", id+".json"), filepath.Join("costs", id+".jsonl"), filepath.Join("durable", id), filepath.Join("drafts", id+".json"))
 	}
 	return files, nil
 }
@@ -135,6 +135,9 @@ func (s *Service) deleteDataLocked(workspaceID string, ids []string) error {
 }
 
 func (s *Service) cleanupDeletionsLocked() error {
+	if err := s.cleanupDraftsLocked(); err != nil {
+		return err
+	}
 	root, err := os.OpenRoot(s.dataDir)
 	if err != nil {
 		return err

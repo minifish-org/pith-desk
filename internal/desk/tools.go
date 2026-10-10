@@ -358,7 +358,7 @@ func (r *conversationRuntime) buildTools(policy *filePolicy) (*codingagent.ToolR
 			}
 			switch call.Name {
 			case "write_file", "edit_file", "run_command":
-				return r.requestApproval(ctx, call)
+				return r.requestApproval(ctx, call, policy)
 			}
 			return ctx.Err()
 		}})
@@ -393,7 +393,7 @@ func (r *conversationRuntime) buildTools(policy *filePolicy) (*codingagent.ToolR
 	return registry, nil
 }
 
-func (r *conversationRuntime) requestApproval(ctx context.Context, call codingagent.ToolCall) error {
+func (r *conversationRuntime) requestApproval(ctx context.Context, call codingagent.ToolCall, policies ...*filePolicy) error {
 	s := r.service
 	select {
 	case r.approvalGate <- struct{}{}:
@@ -401,7 +401,20 @@ func (r *conversationRuntime) requestApproval(ctx context.Context, call codingag
 		return ctx.Err()
 	}
 	defer func() { <-r.approvalGate }()
+	s.mu.Lock()
+	if s.closed || r.aborting || ctx.Err() != nil {
+		s.mu.Unlock()
+		return context.Canceled
+	}
+	alreadyAllowed := r.permissionAllowsLocked(call.Name)
+	s.mu.Unlock()
+	if alreadyAllowed {
+		return ctx.Err()
+	}
 	approval := &Approval{ID: newID(), ToolName: call.Name, Args: append(json.RawMessage(nil), call.Arguments...)}
+	if (call.Name == "write_file" || call.Name == "edit_file") && len(policies) > 0 {
+		approval.Preview, approval.fileReview = fileApprovalPreview(policies[0], call.Name, call.Arguments)
+	}
 	if call.Name == "run_command" {
 		approval.Warning = "This command runs with your computer account's permissions. It can access files and network outside the workspace. There is no OS sandbox."
 	} else if strings.HasPrefix(call.Name, "mcp__") {

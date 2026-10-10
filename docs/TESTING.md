@@ -22,6 +22,35 @@ canonical session titles, deletion/recovery, Markdown exports, resource discover
 generated-file evidence, and authenticated native actions. Existing workspace
 and permission tests remain part of the suite.
 
+## Drafts, approval diffs and file previews (2026-10-10)
+
+Tests verify independent conversation/workspace text drafts, mode-0600 storage,
+restart restoration, deletion cleanup, size limits, and rejecting an older save
+after a cleared draft. Frontend tests cover revision ordering, unload transport,
+preserving newer edits after submission, and retrying a failed local save.
+Drafts remain outside streamed snapshots and require the host credential.
+
+File approvals reuse Pith's multi-edit matching and diff generation. Tests
+cover creates, overwrites, BOM/CRLF text, mismatched edits, workspace boundaries,
+and a file changing while approval is pending. A stale approval refreshes its
+identifier and preview before a decision or lasting workspace permission.
+Preview tests reject unrecorded files, binary content and external symlinks;
+text limits preserve UTF-8 boundaries and HTML stays text.
+
+An isolated real WKWebView and local SSE provider verified drafts across
+conversation switches, immediate reload and a restarted host at a new loopback
+origin. The native exit guard saved text before its debounce expired and waits
+for persistence before quitting; a failed save keeps the window open for retry. Sending
+cleared its draft, write/edit approvals displayed diffs, and the actual PNG,
+Markdown and plain-text previews loaded. Markdown scripts and remote images
+were removed; HTML source remained inert. No live provider requests were made.
+An initially empty workspace also retained its text in the newly created
+conversation after a rejected first send, including after reload.
+
+```sh
+GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^TestUsabilityNative' -v -count=1
+```
+
 ## Dock task status (2026-10-10)
 
 The macOS Dock badge shows pending approval (`!`) or completed unread

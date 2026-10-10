@@ -1,6 +1,6 @@
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import './style.css';
+import { createDrafts, draftKey } from './drafts';
+import { renderMarkdown, renderDiff } from './previews';
 import { createSDKUI } from './sdk-features';
 import { createCostUI, formatCost, type CostSummary } from './costs';
 import { createCompletionUI } from './completion';
@@ -8,7 +8,7 @@ import { installWorkspaceFileDrop } from './workspace-files';
 import { installNativeMenu } from './native-menu';
 
 import { createAPI, parseStream, type MutationPath, type MutationInput, type MutationResponse } from './api';
-import type { State as WireState, Workspace, Conversation, QueuedMessage, Artifact, ResourceInventory as WorkspaceResources, MCPServerView as MCPConnection, ImageContent, RunSummary, Message, RuntimeStatus, ModelCatalog, PermissionMode, AppearanceMode, ProviderChoice } from './contract.generated';
+import type { State as WireState, Workspace, Conversation, QueuedMessage, Artifact, ResourceInventory as WorkspaceResources, MCPServerView as MCPConnection, ImageContent, RunSummary, Message, RuntimeStatus, ModelCatalog, PermissionMode, AppearanceMode, ProviderChoice, DraftScope } from './contract.generated';
 export type { ProviderChoice } from './contract.generated';
 
 // The Go snapshot normalizes these collections; retain a defensive boundary
@@ -108,6 +108,12 @@ let readingImages = false;
 let draftGeneration = 0;
 const historyImages = new Map<string, Promise<string>>();
 let imageGeneration = 0;
+let composerScope: DraftScope = {};
+let draftLoading = false;
+let composerDraftReady: Promise<void> = Promise.resolve();
+let draftLoadGeneration = 0;
+let previewRequest = 0;
+let previewImageURL = '';
 
 const paths: Record<string, string> = {
   steer: '<path d="M4 5v7a3 3 0 0 0 3 3h13m-5-5 5 5-5 5"/>',
@@ -201,9 +207,11 @@ $('app').innerHTML = `
   <dialog id="queue-edit-dialog" class="modal" aria-labelledby="queue-edit-title"><div id="queue-edit-content"></div></dialog>
   <dialog id="resources-dialog" class="modal feature-modal" aria-labelledby="resources-title"><div id="resources-content"></div></dialog>
   <dialog id="connections-dialog" class="modal feature-modal" aria-labelledby="connections-title"><div id="connections-content"></div></dialog>
+  <dialog id="preview-dialog" class="modal file-preview-modal" aria-labelledby="preview-title"><div id="preview-content"></div></dialog>
 `;
 
 const input = $<HTMLTextAreaElement>('composer-input');
+const drafts = createDrafts(request, (message) => { if (!disposed) { localError = message; render(); } });
 const chatScroll = $('chat-scroll');
 const costUI = createCostUI({ state: () => state, request });
 const completionUI = createCompletionUI({ state: () => state, request, renderHistory, escape, icon });
@@ -213,10 +221,10 @@ const acknowledgeViewedCompletion = () => completionUI.acknowledgeViewed();
 const dismissCompletion = (runID: string) => completionUI.dismiss(runID);
 const sdkUI = createSDKUI({
   state: () => state, request, mutate, error: () => localError,
-  busy: () => requestBusy || !snapshotLoaded,
+  busy: () => requestBusy || draftLoading || !snapshotLoaded,
   workspace: selectedWorkspace, workspaceBusy: (id) => !!workspaceRun(id), settings: openSettings,
   refreshProviderAuth: (provider) => refreshSettingsAuth?.(provider),
-  draft: (text) => { input.value = text + input.value; resizeComposer(); input.focus(); render(); },
+  draft: (text) => { input.value = text + input.value; rememberDraft(); resizeComposer(); input.focus(); render(); },
   refreshResources: loadResources, refreshMCP: loadMCP,
 });
 
@@ -230,22 +238,35 @@ function activePermissionMode(): PermissionMode {
   return mode === 'workspace-write' || mode === 'full-access' ? mode : 'ask';
 }
 
-function renderMarkdown(value: string): string {
-  const html = marked.parse(value, { async: false, breaks: true }) as string;
-  const safe = DOMPurify.sanitize(html, {
-    FORBID_TAGS: ['img', 'video', 'audio', 'iframe', 'object', 'embed', 'svg', 'math', 'style', 'form', 'input', 'button'],
-    FORBID_ATTR: ['style', 'src', 'srcset'],
-    ALLOW_DATA_ATTR: false,
+function rememberDraft(): void {
+  if (!draftLoading) drafts.update(composerScope, input.value);
+}
+
+function loadComposerDraft(): void {
+  const scope: DraftScope = state.activeId ? { id: state.activeId } : { workspaceId: selectedWorkspace()?.id || '' };
+  if (draftKey(scope) === draftKey(composerScope)) return;
+  const oldScope = composerScope;
+  const exists = oldScope.id ? state.conversations.some((entry) => entry.id === oldScope.id) : state.workspaces.some((entry) => entry.id === oldScope.workspaceId);
+  if (exists) { rememberDraft(); void drafts.flush(oldScope).catch(() => {}); }
+  composerScope = scope;
+  const generation = ++draftLoadGeneration;
+  input.value = '';
+  draftLoading = !!draftKey(scope);
+  input.readOnly = draftLoading;
+  drafts.prune(state.conversations.map((entry) => entry.id), state.workspaces.map((entry) => entry.id));
+  if (!draftLoading) return;
+  composerDraftReady = drafts.load(scope).then((draft) => {
+    if (disposed || generation !== draftLoadGeneration) return;
+    input.value = draft.text;
+  }).catch((error) => {
+    if (generation === draftLoadGeneration) localError = `Draft could not be restored: ${error instanceof Error ? error.message : String(error)}`;
+  }).finally(() => {
+    if (disposed || generation !== draftLoadGeneration) return;
+    draftLoading = false;
+    input.readOnly = false;
+    resizeComposer();
+    render();
   });
-  const container = document.createElement('div');
-  container.innerHTML = safe;
-  for (const link of container.querySelectorAll('a')) {
-    const href = link.getAttribute('href') ?? '';
-    if (!/^https?:\/\//i.test(href) && !/^mailto:/i.test(href)) link.removeAttribute('href');
-    link.setAttribute('target', '_blank');
-    link.setAttribute('rel', 'noopener noreferrer');
-  }
-  return container.innerHTML;
 }
 
 function render(): void {
@@ -311,7 +332,7 @@ function render(): void {
   sendButton.type = buttonType;
   sendButton.classList.toggle('is-stop', stopping);
   if (stopping) sendButton.dataset.action = 'stop'; else delete sendButton.dataset.action;
-  sendButton.disabled = stopping ? requestBusy : !snapshotLoaded || requestBusy || readingImages || resolvingReferences || !hasDraft || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey || (!state.running && !!workspaceRun(workspace?.id));
+  sendButton.disabled = stopping ? requestBusy : !snapshotLoaded || requestBusy || draftLoading || readingImages || resolvingReferences || !hasDraft || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey || (!state.running && !!workspaceRun(workspace?.id));
   const buttonLabel = stopping ? 'Stop agent' : state.running ? 'Queue message' : 'Send message';
   sendButton.setAttribute('aria-label', buttonLabel);
   sendButton.title = buttonLabel;
@@ -494,9 +515,9 @@ function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
       if (resourcesWorkspaceId === id) { resources = null; resourcesWorkspaceId = ''; resourcesRequest++; $<HTMLDialogElement>('resources-dialog').close(); }
     }
     if (activeID !== state.activeId || activeWorkspace !== selectedWorkspace()?.id) {
-      input.value = '';
       clearDraftImages();
       clearHistoryImages();
+      loadComposerDraft();
       resizeComposer();
     }
     render();
@@ -632,7 +653,11 @@ function renderApproval(): void {
   approvalSignature = signature;
   const warning = approval?.warning || (approval?.toolName === 'run_command' ? 'This command runs with your normal computer permissions. It may access or change files outside this workspace.' : '');
   const canAlwaysAllow = approval?.toolName === 'write_file' || approval?.toolName === 'edit_file';
-  $('approval').innerHTML = approval ? `<section class="approval-card" aria-label="Tool approval required"><div class="approval-heading">${icon('shield')}<div><strong>Pith needs your permission</strong><span>Review this action before it runs.</span></div><span class="approval-badge">${escape(approval.toolName)}</span></div>${warning ? `<p class="approval-warning">${escape(warning)}</p>` : ''}<pre>${escape(typeof approval.args === 'string' ? approval.args : JSON.stringify(approval.args, null, 2))}</pre>${canAlwaysAllow ? '<p class="approval-scope">Workspace permission applies to this conversation. Commands and external connection tools still need approval.</p>' : ''}<div class="approval-actions"><button class="secondary-button" data-approval="deny" ${requestBusy ? 'disabled' : ''}>Deny</button>${canAlwaysAllow ? `<button class="secondary-button always-allow-button" data-approval="always" ${requestBusy ? 'disabled' : ''}>Always allow workspace changes</button>` : ''}<button class="primary-button" data-approval="allow" ${requestBusy ? 'disabled' : ''}>${icon('check')}Allow this action</button></div></section>` : '';
+  const preview = approval?.preview;
+  const previewBody = preview?.error ? `<p class="preview-note" role="status">${escape(preview.error)}</p>` : preview ? `<pre class="approval-diff" aria-label="Proposed file changes">${preview.diff ? renderDiff(preview.diff) : 'No content changes.'}</pre>${preview.truncated ? '<p class="preview-note">Preview shortened. Expand Tool arguments for the complete change.</p>' : ''}` : '';
+  const previewMarkup = preview ? `<div class="approval-file"><strong>${preview.kind === 'create' ? 'Create file' : 'Modify file'}</strong><code>${escape(preview.path)}</code></div>${previewBody}` : '';
+  const args = `<pre>${escape(typeof approval?.args === 'string' ? approval.args : JSON.stringify(approval?.args, null, 2))}</pre>`;
+  $('approval').innerHTML = approval ? `<section class="approval-card" aria-label="Tool approval required"><div class="approval-heading">${icon('shield')}<div><strong>Pith needs your permission</strong><span>Review this action before it runs.</span></div><span class="approval-badge">${escape(approval.toolName)}</span></div>${warning ? `<p class="approval-warning">${escape(warning)}</p>` : ''}${previewMarkup}${preview ? `<details class="approval-arguments" ${preview.error ? 'open' : ''}><summary>Tool arguments</summary>${args}</details>` : args}${canAlwaysAllow ? '<p class="approval-scope">Workspace permission applies to this conversation. Commands and external connection tools still need approval.</p>' : ''}<div class="approval-actions"><button class="secondary-button" data-approval="deny" ${requestBusy ? 'disabled' : ''}>Deny</button>${canAlwaysAllow ? `<button class="secondary-button always-allow-button" data-approval="always" ${requestBusy ? 'disabled' : ''}>Always allow workspace changes</button>` : ''}<button class="primary-button" data-approval="allow" ${requestBusy ? 'disabled' : ''}>${icon('check')}Allow this action</button></div></section>` : '';
   for (const button of $('approval').querySelectorAll<HTMLButtonElement>('[data-approval]')) button.dataset.approvalId = approval?.id || '';
 }
 
@@ -679,7 +704,8 @@ function setState(next: WireState): void {
   const initialized = snapshotLoaded;
   state = { ...next, workspaces: next.workspaces || [], conversations: next.conversations || [], messages: next.messages || [], runs: Array.isArray(next.runs) ? next.runs : [], queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
   runtimeReceivedAt = performance.now();
-  if (activeChanged) { input.value = ''; clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; $<HTMLDetailsElement>('artifacts').open = false; }
+  if (activeChanged) { clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; $<HTMLDetailsElement>('artifacts').open = false; $<HTMLDialogElement>('preview-dialog').close(); }
+  loadComposerDraft();
   snapshotLoaded = true;
   updateCompletions(initialized);
   render();
@@ -720,8 +746,6 @@ async function newConversation(workspaceId = selectedWorkspace()?.id): Promise<v
   if (await mutate('/api/conversations', { workspaceId })) {
     expandedWorkspaces.add(workspaceId);
     renderHistory();
-    input.value = '';
-    clearDraftImages();
     resizeComposer();
     closeSidebar();
     input.focus();
@@ -730,19 +754,34 @@ async function newConversation(workspaceId = selectedWorkspace()?.id): Promise<v
 
 async function send(): Promise<void> {
   const draft = input.value;
+  const sourceScope = composerScope;
   const text = input.value.trim();
   const images = draftImages.map(({ type, data, mimeType }) => ({ type, data, mimeType }));
   const submittedIds = new Set(draftImages.map((image) => image.id));
-  if ((!text && !images.length) || requestBusy || readingImages || resolvingReferences) return;
+  if ((!text && !images.length) || requestBusy || draftLoading || readingImages || resolvingReferences) return;
   if (images.length && !state.settings.supportsImages) { localError = 'Choose an image-capable model in Settings, or remove the attachments.'; render(); return; }
   if (state.running) { await queueMessage(text, draft, images, submittedIds); return; }
   if (!state.settings.hasApiKey) { openSettings(); return; }
   if (!selectedWorkspace()) { openWorkspace(); return; }
-  if (!state.activeId && !await mutate('/api/conversations', { workspaceId: selectedWorkspace()!.id })) return;
-  if (await mutate('/api/send', { id: state.activeId, text, images }, () => {
-    if (input.value === draft) input.value = '';
+  rememberDraft();
+  void drafts.flush(sourceScope).catch(() => {});
+  if (!state.activeId) {
+    if (!await mutate('/api/conversations', { workspaceId: selectedWorkspace()!.id })) return;
+    // Creating the first conversation changes the composer scope. Carry the
+    // initial text into it before sending so a rejected send remains editable.
+    await composerDraftReady;
+    if (composerScope.id === state.activeId && input.value === '') {
+      input.value = draft;
+      rememberDraft();
+    }
+  }
+  const id = state.activeId;
+  if (await mutate('/api/send', { id, text, images }, () => {
+    drafts.clearIfUnchanged(sourceScope, draft);
+    if (composerScope.id === id && input.value === draft) { input.value = ''; rememberDraft(); }
     clearDraftImages(submittedIds);
   })) {
+    await drafts.flushAll();
     resizeComposer();
     render();
     chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior: 'smooth' });
@@ -759,7 +798,9 @@ async function queueMessage(text: string, draft: string, images: ImageInput[], s
     // A queue POST is sent exactly once. A lost response must not duplicate work.
     await request('/api/queue', { id, text, images });
     clearDraftImages(submittedIds);
-    if (input.value === draft) input.value = '';
+    drafts.clearIfUnchanged({ id }, draft);
+    if (composerScope.id === id && input.value === draft) { input.value = ''; rememberDraft(); }
+    await drafts.flushAll();
     resizeComposer();
     await refresh().catch(() => { localError = 'Message submitted. Waiting for the local service to update the pending list.'; });
   } catch (error) {
@@ -816,9 +857,10 @@ async function exportConversation(id = state.activeId): Promise<void> {
   finally { requestBusy = false; render(); }
 }
 
-function fileActions(kind: 'artifact' | 'resource', ownerId: string, path: string): string {
+function fileActions(kind: 'artifact' | 'resource', ownerId: string, path: string, includePreview = false): string {
+  const preview = kind === 'artifact' && includePreview ? `<button type="button" class="secondary-button" data-preview-path="${escape(path)}" data-preview-id="${escape(ownerId)}" data-idle-action data-idle-conversation="${escape(ownerId)}">Preview</button>` : '';
   const copy = kind === 'artifact' ? `<button type="button" class="secondary-button" data-file-kind="artifact" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="${nativeClipboard ? 'copy' : 'copy-path'}" data-idle-action data-idle-conversation="${escape(ownerId)}">${nativeClipboard ? 'Copy file' : 'Copy path'}</button>` : '';
-  return `<div class="file-actions"><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="open" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Open</button><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="reveal" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Reveal</button>${copy}</div>`;
+  return `<div class="file-actions">${preview}<button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="open" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Open</button><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="reveal" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Reveal</button>${copy}</div>`;
 }
 
 async function copyText(text: string): Promise<void> {
@@ -862,7 +904,38 @@ function renderArtifacts(): void {
   if (signature === artifactsSignature) return;
   artifactsSignature = signature;
   region.hidden = !state.activeId || (!artifacts.length && !artifactsError && !artifactsLoading);
-  region.innerHTML = `<summary>${icon('file')}<span class="artifacts-label">Generated files</span><span class="artifacts-count">${artifacts.length} ${artifacts.length === 1 ? 'file' : 'files'}</span>${artifactsLoading ? '<span class="artifacts-status">Looking for files…</span>' : ''}${artifactsError ? '<span class="artifacts-error">Unavailable</span>' : ''}${icon('down')}</summary><div class="artifacts-content">${artifacts.map((file) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(file.name)}</strong><span class="file-path">${escape(file.path)}</span></div>${fileActions('artifact', state.activeId || '', file.path)}</article>`).join('')}${artifactsError ? `<p class="form-error" role="alert">${escape(artifactsError)}</p>` : ''}</div>`;
+  region.innerHTML = `<summary>${icon('file')}<span class="artifacts-label">Generated files</span><span class="artifacts-count">${artifacts.length} ${artifacts.length === 1 ? 'file' : 'files'}</span>${artifactsLoading ? '<span class="artifacts-status">Looking for files…</span>' : ''}${artifactsError ? '<span class="artifacts-error">Unavailable</span>' : ''}${icon('down')}</summary><div class="artifacts-content">${artifacts.map((file) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(file.name)}</strong><span class="file-path">${escape(file.path)}</span></div>${fileActions('artifact', state.activeId || '', file.path, true)}</article>`).join('')}${artifactsError ? `<p class="form-error" role="alert">${escape(artifactsError)}</p>` : ''}</div>`;
+}
+
+function clearFilePreview(): void {
+  previewRequest++;
+  if (previewImageURL) URL.revokeObjectURL(previewImageURL);
+  previewImageURL = '';
+  $('preview-content').replaceChildren();
+}
+
+async function openArtifactPreview(id: string, path: string): Promise<void> {
+  if (conversationRunning(id) || id !== state.activeId) return;
+  clearFilePreview();
+  const sequence = previewRequest;
+  const dialog = $<HTMLDialogElement>('preview-dialog');
+  const heading = dialogHeading(path.split('/').pop() || 'File preview', 'preview-title', 'preview-dialog', 'File preview');
+  $('preview-content').innerHTML = `${heading}<p class="file-preview-path">${escape(path)}</p><div id="file-preview-body" class="file-preview-body" aria-live="polite">Loading preview…</div><div class="file-preview-actions">${fileActions('artifact', id, path)}</div>`;
+  showDialog('preview-dialog');
+  try {
+    const preview = await request('/api/artifact-preview', { query: { id, path } });
+    if (sequence !== previewRequest || state.activeId !== id || !dialog.open) return;
+    const body = $('file-preview-body');
+    if (preview.kind === 'image' && preview.data && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(preview.mimeType || '')) {
+      const bytes = Uint8Array.from(atob(preview.data), (char) => char.charCodeAt(0));
+      previewImageURL = URL.createObjectURL(new Blob([bytes], { type: preview.mimeType }));
+      body.innerHTML = `<img class="file-preview-image" src="${escape(previewImageURL)}" alt="${escape(path.split('/').pop())}" />`;
+    } else if (preview.kind === 'markdown') body.innerHTML = `<div class="markdown">${renderMarkdown(preview.text || '')}</div>`;
+    else body.innerHTML = `<pre class="file-preview-text">${escape(preview.text || '')}</pre>`;
+    if (preview.truncated) body.insertAdjacentHTML('beforeend', '<p class="preview-note">Showing the first 256 KiB. Use Open for the complete file.</p>');
+  } catch (error) {
+    if (sequence === previewRequest && dialog.open) $('file-preview-body').textContent = error instanceof Error ? error.message : String(error);
+  }
 }
 
 async function loadArtifacts(id: string): Promise<void> {
@@ -1342,19 +1415,19 @@ input.addEventListener('paste', (event) => {
 });
 installWorkspaceFileDrop({
   form: $('composer-form'), input, native: nativeFileDrop,
-  busy: () => requestBusy || !snapshotLoaded,
+  busy: () => requestBusy || draftLoading || !snapshotLoaded,
   context: () => `${selectedWorkspace()?.id}/${state.activeId}/${draftGeneration}`,
   workspaceID: () => selectedWorkspace()?.id,
   disposed: () => disposed,
   resolve: async (workspaceId, paths) => (await request('/api/workspace-references', { workspaceId, paths })).paths || [],
   images: addImageFiles,
   pending: (pending) => { resolvingReferences = pending; render(); },
-  changed: () => { localError = ''; resizeComposer(); render(); },
+  changed: () => { localError = ''; rememberDraft(); resizeComposer(); render(); },
   error: (message) => { localError = message; render(); },
 });
 nativeMenu = installNativeMenu({
   native: nativeMenus,
-  context: () => ({ ready: snapshotLoaded, busy: requestBusy || readingImages || resolvingReferences, workspaceId: selectedWorkspace()?.id, activeId: state.activeId }),
+  context: () => ({ ready: snapshotLoaded, busy: requestBusy || draftLoading || readingImages || resolvingReferences, workspaceId: selectedWorkspace()?.id, activeId: state.activeId }),
   request,
   canExport: () => !!state.conversations.find((entry) => entry.id === state.activeId) && !conversationRunning(state.activeId),
   actions: { newConversation, chooseWorkspace: openWorkspace, exportConversation, settings: openSettings },
@@ -1399,6 +1472,7 @@ document.addEventListener('click', async (event) => {
   if (target.dataset.newWorkspace) { await newConversation(target.dataset.newWorkspace); return; }
   if (target.dataset.removeImage) { if (!requestBusy && !readingImages) { clearDraftImages(new Set([target.dataset.removeImage])); render(); } return; }
   if (target.dataset.close) { $<HTMLDialogElement>(target.dataset.close).close(); return; }
+  if (target.dataset.previewPath && target.dataset.previewId) { await openArtifactPreview(target.dataset.previewId, target.dataset.previewPath); return; }
   if (target.classList.contains('brand')) { event.preventDefault(); input.focus(); return; }
   if (target.dataset.fileKind && target.dataset.filePath && target.dataset.fileOwner) {
     if (requestBusy || (target.dataset.fileKind === 'resource' ? workspaceRun(target.dataset.fileOwner) : conversationRunning(target.dataset.fileOwner))) return;
@@ -1423,7 +1497,7 @@ document.addEventListener('click', async (event) => {
     else $('mcp-error').textContent = localError;
     return;
   }
-  if (target.dataset.prompt) { input.value = target.dataset.prompt; resizeComposer(); render(); input.focus(); return; }
+  if (target.dataset.prompt) { if (draftLoading) return; input.value = target.dataset.prompt; rememberDraft(); resizeComposer(); render(); input.focus(); return; }
   if (target.dataset.conversation) {
     if (await mutate('/api/open', { id: target.dataset.conversation })) {
       clearDraftImages();
@@ -1500,7 +1574,8 @@ document.addEventListener('click', async (event) => {
 $('sidebar-scrim').addEventListener('click', closeSidebar);
 $<HTMLInputElement>('history-search').addEventListener('input', (event) => { historySearch = (event.currentTarget as HTMLInputElement).value; renderHistory(); });
 $('composer-form').addEventListener('submit', (event) => { event.preventDefault(); void send(); });
-input.addEventListener('input', () => { resizeComposer(); render(); });
+input.addEventListener('input', () => { rememberDraft(); resizeComposer(); render(); });
+input.addEventListener('blur', () => { rememberDraft(); void drafts.flush(composerScope).catch(() => {}); });
 $<HTMLSelectElement>('permission-mode').addEventListener('change', async (event) => {
   const mode = (event.currentTarget as HTMLSelectElement).value as PermissionMode;
   const id = state.activeId;
@@ -1533,6 +1608,7 @@ document.addEventListener('visibilitychange', acknowledgeViewedCompletion);
 for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
   if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => { fullAccessTargetId = null; });
   dialog.addEventListener('close', () => {
+    if (dialog.id === 'preview-dialog' && !dialog.open) clearFilePreview();
     acknowledgeViewedCompletion();
     if (dialog.id === 'queue-edit-dialog') queueEditTarget = null;
     if (dialog.id === 'settings-dialog') { connectionProbe?.abort(); connectionProbe = null; const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; }
@@ -1592,7 +1668,22 @@ async function streamEvents(): Promise<void> {
 const runtimeClock = window.setInterval(() => {
   if (state.running && state.runtime && activeRunPhases.has(state.runtime.phase)) renderRuntimeTiming();
 }, 1000);
-window.addEventListener('beforeunload', () => { disposed = true; nativeMenu?.dispose(); window.clearInterval(runtimeClock); clearDraftImages(); clearHistoryImages(); eventSocket?.close(); });
+function saveDraftsOnLeave(): void { rememberDraft(); void drafts.flushAll({ keepalive: true }); }
+window.addEventListener('pagehide', saveDraftsOnLeave);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveDraftsOnLeave(); });
+// The native quit guard waits for this authenticated save before destroying
+// the WebView and stopping its host. Unload requests alone cannot do that.
+window.addEventListener('pith:flush-drafts', (event) => {
+  event.preventDefault();
+  rememberDraft();
+  input.readOnly = true;
+  void drafts.flushAll().then((results) => {
+    const saved = results.every((result) => result.status === 'fulfilled');
+    if (!saved) input.readOnly = draftLoading;
+    (event as CustomEvent<(saved: boolean) => void>).detail(saved);
+  });
+});
+window.addEventListener('beforeunload', () => { saveDraftsOnLeave(); disposed = true; nativeMenu?.dispose(); window.clearInterval(runtimeClock); clearDraftImages(); clearHistoryImages(); eventSocket?.close(); });
 systemAppearance.addEventListener('change', () => {
   if (appearanceMode(state.settings.appearance) === 'system') applyAppearance('system');
 });

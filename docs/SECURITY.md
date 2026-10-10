@@ -53,6 +53,20 @@ MCP servers are external programs or services selected by the user. They have th
 
 Generated-file Open, Reveal and Copy file actions accept only successful recorded write/edit results that still resolve to regular files inside the workspace. Resource actions accept only instruction, skill and prompt files discovered by Pith, including inherited instruction files. The built-in editor may only mutate project resources inside the selected workspace; inherited instructions remain read-only. Both paths exclude private application storage; arbitrary model-generated links do not gain native file access. Opening a file invokes its system-associated application and does not serve it as web content.
 
+Generated-file Preview has the same authenticated, recorded-artifact and
+workspace boundaries. Reads use the workspace root at access time and reject
+non-regular files. Image previews allow PNG/JPEG/GIF/WebP and at most 8 MiB;
+text previews are limited to 256 KiB. Markdown uses the same sanitizer as
+replies, with scripts, embedded content and remote images removed. HTML and
+SVG remain inert text, rather than trusted application pages.
+
+Text drafts live in mode-0600 files under the selected data profile's `drafts/`
+directory. They are fetched on demand rather than included in streamed State,
+and do not enter provider requests before submission. Save revisions prevent
+an older delayed request from restoring cleared text. Draft scope identifiers
+must refer to an existing conversation or workspace; their data is removed
+with that conversation or workspace.
+
 Copy controls write to the clipboard only when clicked by the user. Desktop **Copy response** writes the reply's original text and Markdown through the authenticated native clipboard action. **Copy file** writes a native file reference after the generated-file checks above; it leaves the source file in place. Browser preview uses the browser clipboard for response text and **Copy path**, rather than copying a native file reference.
 
 Dropped workspace files become plain, editable relative-path text. The authenticated reference endpoint uses the existing canonical workspace/private-data policy and rooted file checks, rejects directories, missing files and paths outside the selected workspace, and validates the whole batch before returning references. It does not copy or read file contents. The native window forwards only the file-drop event; it does not expose MyGo bound methods or trust browser file basenames. Later agent file tools reapply the workspace policy.

@@ -109,6 +109,10 @@ type ResourceQuery struct {
 	WorkspaceID string `json:"workspaceId"`
 	Path        string `json:"path"`
 }
+type ArtifactQuery struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
 type ModelsQuery struct {
 	Provider string `json:"provider,omitempty"`
 }
@@ -167,6 +171,8 @@ var Endpoints = []Endpoint{
 	get[ModelsQuery, desk.ModelCatalog]("/api/models"),
 	get[WorkspaceInput, desk.ResourceInventory]("/api/resources"),
 	get[IDInput, []desk.Artifact]("/api/artifacts"),
+	get[ArtifactQuery, desk.ArtifactPreview]("/api/artifact-preview"),
+	get[desk.DraftScope, desk.Draft]("/api/draft"),
 	get[EmptyInput, []desk.MCPServerView]("/api/mcp"),
 	{Method: "GET", Path: "/api/diagnostics", Format: "blob"},
 	{Method: "GET", Path: "/api/export", Query: reflect.TypeFor[IDInput](), Format: "blob"},
@@ -186,6 +192,7 @@ var Endpoints = []Endpoint{
 	post[EmptyInput, PathResponse]("/api/pick-workspace"),
 	post[WorkspaceReferencesInput, WorkspaceReferencesResponse]("/api/workspace-references"),
 	post[TextInput, OKResponse]("/api/copy-text"),
+	post[desk.DraftInput, desk.Draft]("/api/draft"),
 	post[desk.CustomConnectionInput, OKResponse]("/api/custom-connection"),
 	post[IDInput, OKResponse]("/api/remove-model-connection"),
 	post[desk.ResourceInput, OKResponse]("/api/resource"),

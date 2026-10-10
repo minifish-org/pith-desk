@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
@@ -30,9 +33,10 @@ func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogM
 			})
 			return result.Button == 1, err
 		},
-		quit: mygo.App.Quit,
+		beforeQuit: func() error { return flushDesktopDrafts(window) },
+		quit:       mygo.App.Quit,
 		onError: func(err error) {
-			log.Printf("Show quit confirmation: %v", err)
+			log.Printf("Prepare application exit: %v", err)
 		},
 	}
 	intercept := func(e interface{ PreventDefault() }) {
@@ -50,6 +54,22 @@ func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogM
 	mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) { controller.finish() })
 }
 
+func flushDesktopDrafts(window *mygo.Window) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	value, err := window.Page().EvalContext(ctx, `new Promise(resolve => {
+  const event = new CustomEvent('pith:flush-drafts', { cancelable: true, detail: resolve });
+  if (window.dispatchEvent(event)) resolve(true);
+})`)
+	if err != nil {
+		return err
+	}
+	if value != true {
+		return errors.New("Draft could not be saved before exit")
+	}
+	return nil
+}
+
 // quitConfirmation coalesces requests while the dialog is open. Authorization
 // lasts for one quit sequence so its before-quit and window-close hooks agree.
 type quitConfirmation struct {
@@ -58,6 +78,7 @@ type quitConfirmation struct {
 	authorized bool
 	active     func() bool
 	confirm    func() (bool, error)
+	beforeQuit func() error
 	quit       func()
 	onError    func(error)
 }
@@ -81,6 +102,9 @@ func (c *quitConfirmation) resolve() {
 	var err error
 	if c.active() {
 		confirmed, err = c.confirm()
+	}
+	if confirmed && err == nil && c.beforeQuit != nil {
+		err = c.beforeQuit()
 	}
 	c.mu.Lock()
 	c.pending = false

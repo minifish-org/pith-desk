@@ -4,7 +4,7 @@ export type ReadPath = keyof ReadContracts;
 export type MutationPath = keyof MutationContracts;
 export type MutationInput<P extends MutationPath> = MutationContracts[P]['input'];
 export type MutationResponse<P extends MutationPath> = MutationContracts[P]['output'];
-export type RequestOptions = { signal?: AbortSignal };
+export type RequestOptions = { signal?: AbortSignal; keepalive?: boolean };
 type ReadOptions<P extends ReadPath> = RequestOptions & ({} extends ReadContracts[P]['input'] ? { query?: ReadContracts[P]['input'] } : { query: ReadContracts[P]['input'] });
 
 export interface ApiRequest {
@@ -35,7 +35,7 @@ export function createAPI(headers: (json?: boolean) => Headers): { request: ApiR
     const read = (readPaths as readonly string[]).includes(path) && (input === undefined || !(mutationPaths as readonly string[]).includes(path) || (typeof input === 'object' && input !== null && 'query' in input));
     const response = await checked(await fetch(read ? queryURL(path, readOptions?.query) : path, {
       method: read ? 'GET' : 'POST', headers: headers(!read), credentials: 'same-origin',
-      body: read ? undefined : JSON.stringify(input), signal: read ? readOptions?.signal : options?.signal,
+      body: read ? undefined : JSON.stringify(input), signal: read ? readOptions?.signal : options?.signal, keepalive: options?.keepalive,
     }));
     return response.json();
   };

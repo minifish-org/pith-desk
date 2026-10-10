@@ -1,6 +1,29 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.14:
+New in rc.15:
+
+- Text drafts are saved separately for each conversation and restored when
+  switching conversations or restarting the app. Successful sending or queueing
+  clears only the submitted, unchanged text; rejected requests keep it. The
+  native quit guard saves the latest text before closing the window. Image
+  attachments retain their existing in-memory draft behavior.
+- File-write and file-edit approvals show a colored diff using Pith's own edit
+  matching and diff generation. If the file changes while awaiting approval,
+  the preview refreshes and requires review again. Large or non-text changes
+  keep their full tool arguments available for inspection.
+- Generated files have a Preview button alongside Open, Reveal and Copy file,
+  with the same button style. Markdown is rendered, UTF-8 text is displayed,
+  and recorded PNG, JPEG, GIF and WebP files can be viewed within Desk.
+  Preview supports images up to 8 MiB and the first 256 KiB of long text.
+  HTML and SVG remain source text; Open uses the associated application.
+
+File preview does not add an image-generation service. The file list still
+contains successful writes and edits recorded in the conversation; files made
+only by shell commands are not discovered automatically. Drafts and previews
+stay within the existing private-data and workspace checks. Normal application
+builds continue to use Go and TypeScript with CGO disabled.
+
+Previous changes (rc.14):
 
 - The Dock shows `!` when any workspace needs approval, or the number of
   conversations with completed unread results. Ordinary running tasks add no

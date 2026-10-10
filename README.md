@@ -69,6 +69,12 @@ Appearance changes apply immediately, including during an agent task, and are sa
 
 Each new conversation starts with **Ask before changes**. Reads and searches can run without a prompt; file changes and commands need a decision.
 
+File-change approvals show the workspace path and a colored diff for creates,
+overwrites and multi-block edits. **Tool arguments** retains the complete
+request. Large or non-text changes fall back to the arguments with an
+explanation. If a previewed file changes while waiting, approving refreshes
+the diff and requires another decision before execution or a lasting grant.
+
 - **Allow workspace changes** lets file tools create and edit files inside the selected workspace without asking each time. Commands still need approval. A file-change approval card also offers **Always allow workspace changes** for that conversation.
 - **Full access** also lets commands and enabled MCP tools run without individual approval. Choosing this mode requires explicit confirmation because commands and external tools can access data beyond the workspace. There is no operating-system sandbox.
 
@@ -95,6 +101,15 @@ Run metadata is saved beside the sessions. After an interrupted shutdown, the co
 ### Conversations and files
 
 The sidebar groups conversations under their workspace folders. Expand or collapse a folder, or use its new-conversation button to start a chat in that workspace. Search conversation titles across workspaces. Each conversation's `…` menu can rename, export or permanently delete that conversation without opening it first. Desktop exports open a native save dialog so you can choose the destination. Titles are recorded through Pith's session API; the desktop catalog indexes them.
+
+Text drafts are saved automatically in the private application data profile,
+separately for each conversation. Switching conversations or restarting the
+app restores the text. A workspace with no conversation can retain its own
+initial draft. Sending or queueing successfully clears only the submitted,
+unchanged text; a rejected request keeps it. Drafts are not sent to the model
+or added to the transcript until submitted. Removing a conversation or
+workspace also removes its drafts. Text drafts have a 256 KiB limit; image
+attachments retain their existing in-memory draft behavior.
 
 The rc.11 preview supports **concurrent tasks in separate workspace folders**. Add folders, create conversations and switch views while other tasks continue in the background. The sidebar marks each running conversation and shows when it needs approval. Stop, pending input, permissions and run statistics belong to that conversation. A workspace can run one task at a time; nested or overlapping workspace folders share that restriction. An occupied workspace offers **Open running conversation**. Global model, credential and MCP connection changes require all tasks to stop. See [workspace concurrency](docs/WORKSPACE_CONCURRENCY.md) for the execution contract and validation. Earlier previews retain the application-wide single-task restriction.
 
@@ -128,6 +143,13 @@ Press `⌘N` to start a conversation in the current workspace.
 After a reply stops streaming, **Copy response** copies its original text and Markdown.
 
 After a task finishes, successful file writes and edits appear in the **Generated files** section, collapsed by default with a file count. Expand it to see the file cards. **Open** uses the default application; **Reveal** shows the file in Finder. **Copy file** places the file on the system clipboard so you can paste it into Finder; the original stays in place. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview offers **Copy path**; native file actions require the desktop app.
+
+**Preview** opens the file in a dialog within Desk: PNG, JPEG, GIF and WebP
+images up to 8 MiB, rendered Markdown, and UTF-8 text. Long text previews show
+the first 256 KiB. HTML and SVG source appear as text; scripts and external
+images do not run in the preview. Use **Open** to view an animation or other
+file in its associated application. Preview reads the current recorded file
+through the same workspace checks as the existing file actions.
 
 Drop existing files from the selected workspace into the message area to insert editable, workspace-relative paths. Multiple files, spaces and Chinese names are supported. These are plain Markdown path references; dropping them does not import or read their contents. Images keep their existing attachment behavior. Browser preview can validate complete local file URIs; when the browser hides the path, type the relative path or use the desktop app.
 
@@ -189,15 +211,16 @@ image inputs before starting a run; a compatible endpoint must actually support
 the selected model's image input.
 
 Accepted images are saved inside Pith's local session records, outside the
-workspace, and sent to your configured model provider. Unsaved drafts stay in
-memory and are cleared when you start or switch conversations. History previews
+workspace, and sent to your configured model provider. Unsent image attachments
+stay in memory and are cleared when you start or switch conversations; text
+drafts are saved separately. History previews
 are fetched from the authenticated local service; image bytes are not included
 in every streaming state update. Guarded workspace image reading is also enabled
 for image-capable models. Markdown exports mark image attachments but do not
 embed their bytes.
 
 Download the
-[`v0.1.0-rc.12` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.12).
+[`v0.1.0-rc.15` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.15).
 
 
 ## Develop

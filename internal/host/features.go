@@ -112,6 +112,20 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 			break
 		}
 		value, err = s.service.Artifacts(query.ID)
+	case "/api/artifact-preview":
+		query, queryErr := wire.ReadQuery[wire.ArtifactQuery](r)
+		if queryErr != nil {
+			err = queryErr
+			break
+		}
+		value, err = s.service.PreviewArtifact(query.ID, query.Path)
+	case "/api/draft":
+		query, queryErr := wire.ReadQuery[desk.DraftScope](r)
+		if queryErr != nil {
+			err = queryErr
+			break
+		}
+		value, err = s.service.Draft(query)
 	case "/api/mcp":
 		value = s.service.ListMCP()
 	case "/api/diagnostics":
@@ -150,6 +164,16 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, decode func(any) error) bool {
 	var err error
 	switch r.URL.Path {
+	case "/api/draft":
+		var in desk.DraftInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
+			var draft desk.Draft
+			draft, err = s.service.SaveDraft(in)
+			if err == nil {
+				wire.WriteJSON(w, r.Method, r.URL.Path, draft)
+				return true
+			}
+		}
 	case "/api/workspace-references":
 		s.serveWorkspaceReferences(w, decode)
 		return true

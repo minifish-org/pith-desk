@@ -71,12 +71,12 @@ func TestSendAndAbortRequireConversationIdentity(t *testing.T) {
 
 func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 	s := testServer(t)
-	for _, path := range []string{"/api/resources", "/api/artifacts", "/api/mcp", "/api/export", "/api/diagnostics"} {
+	for _, path := range []string{"/api/resources", "/api/artifacts", "/api/artifact-preview", "/api/draft", "/api/mcp", "/api/export", "/api/diagnostics"} {
 		if status, _, _ := featureRequest(t, s, "GET", path, nil, false); status != 401 {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
 	}
-	for _, path := range []string{"/api/export", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
+	for _, path := range []string{"/api/export", "/api/draft", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
 		if status, _, _ := featureRequest(t, s, "POST", path, map[string]any{}, false); status != 401 {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
@@ -91,6 +91,35 @@ func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 403 {
 		t.Fatal("foreign origin read connection settings")
+	}
+}
+
+func TestDraftHTTPKeepsPrivateProfileStateOutOfStreamingSnapshots(t *testing.T) {
+	s := testServer(t)
+	workspace, err := s.service.AddWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversation, err := s.service.CreateConversation(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"id": conversation.ID, "text": "unsent private text", "revision": 100}
+	if status, body, _ := featureRequest(t, s, "POST", "/api/draft", input, true); status != 200 || !strings.Contains(body, "unsent private text") {
+		t.Fatalf("draft save: %d %s", status, body)
+	}
+	if status, body, headers := featureRequest(t, s, "GET", "/api/draft?id="+conversation.ID, nil, true); status != 200 || !strings.Contains(body, "unsent private text") || headers.Get("Cache-Control") != "no-store" {
+		t.Fatalf("draft read: %d %s", status, body)
+	}
+	if _, body, _ := featureRequest(t, s, "GET", "/api/state", nil, true); strings.Contains(body, "unsent private text") {
+		t.Fatal("draft leaked into broadcast snapshot")
+	}
+	input["unknown"] = true
+	if status, _, _ := featureRequest(t, s, "POST", "/api/draft", input, true); status != 400 {
+		t.Fatal("draft accepted unknown request fields")
+	}
+	if status, _, _ := featureRequest(t, s, "GET", "/api/artifact-preview?id="+conversation.ID+"&path="+url.QueryEscape(filepath.Join(workspace.Path, "unrecorded.txt")), nil, true); status != 400 {
+		t.Fatal("preview accepted an unrecorded file")
 	}
 }
 

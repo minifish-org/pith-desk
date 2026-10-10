@@ -101,10 +101,12 @@ type Message struct {
 }
 
 type Approval struct {
-	ID       string          `json:"id"`
-	ToolName string          `json:"toolName"`
-	Args     json.RawMessage `json:"args"`
-	Warning  string          `json:"warning,omitempty"`
+	ID         string           `json:"id"`
+	ToolName   string           `json:"toolName"`
+	Args       json.RawMessage  `json:"args"`
+	Warning    string           `json:"warning,omitempty"`
+	Preview    *ApprovalPreview `json:"preview,omitempty"`
+	fileReview *approvalFileReview
 }
 
 type State struct {
@@ -288,6 +290,11 @@ func (s *Service) Snapshot() State {
 	if out.PendingApproval != nil {
 		approval := *out.PendingApproval
 		approval.Args = append(json.RawMessage(nil), approval.Args...)
+		if approval.Preview != nil {
+			preview := *approval.Preview
+			approval.Preview = &preview
+		}
+		approval.fileReview = nil
 		out.PendingApproval = &approval
 	}
 	return out
@@ -646,6 +653,13 @@ func (s *Service) DecideApprovalWithScope(id string, allow, alwaysAllow bool) er
 	// must never turn into a lasting grant for another pending action.
 	if r == nil || s.closed || r.aborting || r.PendingApproval == nil || r.PendingApproval.ID != id || r.approval == nil || (r.approvalCtx != nil && r.approvalCtx.Err() != nil) {
 		return errors.New("This approval is no longer pending")
+	}
+	if allow && r.PendingApproval.fileReview != nil && !r.PendingApproval.fileReview.unchanged() {
+		approval := r.PendingApproval
+		approval.Preview, approval.fileReview = fileApprovalPreview(approval.fileReview.policy, approval.ToolName, approval.Args)
+		approval.ID = newID()
+		s.changedLocked()
+		return errors.New("The file changed. Review the updated preview before approving")
 	}
 	if alwaysAllow {
 		if !allow {

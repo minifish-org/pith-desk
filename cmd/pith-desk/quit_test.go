@@ -127,6 +127,46 @@ func TestQuitConfirmationWorkFinishesBeforeDecision(t *testing.T) {
 	}
 }
 
+func TestQuitConfirmationWaitsForDraftsAndRetriesFailedSave(t *testing.T) {
+	quits, saves, reportedErrors := 0, 0, 0
+	fail := true
+	var c *quitConfirmation
+	c = &quitConfirmation{
+		active: func() bool { return false },
+		beforeQuit: func() error {
+			saves++
+			if prevent, start := c.request(); !prevent || start {
+				t.Fatal("a second exit did not wait for the pending save")
+			}
+			if fail {
+				return errors.New("disk unavailable")
+			}
+			return nil
+		},
+		quit: func() {
+			if saves != 2 {
+				t.Fatal("quit happened before the successful save")
+			}
+			quits++
+		},
+		onError: func(error) { reportedErrors++ },
+	}
+	c.request()
+	c.resolve()
+	if quits != 0 || reportedErrors != 1 {
+		t.Fatal("failed save did not keep the app open and report its error")
+	}
+	fail = false
+	if prevent, start := c.request(); !prevent || !start {
+		t.Fatal("failed save prevented another exit attempt")
+	}
+	c.resolve()
+	if quits != 1 {
+		t.Fatal("successful save did not allow exit")
+	}
+	assertAuthorizedQuit(t, c)
+}
+
 func assertAuthorizedQuit(t *testing.T, c *quitConfirmation) {
 	t.Helper()
 	// MyGo delivers before-quit, followed by the main window's close event.
