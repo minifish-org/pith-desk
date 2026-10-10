@@ -131,7 +131,7 @@ After a task finishes, successful file writes and edits appear in the **Generate
 
 Drop existing files from the selected workspace into the message area to insert editable, workspace-relative paths. Multiple files, spaces and Chinese names are supported. These are plain Markdown path references; dropping them does not import or read their contents. Images keep their existing attachment behavior. Browser preview can validate complete local file URIs; when the browser hides the path, type the relative path or use the desktop app.
 
-On macOS, the Dock shows **!** while any workspace task awaits approval, including a conversation you are not viewing. Resolving all approvals or stopping those tasks clears the badge. Other platforms retain the in-app approval indicators.
+On macOS, the Dock summarizes tasks across all workspaces: **!** for pending approval, the number of conversations with completed unread results, or **…** while tasks are running. Approval takes priority over unread results, then running tasks. Unread counts remain until the corresponding results are viewed, survive app restarts, and show **99+** above 99 conversations. Idle tasks with no unread results leave no badge. Other platforms retain the in-app task indicators.
 
 ### Workspace instructions, skills and prompt templates
 

@@ -22,6 +22,32 @@ canonical session titles, deletion/recovery, Markdown exports, resource discover
 generated-file evidence, and authenticated native actions. Existing workspace
 and permission tests remain part of the suite.
 
+## Dock task status (2026-10-10)
+
+The macOS Dock badge now shows pending approval (`!`), completed unread
+conversation count (`1` through `99+`), or work in progress (`…`), in that
+priority order. Counts include all workspaces and reuse persisted conversation
+read acknowledgements. Viewing a result or deleting its conversation removes
+its count; other unread conversations remain counted. Quitting clears the native
+badge, and saved unread results restore it on startup.
+
+Local SSE fixtures verify running-to-approval-to-unread transitions across two
+workspaces, stale acknowledgement rejection, unread recovery after restart,
+deletion and host shutdown. Native macOS tests read the real Dock badge as
+`""`, `"…"`, `"1"`, `"2"`, `"!"`, `"2"`, `""`, `"!"`, then verify quit clears it.
+A real embedded WKWebView retained `"1"` while hidden; showing and focusing the
+completed conversation acknowledged its result through the authenticated read
+route and cleared both the sidebar unread indicator and Dock badge. All fixture
+data and workspaces were temporary; no live provider credentials were used.
+
+```sh
+GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^TestTaskDockNative(BadgeRoundTrip|UnreadLifecycle)$' -v -count=1
+```
+
+The full application check, frontend tests, contract check and Go vet passed.
+Focused task-status/Dock tests also passed with the race detector. Normal
+application builds keep `CGO_ENABLED=0`.
+
 ## SDK integration regression tests
 
 `internal/desk/sdk_features_test.go` uses temporary data/workspace directories
@@ -233,7 +259,7 @@ check from the automated native event/bridge tests.
 Run the native tests only in an interactive macOS session with isolated data:
 
 ```sh
-GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^Test(ApprovalDockNativeBadgeRoundTrip|WorkspaceFileDropNativeBridge)$' -v -count=1
+GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^Test(TaskDockNativeBadgeRoundTrip|WorkspaceFileDropNativeBridge)$' -v -count=1
 ```
 
 Local fixture evidence is under ignored `output/playwright/batch1/`. This batch

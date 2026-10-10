@@ -47,8 +47,8 @@ type Server struct {
 	completionAction  func(desk.Conversation, desk.Workspace)
 	completedRuns     map[string]string
 	development       *developmentFrontend
-	approvalAction    func(bool)
-	approvalPending   bool
+	taskStatusAction  func(TaskStatus)
+	taskStatus        TaskStatus
 	nativeFileDrop    bool
 	nativeMenuInput   NativeMenuStateInput
 	nativeMenuAction  func(desk.State, NativeMenuStateInput)
@@ -93,7 +93,7 @@ func start(service *desk.Service, picker func() (string, error), development *de
 
 func (s *Server) Close() error {
 	s.cancel()
-	s.clearApprovalAction()
+	s.clearTaskStatusAction()
 	s.clearNativeMenuAction()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -110,7 +110,7 @@ func (s *Server) broadcast() {
 		case <-s.service.Changes():
 			s.mu.Lock()
 			state := s.service.Snapshot()
-			s.updateApprovalLocked(state)
+			s.updateTaskStatusLocked(state)
 			s.updateNativeMenuLocked(state)
 			data, _ := json.Marshal(state)
 			completions := s.newCompletionsLocked(state)

@@ -2,47 +2,64 @@ package main
 
 import (
 	"runtime"
+	"strconv"
 	"sync"
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/host"
 )
 
-// installDockApprovalStatus is called once the desktop app is ready. Dock
-// badges are a macOS feature; other platforms keep their usual in-app approval
-// controls and need no native handler.
-func installDockApprovalStatus(server *host.Server) *approvalDock {
+// installDockTaskStatus is called once the desktop app is ready. Dock badges
+// are a macOS feature; other platforms retain the in-app task indicators.
+func installDockTaskStatus(server *host.Server) *taskDock {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
-	status := &approvalDock{schedule: mygo.RunOnMain, setBadge: mygo.App.Dock.SetBadge}
-	server.SetApprovalAction(status.setPending)
+	status := &taskDock{schedule: mygo.RunOnMain, setBadge: mygo.App.Dock.SetBadge}
+	server.SetTaskStatusAction(status.setStatus)
 	mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) {
-		server.SetApprovalAction(nil)
+		server.SetTaskStatusAction(nil)
 		status.close()
 	})
 	return status
 }
 
-// approvalDock coalesces state before native UI work. Only one main-thread
+// taskDock coalesces state before native UI work. Only one main-thread
 // update is scheduled at a time, and it reads the latest value when executed.
 // schedule must run its callback on the native UI thread; close runs there too.
-type approvalDock struct {
+type taskDock struct {
 	mu        sync.Mutex
-	pending   bool
+	badge     string
 	scheduled bool
 	closed    bool
 	schedule  func(func())
 	setBadge  func(string)
 }
 
-func (d *approvalDock) setPending(pending bool) {
+// Approval takes priority over unread results, which take priority over work
+// in progress. A saved unread result stays visible after its banner disappears.
+func dockBadge(status host.TaskStatus) string {
+	switch {
+	case status.NeedsApproval:
+		return "!"
+	case status.Unread > 99:
+		return "99+"
+	case status.Unread > 0:
+		return strconv.Itoa(status.Unread)
+	case status.Running > 0:
+		return "…"
+	default:
+		return ""
+	}
+}
+
+func (d *taskDock) setStatus(status host.TaskStatus) {
 	d.mu.Lock()
 	if d.closed {
 		d.mu.Unlock()
 		return
 	}
-	d.pending = pending
+	d.badge = dockBadge(status)
 	if d.scheduled {
 		d.mu.Unlock()
 		return
@@ -54,24 +71,20 @@ func (d *approvalDock) setPending(pending bool) {
 	go d.schedule(d.apply)
 }
 
-func (d *approvalDock) apply() {
+func (d *taskDock) apply() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.scheduled = false
 	if d.closed {
 		return
 	}
-	badge := ""
-	if d.pending {
-		badge = "!"
-	}
-	d.setBadge(badge)
+	d.setBadge(d.badge)
 }
 
-func (d *approvalDock) close() {
+func (d *taskDock) close() {
 	d.mu.Lock()
 	d.closed = true
-	d.pending = false
+	d.badge = ""
 	d.mu.Unlock()
 	d.setBadge("")
 }

@@ -121,7 +121,7 @@ func runDesktop(dataDir, devURL string) error {
 			mygo.App.Quit()
 			return
 		}
-		installDockApprovalStatus(server)
+		installDockTaskStatus(server)
 		server.SetFileActions(mygo.Shell.OpenPath, func(path string) error {
 			mygo.Shell.ShowItemInFolder(path)
 			return nil
