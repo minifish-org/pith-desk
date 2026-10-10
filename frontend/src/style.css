@@ -197,6 +197,7 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .breadcrumb-current { color: var(--muted); }
 .model-indicator { width: 6px; height: 6px; border: 1px solid var(--muted); border-radius: 2px; transform: rotate(45deg); }
 .chat-scroll { overflow-y: auto; min-height: 0; flex: 1; padding: 0 30px; scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+.chat-scroll:focus { outline: none; }
 .welcome { max-width: 650px; margin: 0 auto; padding: clamp(55px, 8.8vh, 106px) 0 36px; text-align: center; }
 .welcome-mark { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border: 1px solid var(--border); background: var(--surface); border-radius: 18px; margin-bottom: 24px; box-shadow: var(--shadow); }
 .welcome-mark .logo-mark { width: 32px; height: 32px; gap: 4px; }
