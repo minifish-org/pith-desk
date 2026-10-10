@@ -1,6 +1,39 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.13:
+New in rc.14:
+
+- The Dock shows `!` when any workspace needs approval, or the number of
+  conversations with completed unread results. Ordinary running tasks add no
+  Dock badge. Viewing a result clears its unread count; unread results survive
+  app restarts. Approval takes priority over unread completion.
+- Native menus provide New Conversation, Choose Workspace, Export Current
+  Conversation and Settings, using the same actions and availability checks as
+  the interface. Native shortcuts fire each action once.
+- Drag existing workspace files into the composer to insert editable relative
+  path references. Workspace boundaries are checked; files are not imported or
+  changed. Image drag/drop and paste remain available.
+- Copy replies as Markdown and copy generated files for pasting into Finder.
+  Expand a command to see its original text, working directory and output;
+  these details remain available when reopening its conversation.
+- Closing the window or quitting asks before stopping active tasks across
+  workspaces, including tasks waiting for approval. Keep working is the default
+  choice; an idle application quits directly.
+- macOS completion notifications can reopen their conversation after the app
+  has quit, including a conversation in another workspace. Deleted or expired
+  targets produce an explanation instead of selecting an unrelated conversation.
+- MyGo is updated to 0.3.6. The pinned Pith SDK now accepts larger Codex
+  WebSocket messages, fixing failures on responses above the previous 32 KiB
+  read limit. Normal application builds keep CGO disabled.
+
+Development improvements:
+
+- Frontend hot reload and browser preview use isolated development data. Go
+  changes still require restarting the backend.
+- Go generates the shared TypeScript API contract; checks catch drift in types,
+  host routes and request methods while preserving authenticated HTTP/WebSocket
+  transport.
+
+Previous changes (rc.13):
 
 - OpenAI Codex subscription sign-in no longer shows or requires an API key.
   Settings refresh the provider's sign-in state immediately after login or

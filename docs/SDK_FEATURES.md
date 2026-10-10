@@ -101,7 +101,7 @@ Production builds keep `CGO_ENABLED=0`.
 
 ## Versioned SDK dependency
 
-Desk pins published Pith revision `92adcb39fd33` in `go.mod`. It includes SDK
+Desk pins published Pith revision `a6756ade15ea` in `go.mod`. It includes SDK
 fixes verified by the integration tests:
 
 1. Composed custom providers retain their supplied model metadata.
@@ -111,6 +111,8 @@ fixes verified by the integration tests:
 4. Pending input can be edited, deleted or promoted atomically by native queue
    ID, with host persistence committed before delivery. A late promotion at the
    final queue poll is delivered before ordinary follow-up messages.
+5. Codex WebSocket responses use a 16 MiB read limit, avoiding failures when a
+   response exceeds the transport's former 32 KiB default.
 
 The fixes and their regression tests live in Pith, rather than a Desk fork.
 No sibling checkout is required. Validate the pinned dependency with:
