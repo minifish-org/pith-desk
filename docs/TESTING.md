@@ -24,9 +24,9 @@ and permission tests remain part of the suite.
 
 ## Dock task status (2026-10-10)
 
-The macOS Dock badge now shows pending approval (`!`), completed unread
-conversation count (`1` through `99+`), or work in progress (`…`), in that
-priority order. Counts include all workspaces and reuse persisted conversation
+The macOS Dock badge shows pending approval (`!`) or completed unread
+conversation count (`1` through `99+`), in that priority order. Ordinary running
+tasks add no badge. Counts include all workspaces and reuse persisted conversation
 read acknowledgements. Viewing a result or deleting its conversation removes
 its count; other unread conversations remain counted. Quitting clears the native
 badge, and saved unread results restore it on startup.
@@ -34,8 +34,9 @@ badge, and saved unread results restore it on startup.
 Local SSE fixtures verify running-to-approval-to-unread transitions across two
 workspaces, stale acknowledgement rejection, unread recovery after restart,
 deletion and host shutdown. Native macOS tests read the real Dock badge as
-`""`, `"…"`, `"1"`, `"2"`, `"!"`, `"2"`, `""`, `"!"`, then verify quit clears it.
-A real embedded WKWebView retained `"1"` while hidden; showing and focusing the
+`""`, `"1"`, `"2"`, `"!"`, `"2"`, `""`, `"!"`, then verify quit clears it.
+A real embedded WKWebView showed its running sidebar indicator with an empty
+Dock badge, then retained `"1"` after completing while hidden. Showing and focusing the
 completed conversation acknowledged its result through the authenticated read
 route and cleared both the sidebar unread indicator and Dock badge. All fixture
 data and workspaces were temporary; no live provider credentials were used.

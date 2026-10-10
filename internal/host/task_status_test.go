@@ -18,7 +18,12 @@ import (
 func TestTaskStatusAggregatesWorkspacesAndDeduplicatesChanges(t *testing.T) {
 	var values []TaskStatus
 	s := &Server{taskStatusAction: func(status TaskStatus) { values = append(values, status) }}
-	state := desk.State{Runs: []desk.RunSummary{{ConversationID: "a", WorkspaceID: "one", NeedsApproval: true}, {ConversationID: "b", WorkspaceID: "two"}}}
+	state := desk.State{Runs: []desk.RunSummary{{ConversationID: "a", WorkspaceID: "one"}, {ConversationID: "b", WorkspaceID: "two"}}}
+	s.updateTaskStatusLocked(state)
+	if len(values) != 0 {
+		t.Fatalf("ordinary running tasks produced a Dock update: %v", values)
+	}
+	state.Runs[0].NeedsApproval = true
 	s.updateTaskStatusLocked(state)
 	s.updateTaskStatusLocked(state)
 	state.Runs[1].NeedsApproval = true
@@ -39,7 +44,7 @@ func TestTaskStatusAggregatesWorkspacesAndDeduplicatesChanges(t *testing.T) {
 	s.updateTaskStatusLocked(state)
 	state.Conversations = nil // Removing a workspace/conversation removes its count.
 	s.updateTaskStatusLocked(state)
-	want := []TaskStatus{{Running: 2, NeedsApproval: true}, {Unread: 2}, {Unread: 1}, {}}
+	want := []TaskStatus{{NeedsApproval: true}, {Unread: 2}, {Unread: 1}, {}}
 	if !reflect.DeepEqual(values, want) {
 		t.Fatalf("aggregated task transitions: %v, want %v", values, want)
 	}
@@ -86,9 +91,9 @@ func TestTaskStatusTracksRunningApprovalUnreadReadAndServiceClose(t *testing.T) 
 	if err := s.service.SendConversation(conversations[0].ID, "Write the fixture file"); err != nil {
 		t.Fatal(err)
 	}
-	expectTaskStatus(t, values, TaskStatus{Running: 1})
+	waitApprovalState(t, s, func(state desk.State) bool { return len(state.Runs) == 1 && !state.Runs[0].NeedsApproval })
 	release()
-	expectTaskStatus(t, values, TaskStatus{Running: 1, NeedsApproval: true})
+	expectTaskStatus(t, values, TaskStatus{NeedsApproval: true})
 	state := waitApprovalState(t, s, func(state desk.State) bool {
 		return state.PendingApproval != nil && len(state.Runs) == 1
 	})
@@ -102,7 +107,6 @@ func TestTaskStatusTracksRunningApprovalUnreadReadAndServiceClose(t *testing.T) 
 	waitApprovalState(t, s, func(state desk.State) bool {
 		return len(state.Runs) == 2 && state.Runs[0].NeedsApproval && state.Runs[1].NeedsApproval
 	})
-	expectTaskStatus(t, values, TaskStatus{Running: 2, NeedsApproval: true})
 	// Resolve an approval in the unselected workspace: the other still needs it.
 	if err := s.service.DecideApproval(approvalA, true); err != nil {
 		t.Fatal(err)
@@ -110,7 +114,7 @@ func TestTaskStatusTracksRunningApprovalUnreadReadAndServiceClose(t *testing.T) 
 	waitApprovalState(t, s, func(state desk.State) bool {
 		return len(state.Runs) == 1 && state.Runs[0].ConversationID == conversations[1].ID && state.Runs[0].NeedsApproval
 	})
-	expectTaskStatus(t, values, TaskStatus{Running: 1, NeedsApproval: true, Unread: 1})
+	expectTaskStatus(t, values, TaskStatus{NeedsApproval: true, Unread: 1})
 	if err := s.service.AbortConversation(conversations[1].ID); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +150,7 @@ func TestTaskStatusTracksRunningApprovalUnreadReadAndServiceClose(t *testing.T) 
 	if err := s.service.SendConversation(closingConversation.ID, "Wait for approval again"); err != nil {
 		t.Fatal(err)
 	}
-	expectTaskStatus(t, values, TaskStatus{Running: 1, NeedsApproval: true})
+	expectTaskStatus(t, values, TaskStatus{NeedsApproval: true})
 	s.service.Close()
 	expectTaskStatus(t, values, TaskStatus{})
 }

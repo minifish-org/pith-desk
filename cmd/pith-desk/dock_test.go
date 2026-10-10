@@ -22,10 +22,10 @@ func TestTaskDockUsesLatestValueOnMainThread(t *testing.T) {
 	if len(badges) != 2 || badges[1] != "!" {
 		t.Fatalf("pending approval did not reach the Dock: %v", badges)
 	}
-	d.setStatus(host.TaskStatus{Running: 1})
+	d.setStatus(host.TaskStatus{})
 	invokeDockUpdate(t, scheduled)
-	if len(badges) != 3 || badges[2] != "…" {
-		t.Fatalf("resolved approval did not restore running status: %v", badges)
+	if len(badges) != 3 || badges[2] != "" {
+		t.Fatalf("resolved approval left a badge without unread results: %v", badges)
 	}
 }
 
@@ -36,7 +36,7 @@ func TestTaskDockQuitClearsAndDiscardsQueuedUpdates(t *testing.T) {
 	d.setStatus(host.TaskStatus{Unread: 2})
 	d.close()
 	invokeDockUpdate(t, scheduled)
-	d.setStatus(host.TaskStatus{Running: 1})
+	d.setStatus(host.TaskStatus{NeedsApproval: true})
 	if len(badges) != 1 || badges[0] != "" {
 		t.Fatalf("quit left or restored an approval badge: %v", badges)
 	}
@@ -54,10 +54,9 @@ func TestDockBadgePriorityAndUnreadCount(t *testing.T) {
 		badge  string
 	}{
 		{"idle", host.TaskStatus{}, ""},
-		{"running", host.TaskStatus{Running: 2}, "…"},
 		{"completed unread", host.TaskStatus{Unread: 1}, "1"},
-		{"unread before running", host.TaskStatus{Running: 2, Unread: 3}, "3"},
-		{"approval before unread", host.TaskStatus{Running: 2, NeedsApproval: true, Unread: 3}, "!"},
+		{"multiple unread", host.TaskStatus{Unread: 3}, "3"},
+		{"approval before unread", host.TaskStatus{NeedsApproval: true, Unread: 3}, "!"},
 		{"large unread count", host.TaskStatus{Unread: 100}, "99+"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

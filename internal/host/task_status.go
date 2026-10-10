@@ -5,7 +5,6 @@ import "github.com/minifish-org/pith-desk/internal/desk"
 // TaskStatus summarizes every workspace for the desktop Dock. Unread counts
 // conversations, not runs, and uses the same persisted acknowledgement as the UI.
 type TaskStatus struct {
-	Running       int
 	NeedsApproval bool
 	Unread        int
 }
@@ -24,7 +23,7 @@ func (s *Server) SetTaskStatusAction(action func(TaskStatus)) {
 }
 
 func summarizeTasks(state desk.State) TaskStatus {
-	status := TaskStatus{Running: len(state.Runs)}
+	var status TaskStatus
 	for _, run := range state.Runs {
 		status.NeedsApproval = status.NeedsApproval || run.NeedsApproval
 	}

@@ -36,8 +36,8 @@ type taskDock struct {
 	setBadge  func(string)
 }
 
-// Approval takes priority over unread results, which take priority over work
-// in progress. A saved unread result stays visible after its banner disappears.
+// Only pending approval and unread completion need attention in the Dock.
+// Approval takes priority; unread results outlive their temporary banners.
 func dockBadge(status host.TaskStatus) string {
 	switch {
 	case status.NeedsApproval:
@@ -46,8 +46,6 @@ func dockBadge(status host.TaskStatus) string {
 		return "99+"
 	case status.Unread > 0:
 		return strconv.Itoa(status.Unread)
-	case status.Running > 0:
-		return "…"
 	default:
 		return ""
 	}

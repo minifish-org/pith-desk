@@ -100,15 +100,13 @@ func TestTaskDockNativeBadgeRoundTrip(t *testing.T) {
 	}
 	status.setStatus(host.TaskStatus{})
 	waitNativeBadge(t, "")
-	status.setStatus(host.TaskStatus{Running: 1})
-	waitNativeBadge(t, "…")
 	status.setStatus(host.TaskStatus{Unread: 1})
 	waitNativeBadge(t, "1")
-	status.setStatus(host.TaskStatus{Unread: 2, Running: 1})
+	status.setStatus(host.TaskStatus{Unread: 2})
 	waitNativeBadge(t, "2")
-	status.setStatus(host.TaskStatus{Unread: 2, NeedsApproval: true, Running: 1})
+	status.setStatus(host.TaskStatus{Unread: 2, NeedsApproval: true})
 	waitNativeBadge(t, "!")
-	status.setStatus(host.TaskStatus{Unread: 2, Running: 1})
+	status.setStatus(host.TaskStatus{Unread: 2})
 	waitNativeBadge(t, "2")
 	status.setStatus(host.TaskStatus{})
 	waitNativeBadge(t, "")
@@ -168,7 +166,8 @@ func TestTaskDockNativeUnreadLifecycle(t *testing.T) {
 	if err := service.SendConversation(conversation.ID, "Finish the isolated Dock fixture"); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeBadge(t, "…")
+	waitNativeDropCondition(t, win, `document.querySelector('.history-spinner') !== null`)
+	waitNativeBadge(t, "")
 	release()
 	waitNativeBadge(t, "1")
 	waitNativeDropCondition(t, win, `document.querySelector('.history-unread') !== null && !document.hasFocus()`)
