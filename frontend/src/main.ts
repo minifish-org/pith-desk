@@ -4,43 +4,24 @@ import './style.css';
 import { createSDKUI } from './sdk-features';
 import { createCostUI, formatCost, type CostSummary } from './costs';
 import { createCompletionUI } from './completion';
+import { installWorkspaceFileDrop } from './workspace-files';
+import { installNativeMenu } from './native-menu';
 
-interface Workspace { id: string; name: string; path: string }
-type AppearanceMode = 'system' | 'light' | 'dark';
-type PermissionMode = 'ask' | 'workspace-write' | 'full-access';
-interface Conversation { id: string; title: string; workspaceId: string; updatedAt: string | number; permissionMode?: PermissionMode; completedRunId?: string; unread?: boolean }
-interface QueuedMessage { id: string; text: string; mode: 'steer' | 'follow-up'; imageCount?: number }
-interface Artifact { path: string; name: string }
-interface WorkspaceResources { workspaceId: string; instructions: { name: string; path: string; content: string }[]; skills: { name: string; path: string; description: string }[]; templates: { name: string; path: string; description: string }[]; diagnostics: string[] }
-interface MCPConnection { oauth?: boolean; signedIn?: boolean; oauthClientId?: string; oauthScope?: string; name: string; type: 'http' | 'stdio'; url?: string; command?: string; args: string[]; envKeys?: string[]; enabled: boolean; hasBearerToken: boolean; status: 'disconnected' | 'connecting' | 'connected' | 'error'; toolCount: number; error?: string }
-interface MessageImage { index: number; mimeType: string }
-interface ImageInput { type: 'image'; data: string; mimeType: string }
-interface DraftImage extends ImageInput { id: string; name: string; size: number; url: string }
-interface Message { id: string; role: string; text: string; toolName?: string; toolCallId?: string; status?: string; images?: MessageImage[]; branchNodeId?: string }
-interface RunSummary { conversationId: string; workspaceId: string; phase: string; needsApproval: boolean }
-interface Approval { id: string; toolName: string; args: unknown; warning?: string }
-interface RunUsage { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
-interface TaskTiming { startedAt?: string; elapsedMs: number; outputTokens: number; partial?: boolean }
-interface RuntimeStatus { runId?: string; cost?: CostSummary; timing?: TaskTiming; provider?: string; thinkingLevel?: string; phase: string; model: string; usage: RunUsage; contextTokens: number; contextWindow: number; compactions: number; toolFailures: number }
-interface Failure { kind: string; message: string; advice: string; canContinue: boolean }
-export interface ProviderChoice { oauth?: boolean; apiKeySupported: boolean; signedIn?: boolean; custom?: boolean; id: string; name: string; baseUrl: string; hasApiKey: boolean; hasSavedKey?: boolean; model?: string; thinkingLevel?: string }
-interface ModelChoice { id: string; name: string; provider: string; api: string; supportsImages: boolean; contextWindow: number; maxTokens: number; thinkingLevels: string[] }
-interface ModelCatalog { providers: ProviderChoice[]; models: ModelChoice[]; source: string }
-export interface State {
-  login?: { id: string; provider: string; phase: string; message: string; url?: string; code?: string; prompt?: string; promptType?: string; options: { id: string; label: string }[] };
-  settings: { provider?: string; modelName?: string; thinkingLevel?: string; thinkingLevels?: string[]; baseUrl: string; model: string; hasApiKey: boolean; hasConnections?: boolean; appearance?: AppearanceMode; supportsImages?: boolean; imageUploadLimit?: number };
+import { createAPI, parseStream, type MutationPath, type MutationInput, type MutationResponse } from './api';
+import type { State as WireState, Workspace, Conversation, QueuedMessage, Artifact, ResourceInventory as WorkspaceResources, MCPServerView as MCPConnection, ImageContent, RunSummary, Message, RuntimeStatus, ModelCatalog, PermissionMode, AppearanceMode, ProviderChoice } from './contract.generated';
+export type { ProviderChoice } from './contract.generated';
+
+// The Go snapshot normalizes these collections; retain a defensive boundary
+// for an interrupted connection while using the generated wire State type.
+export type State = Omit<WireState, 'workspaces' | 'conversations' | 'messages' | 'queuedMessages' | 'runs'> & {
   workspaces: Workspace[];
   conversations: Conversation[];
-  activeId: string | null;
-  messages: Message[];
+  messages: NonNullable<WireState['messages']>;
   queuedMessages: QueuedMessage[];
-  running: boolean;
-  runs: RunSummary[];
-  pendingApproval?: Approval | null;
-  error?: string | null;
-  runtime?: RuntimeStatus;
-  failure?: Failure | null;
-}
+  runs: NonNullable<WireState['runs']>;
+};
+type ImageInput = ImageContent & { type: 'image' };
+interface DraftImage extends ImageInput { id: string; name: string; size: number; url: string }
 
 function anyRunning(): boolean { return state.runs.length > 0; }
 function conversationRunning(id: string | null): boolean { return state.runs.some((run) => run.conversationId === id); }
@@ -58,6 +39,17 @@ const tokenMeta = document.querySelector<HTMLMetaElement>('meta[name="desk-token
 const tokenValue = tokenMeta?.content ?? '';
 const token = tokenValue === '__DESK_TOKEN__' ? '' : tokenValue;
 tokenMeta?.remove();
+const clipboardMeta = document.querySelector<HTMLMetaElement>('meta[name="desk-native-clipboard"]');
+const nativeClipboard = clipboardMeta?.content === 'true';
+clipboardMeta?.remove();
+const fileDropMeta = document.querySelector<HTMLMetaElement>('meta[name="desk-native-file-drop"]');
+const nativeFileDrop = fileDropMeta?.content === 'true';
+fileDropMeta?.remove();
+const nativeMenuMeta = document.querySelector<HTMLMetaElement>('meta[name="desk-native-menus"]');
+const nativeMenus = nativeMenuMeta?.content === 'true';
+nativeMenuMeta?.remove();
+
+const { request, download } = createAPI(headers);
 
 const systemAppearance = window.matchMedia('(prefers-color-scheme: dark)');
 const appearanceMode = (value: unknown): AppearanceMode => value === 'light' || value === 'dark' ? value : 'system';
@@ -71,14 +63,17 @@ function applyAppearance(mode: AppearanceMode): void {
 applyAppearance(initialAppearance);
 
 let state: State = {
-  settings: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', hasApiKey: false, appearance: initialAppearance },
-  workspaces: [], conversations: [], activeId: null, messages: [], queuedMessages: [], running: false, runs: [],
+  settings: { provider: '', modelName: '', thinkingLevel: '', thinkingLevels: [], baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', hasApiKey: false, hasConnections: false, appearance: initialAppearance, supportsImages: false, imageUploadLimit: 0 },
+  workspaces: [], conversations: [], activeId: '', messages: [], queuedMessages: [], running: false, runs: [],
+  runtime: { phase: '', model: '', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: { total: 0, runTotal: 0, requestCount: 0, unknownRequests: 0, runRequests: 0, runUnknownRequests: 0 }, timing: { elapsedMs: 0, outputTokens: 0 }, contextTokens: 0, contextWindow: 0, compactions: 0, toolFailures: 0 },
 };
 let selectedWorkspaceId = '';
 let snapshotLoaded = false;
 let runtimeReceivedAt = performance.now();
 let connection: 'connecting' | 'connected' | 'reconnecting' = 'connecting';
 let requestBusy = false;
+let resolvingReferences = false;
+let nativeMenu: ReturnType<typeof installNativeMenu> | undefined;
 let connectionProbe: AbortController | null = null;
 let refreshSettingsAuth: ((provider: string) => void) | null = null;
 let localError = '';
@@ -134,6 +129,7 @@ const paths: Record<string, string> = {
   shield: '<path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
   terminal: '<path d="m4 7 5 5-5 5M12 17h8"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18Z"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
@@ -195,6 +191,7 @@ $('app').innerHTML = `
     </div>
   </main>
   <section id="completion-notices" class="completion-notices" aria-label="Completed tasks" aria-live="polite"></section>
+  <span id="copy-status" class="sr-only" role="status" aria-live="polite"></span>
   <dialog id="model-dialog" class="modal model-modal" aria-labelledby="model-title"><div id="model-content"></div></dialog>
   <dialog id="settings-dialog" class="modal"><div id="settings-content"></div></dialog>
   <dialog id="workspace-dialog" class="modal"><div id="workspace-content"></div></dialog>
@@ -314,7 +311,7 @@ function render(): void {
   sendButton.type = buttonType;
   sendButton.classList.toggle('is-stop', stopping);
   if (stopping) sendButton.dataset.action = 'stop'; else delete sendButton.dataset.action;
-  sendButton.disabled = stopping ? requestBusy : !snapshotLoaded || requestBusy || readingImages || !hasDraft || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey || (!state.running && !!workspaceRun(workspace?.id));
+  sendButton.disabled = stopping ? requestBusy : !snapshotLoaded || requestBusy || readingImages || resolvingReferences || !hasDraft || (!!draftImages.length && !state.settings.supportsImages) || !workspace || !state.settings.hasApiKey || (!state.running && !!workspaceRun(workspace?.id));
   const buttonLabel = stopping ? 'Stop agent' : state.running ? 'Queue message' : 'Send message';
   sendButton.setAttribute('aria-label', buttonLabel);
   sendButton.title = buttonLabel;
@@ -322,10 +319,11 @@ function render(): void {
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-idle-action]')) {
     const conversationId = button.dataset.idleConversation;
     const workspaceId = button.dataset.idleWorkspace;
-    button.disabled = requestBusy || (button.hasAttribute('data-global-idle') ? anyRunning() : conversationId ? conversationRunning(conversationId) : workspaceId ? !!workspaceRun(workspaceId) : state.running);
+    button.disabled = !!button.dataset.copyPending || requestBusy || (button.hasAttribute('data-global-idle') ? anyRunning() : conversationId ? conversationRunning(conversationId) : workspaceId ? !!workspaceRun(workspaceId) : state.running);
   }
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-global-idle]')) button.disabled = requestBusy || anyRunning();
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = requestBusy || anyRunning();
+  nativeMenu?.update();
 }
 
 const activeRunPhases = new Set(['starting', 'working', 'tool', 'retrying', 'compacting']);
@@ -382,11 +380,9 @@ async function exportDiagnostics(): Promise<void> {
   requestBusy = true;
   render();
   try {
-    const result = await request<{ native: boolean }>('/api/diagnostics', {});
+    const result = await request('/api/diagnostics', {});
     if (!result.native) {
-      const response = await fetch('/api/diagnostics', { headers: headers(), credentials: 'same-origin' });
-      if (!response.ok) throw new Error('Diagnostic export failed.');
-      const url = URL.createObjectURL(await response.blob());
+      const url = URL.createObjectURL(await download('/api/diagnostics'));
       const link = document.createElement('a'); link.href = url; link.download = 'pith-desk-diagnostics.json'; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
@@ -613,8 +609,17 @@ function renderMessage(message: Message, expanded = false, foldKey = ''): string
   const text = message.text ?? '';
   const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${state.activeId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" loading="lazy" />`).join('');
   const gallery = images ? `<div class="message-images">${images}</div>` : '';
-  const actions = message.role === 'assistant' && message.branchNodeId ? `<div class="message-actions"><button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button></div>` : '';
-  if (message.role === 'tool') return `<details class="tool-message" data-tool-fold="${escape(foldKey)}" ${expanded ? 'open' : ''}><summary>${icon('terminal')}<span>${escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(message.status || 'Result')}</span>${icon('down')}</summary><pre>${escape(text)}</pre>${gallery}</details>`;
+  const copy = message.role === 'assistant' && text && message.status !== 'streaming' ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="Copy response" aria-label="Copy response">${icon('copy')}</button>` : '';
+  const branch = message.role === 'assistant' && message.branchNodeId ? `<button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button>` : '';
+  const actions = copy || branch ? `<div class="message-actions">${copy}${branch}</div>` : '';
+  if (message.role === 'tool') {
+    const command = message.command;
+    const details = command ? `<div class="command-details"><span class="tool-field-label">Command</span><pre class="command-text">${escape(command.text)}</pre><div class="command-directory"><span class="tool-field-label">Directory</span><code>${escape(command.cwd)}</code></div></div>` : '';
+    const status = command ? ({ running: 'Running', done: 'Completed', error: 'Failed' } as Record<string, string>)[message.status || ''] || message.status || 'Result' : message.status || 'Result';
+    const exit = command?.exitCode !== undefined ? ` · Exit ${command.exitCode}` : '';
+    const output = command ? `<div class="command-output"><span class="tool-field-label">Output</span><pre>${escape(text)}</pre></div>` : `<pre>${escape(text)}</pre>`;
+    return `<details class="tool-message" data-tool-fold="${escape(foldKey)}" ${expanded ? 'open' : ''}><summary>${icon('terminal')}<span>${command ? 'Command' : escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(status + exit)}</span>${icon('down')}</summary>${details}${output}${gallery}</details>`;
+  }
   if (message.role === 'user') return `<article class="message user-message" aria-label="Your message"><div class="message-content">${gallery}${text ? `<div class="user-text">${escape(text)}</div>` : ''}</div></article>`;
   if (message.role === 'system') return `<div class="system-message">${escape(text)}</div>`;
   return `<article class="message assistant-message" aria-label="Agent response"><div class="message-content"><div class="markdown">${renderMarkdown(text)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}${actions}</div></article>`;
@@ -666,13 +671,13 @@ function confirmFullAccess(id: string): void {
   });
 }
 
-function setState(next: State): void {
+function setState(next: WireState): void {
   if (!next || !next.settings || !Array.isArray(next.messages) || !Array.isArray(next.workspaces) || !Array.isArray(next.conversations)) throw new Error('The local service returned an invalid state.');
   const shouldLoadArtifacts = !next.running && (!snapshotLoaded || next.activeId !== state.activeId || state.running);
   const activeChanged = next.activeId !== state.activeId;
   const runFinished = state.runs.length > 0 && !next.runs?.length;
   const initialized = snapshotLoaded;
-  state = { ...next, runs: Array.isArray(next.runs) ? next.runs : [], queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
+  state = { ...next, workspaces: next.workspaces || [], conversations: next.conversations || [], messages: next.messages || [], runs: Array.isArray(next.runs) ? next.runs : [], queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
   runtimeReceivedAt = performance.now();
   if (activeChanged) { input.value = ''; clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; $<HTMLDetailsElement>('artifacts').open = false; }
   snapshotLoaded = true;
@@ -689,25 +694,15 @@ function headers(json = false): Headers {
   return value;
 }
 
-async function request<T>(path: string, payload?: unknown): Promise<T> {
-  const response = await fetch(path, { method: payload === undefined ? 'GET' : 'POST', headers: headers(payload !== undefined), body: payload === undefined ? undefined : JSON.stringify(payload), credentials: 'same-origin' });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || body?.ok === false) {
-    const error = body?.error;
-    throw new Error(typeof error === 'string' ? error : error?.message || `Request failed (${response.status}).`);
-  }
-  return body as T;
-}
+async function refresh(): Promise<void> { setState(await request('/api/state')); }
 
-async function refresh(): Promise<void> { setState(await request<State>('/api/state')); }
-
-async function mutate<T = unknown>(path: string, payload: unknown, onResponse?: (response: T) => void): Promise<boolean> {
+async function mutate<P extends MutationPath>(path: P, payload: MutationInput<P>, onResponse?: (response: MutationResponse<P>) => void): Promise<boolean> {
   if (requestBusy) return false;
   requestBusy = true;
   localError = '';
   render();
   try {
-    const response = await request<T>(path, payload);
+    const response = await request(path, payload);
     onResponse?.(response);
     await refresh();
     return true;
@@ -738,7 +733,7 @@ async function send(): Promise<void> {
   const text = input.value.trim();
   const images = draftImages.map(({ type, data, mimeType }) => ({ type, data, mimeType }));
   const submittedIds = new Set(draftImages.map((image) => image.id));
-  if ((!text && !images.length) || requestBusy || readingImages) return;
+  if ((!text && !images.length) || requestBusy || readingImages || resolvingReferences) return;
   if (images.length && !state.settings.supportsImages) { localError = 'Choose an image-capable model in Settings, or remove the attachments.'; render(); return; }
   if (state.running) { await queueMessage(text, draft, images, submittedIds); return; }
   if (!state.settings.hasApiKey) { openSettings(); return; }
@@ -804,17 +799,12 @@ async function exportConversation(id = state.activeId): Promise<void> {
   localError = '';
   render();
   try {
-    const delivery = await request<{ native: boolean }>('/api/export', { id: conversation.id });
+    const delivery = await request('/api/export', { id: conversation.id });
     // A native save (including cancellation) fully handles this export.
     // Only an explicit browser-preview response permits the Blob download.
     if (delivery?.native === true) return;
     if (delivery?.native !== false) throw new Error('The local service returned an invalid export response.');
-    const response = await fetch(`/api/export?id=${encodeURIComponent(conversation.id)}`, { headers: headers(), credentials: 'same-origin' });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new Error(typeof body?.error === 'string' ? body.error : `Export failed (${response.status}).`);
-    }
-    const url = URL.createObjectURL(new Blob([await response.text()], { type: 'text/markdown;charset=utf-8' }));
+    const url = URL.createObjectURL(await download('/api/export', { id: conversation.id }));
     const link = document.createElement('a');
     link.href = url;
     link.download = `${(conversation.title || 'Conversation').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim() || 'Conversation'}.md`;
@@ -827,7 +817,43 @@ async function exportConversation(id = state.activeId): Promise<void> {
 }
 
 function fileActions(kind: 'artifact' | 'resource', ownerId: string, path: string): string {
-  return `<div class="file-actions"><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="open" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Open</button><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="reveal" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Reveal</button></div>`;
+  const copy = kind === 'artifact' ? `<button type="button" class="secondary-button" data-file-kind="artifact" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="${nativeClipboard ? 'copy' : 'copy-path'}" data-idle-action data-idle-conversation="${escape(ownerId)}">${nativeClipboard ? 'Copy file' : 'Copy path'}</button>` : '';
+  return `<div class="file-actions"><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="open" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Open</button><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="reveal" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Reveal</button>${copy}</div>`;
+}
+
+async function copyText(text: string): Promise<void> {
+  if (nativeClipboard) await request('/api/copy-text', { text });
+  else await navigator.clipboard.writeText(text);
+}
+
+async function copyWithFeedback(button: HTMLButtonElement, action: () => Promise<void>, announcement: string): Promise<void> {
+  const original = button.innerHTML;
+  const label = button.getAttribute('aria-label');
+  const title = button.title;
+  $('copy-status').textContent = '';
+  button.dataset.copyPending = 'true';
+  button.disabled = true;
+  try {
+    await action();
+    $('copy-status').textContent = announcement;
+    if (!button.isConnected) return;
+    button.innerHTML = button.classList.contains('message-action') ? icon('check') : 'Copied';
+    button.setAttribute('aria-label', announcement);
+    button.title = announcement;
+    window.setTimeout(() => {
+      if (!button.isConnected) return;
+      button.innerHTML = original;
+      if (label === null) button.removeAttribute('aria-label'); else button.setAttribute('aria-label', label);
+      button.title = title;
+      delete button.dataset.copyPending;
+      button.disabled = !!button.dataset.idleConversation && (requestBusy || conversationRunning(button.dataset.idleConversation));
+    }, 1500);
+  } catch (error) {
+    delete button.dataset.copyPending;
+    button.disabled = false;
+    localError = error instanceof Error ? error.message : String(error);
+    render();
+  }
 }
 
 function renderArtifacts(): void {
@@ -845,9 +871,9 @@ async function loadArtifacts(id: string): Promise<void> {
   artifactsError = '';
   render();
   try {
-    const result = await request<Artifact[]>(`/api/artifacts?id=${encodeURIComponent(id)}`);
+    const result = await request('/api/artifacts', { query: { id } });
     if (sequence !== artifactsRequest || state.activeId !== id) return;
-    artifacts = result;
+    artifacts = result || [];
   } catch (error) {
     if (sequence !== artifactsRequest || state.activeId !== id) return;
     artifactsError = error instanceof Error ? error.message : String(error);
@@ -870,7 +896,7 @@ async function loadResources(): Promise<void> {
   const sequence = ++resourcesRequest;
   $('resources-error').textContent = '';
   try {
-    const result = await request<WorkspaceResources>(`/api/resources?workspaceId=${encodeURIComponent(id)}`);
+    const result = await request('/api/resources', { query: { workspaceId: id } });
     if (sequence !== resourcesRequest || id !== resourcesWorkspaceId) return;
     resources = result;
     renderResources();
@@ -881,8 +907,8 @@ function renderResources(): void {
   if (!resources) return;
   const workspace = state.workspaces.find((entry) => entry.id === resourcesWorkspaceId);
   const rootPath = `${workspace?.path.replace(/\\/g, '/').replace(/\/$/, '')}/AGENTS.md`;
-  const hasInstructions = resources.instructions.some((entry) => entry.path.replace(/\\/g, '/') === rootPath);
-  $('resources-list').innerHTML = `<section class="resource-section"><h3>Instructions</h3>${resources.instructions.map((entry) => `<article class="resource-card"><div class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('instructions', entry)}</div><details class="resource-preview"><summary>View instructions</summary><pre>${escape(entry.content)}</pre></details></article>`).join('') || '<p class="feature-hint">No workspace instructions found.</p>'}${!hasInstructions ? '<button class="secondary-button" data-sdk="resource" data-kind="instructions" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}">Create AGENTS.md in this workspace</button>' : ''}</section><section class="resource-section"><h3>Skills</h3>${resources.skills.map((entry) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('skill', entry)}</article>`).join('') || '<p class="feature-hint">No skills found. Add .pi/skills/&lt;skill-name&gt;/SKILL.md in this workspace, then refresh.</p>'}</section><section class="resource-section"><h3>Prompt templates</h3>${(resources.templates || []).map((entry) => `<article class="file-card"><div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${sdkUI.resourceActions('template', entry)}</article>`).join('') || '<p class="feature-hint">No prompt templates yet.</p>'}</section>${resources.diagnostics.length ? `<section class="resource-section resource-diagnostics"><h3>Resource notes</h3>${resources.diagnostics.map((entry) => `<p>${escape(entry)}</p>`).join('')}</section>` : ''}`;
+  const hasInstructions = (resources.instructions || []).some((entry) => entry.path.replace(/\\/g, '/') === rootPath);
+  $('resources-list').innerHTML = `<section class="resource-section"><h3>Instructions</h3>${(resources.instructions || []).map((entry) => `<article class="resource-card"><div class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('instructions', entry)}</div><details class="resource-preview"><summary>View instructions</summary><pre>${escape(entry.content)}</pre></details></article>`).join('') || '<p class="feature-hint">No workspace instructions found.</p>'}${!hasInstructions ? '<button class="secondary-button" data-sdk="resource" data-kind="instructions" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}">Create AGENTS.md in this workspace</button>' : ''}</section><section class="resource-section"><h3>Skills</h3>${(resources.skills || []).map((entry) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('skill', entry)}</article>`).join('') || '<p class="feature-hint">No skills found. Add .pi/skills/&lt;skill-name&gt;/SKILL.md in this workspace, then refresh.</p>'}</section><section class="resource-section"><h3>Prompt templates</h3>${(resources.templates || []).map((entry) => `<article class="file-card"><div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${sdkUI.resourceActions('template', entry)}</article>`).join('') || '<p class="feature-hint">No prompt templates yet.</p>'}</section>${(resources.diagnostics || []).length ? `<section class="resource-section resource-diagnostics"><h3>Resource notes</h3>${(resources.diagnostics || []).map((entry) => `<p>${escape(entry)}</p>`).join('')}</section>` : ''}`;
   render();
 }
 
@@ -908,9 +934,9 @@ async function loadMCP(): Promise<void> {
   const sequence = ++mcpRequest;
   $('mcp-error').textContent = '';
   try {
-    const result = await request<MCPConnection[]>('/api/mcp');
+    const result = await request('/api/mcp');
     if (sequence !== mcpRequest) return;
-    mcpConnections = result;
+    mcpConnections = result || [];
     renderMCPList();
     render();
   } catch (error) { if (sequence === mcpRequest) $('mcp-error').textContent = error instanceof Error ? error.message : String(error); }
@@ -968,7 +994,7 @@ async function saveMCP(): Promise<void> {
     const env: unknown = type === 'stdio' && envDraft ? parseConnectionJSON(envDraft, 'environment overrides') : undefined;
     if (env !== undefined && (!env || typeof env !== 'object' || Array.isArray(env) || !Object.values(env).every((value) => typeof value === 'string'))) throw new Error('Environment overrides must be a JSON object with string values.');
     const bearerToken = $<HTMLInputElement>('mcp-token').value.trim();
-    const payload = { name, type, args, enabled: $<HTMLInputElement>('mcp-enabled').checked, ...(type === 'http' ? { oauth: $<HTMLInputElement>('mcp-oauth').checked, oauthClientId: $<HTMLInputElement>('mcp-oauth-client').value.trim(), oauthScope: $<HTMLInputElement>('mcp-oauth-scope').value.trim(), url: $<HTMLInputElement>('mcp-url').value.trim(), ...(bearerToken ? { bearerToken } : {}), ...($<HTMLInputElement>('mcp-clear-token').checked ? { clearBearerToken: true } : {}) } : { command: $<HTMLInputElement>('mcp-command').value.trim(), ...(env !== undefined ? { env } : {}), ...($<HTMLInputElement>('mcp-clear-env').checked ? { clearEnv: true } : {}) }) };
+    const payload = { name, type, args, oauth: false, enabled: $<HTMLInputElement>('mcp-enabled').checked, ...(type === 'http' ? { oauth: $<HTMLInputElement>('mcp-oauth').checked, oauthClientId: $<HTMLInputElement>('mcp-oauth-client').value.trim(), oauthScope: $<HTMLInputElement>('mcp-oauth-scope').value.trim(), url: $<HTMLInputElement>('mcp-url').value.trim(), ...(bearerToken ? { bearerToken } : {}), ...($<HTMLInputElement>('mcp-clear-token').checked ? { clearBearerToken: true } : {}) } : { command: $<HTMLInputElement>('mcp-command').value.trim(), ...(env !== undefined ? { env: env as Record<string, string> } : {}), ...($<HTMLInputElement>('mcp-clear-env').checked ? { clearEnv: true } : {}) }) };
     const saved = await mutate('/api/mcp/save', payload);
     if (!isCurrent()) return;
     $<HTMLInputElement>('mcp-token').value = '';
@@ -994,7 +1020,7 @@ function modelFormSelection(prefix: string): { provider: string; model: string; 
 }
 
 function setupModelEditor(prefix: string, catalog: ModelCatalog, configuredOnly: boolean): void {
-  const providers = configuredOnly ? catalog.providers.filter((entry) => entry.hasApiKey) : catalog.providers;
+  const providers = configuredOnly ? (catalog.providers || []).filter((entry) => entry.hasApiKey) : (catalog.providers || []);
   const providerSelect = $<HTMLSelectElement>(`${prefix}-provider`);
   const modelSelect = $<HTMLSelectElement>(`${prefix}-model`);
   const search = $<HTMLInputElement>(`${prefix}-search`);
@@ -1005,7 +1031,7 @@ function setupModelEditor(prefix: string, catalog: ModelCatalog, configuredOnly:
   let selected = '';
   const capabilities = () => {
     selected = modelSelect.value;
-    const model = catalog.models.find((entry) => entry.provider === providerSelect.value && entry.id === selected);
+    const model = (catalog.models || []).find((entry) => entry.provider === providerSelect.value && entry.id === selected);
     const previous = effort.value;
     const levels = model?.thinkingLevels || ['off'];
     effort.innerHTML = levels.map((level) => `<option value="${escape(level)}">${escape(thinkingLabel(level))}</option>`).join('');
@@ -1017,7 +1043,7 @@ function setupModelEditor(prefix: string, catalog: ModelCatalog, configuredOnly:
   };
   const renderModels = () => {
     const query = search.value.trim().toLowerCase();
-    const models = catalog.models.filter((entry) => entry.provider === providerSelect.value && (entry.id === selected || `${entry.name} ${entry.id}`.toLowerCase().includes(query)));
+    const models = (catalog.models || []).filter((entry) => entry.provider === providerSelect.value && (entry.id === selected || `${entry.name} ${entry.id}`.toLowerCase().includes(query)));
     modelSelect.innerHTML = models.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)} — ${escape(entry.id)}</option>`).join('');
     modelSelect.disabled = models.length === 0;
     modelSelect.value = models.some((entry) => entry.id === selected) ? selected : models[0]?.id || '';
@@ -1045,9 +1071,9 @@ async function openModelPicker(): Promise<void> {
   const form = $<HTMLFormElement>('model-form');
   const isCurrent = () => $<HTMLDialogElement>('model-dialog').open && $('model-form') === form;
   try {
-    const catalog = await request<ModelCatalog>('/api/models');
+    const catalog = await request('/api/models');
     if (!isCurrent()) return;
-    if (!catalog.providers.some((entry) => entry.hasApiKey)) { $<HTMLDialogElement>('model-dialog').close(); openSettings(); return; }
+    if (!(catalog.providers || []).some((entry) => entry.hasApiKey)) { $<HTMLDialogElement>('model-dialog').close(); openSettings(); return; }
     setupModelEditor('picker', catalog, true);
     $<HTMLButtonElement>('choose-model').disabled = anyRunning() || requestBusy;
     form.addEventListener('submit', async (event) => {
@@ -1084,7 +1110,7 @@ function openSettings(): void {
     if (!await mutate('/api/appearance', { mode }) && isCurrent()) $('appearance-error').textContent = localError;
   });
   const keyStatus = () => {
-    const provider = catalog?.providers.find((entry) => entry.id === $<HTMLSelectElement>('settings-provider').value);
+    const provider = (catalog?.providers || []).find((entry) => entry.id === $<HTMLSelectElement>('settings-provider').value);
     const retained = !!provider?.hasSavedKey && provider.baseUrl === $<HTMLInputElement>('base-url').value.trim().replace(/\/+$/, '');
     $('key-status').textContent = provider?.signedIn ? 'Signed in' : retained ? 'Configured' : 'Not configured';
     const key = $<HTMLInputElement>('api-key');
@@ -1102,27 +1128,27 @@ function openSettings(): void {
   };
   refreshSettingsAuth = (providerID) => {
     if (!isCurrent()) return;
-    void request<ModelCatalog>('/api/models').then((result) => {
+    void request('/api/models').then((result) => {
       if (!isCurrent()) return;
       catalog = result;
       const select = $<HTMLSelectElement>('settings-provider');
       for (const option of select.options) {
-        const provider = result.providers.find((entry) => entry.id === option.value);
+        const provider = (result.providers || []).find((entry) => entry.id === option.value);
         if (provider) option.textContent = `${provider.name}${provider.signedIn ? ' · Signed in' : provider.hasApiKey ? ' · Configured' : ''}`;
       }
       if (select.value === providerID) keyStatus();
     }).catch((error) => { if (isCurrent()) $('settings-error').textContent = String(error); });
   };
   $<HTMLButtonElement>('save-settings').disabled = true;
-  void request<ModelCatalog>('/api/models').then((result) => {
+  void request('/api/models').then((result) => {
     if (!isCurrent()) return;
     catalog = result;
     const providerSelect = $<HTMLSelectElement>('settings-provider');
-    providerSelect.innerHTML = result.providers.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}${entry.signedIn ? ' · Signed in' : entry.hasApiKey ? ' · Configured' : ''}</option>`).join('');
+    providerSelect.innerHTML = (result.providers || []).map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}${entry.signedIn ? ' · Signed in' : entry.hasApiKey ? ' · Configured' : ''}</option>`).join('');
     providerSelect.disabled = false;
-    providerSelect.value = result.providers.some((entry) => entry.id === state.settings.provider) ? state.settings.provider! : result.providers[0]?.id || '';
+    providerSelect.value = (result.providers || []).some((entry) => entry.id === state.settings.provider) ? state.settings.provider! : (result.providers || [])[0]?.id || '';
     const chooseProvider = (changed: boolean) => {
-      const provider = result.providers.find((entry) => entry.id === providerSelect.value);
+      const provider = (result.providers || []).find((entry) => entry.id === providerSelect.value);
       if (!provider) return;
       $<HTMLInputElement>('base-url').value = provider.baseUrl;
       if (changed) {
@@ -1151,10 +1177,8 @@ function openSettings(): void {
     $<HTMLButtonElement>('save-settings').disabled = true;
     $('connection-test-result').textContent = 'Testing streaming and tool calling…';
     try {
-      const response = await fetch('/api/test-provider-connection', { method: 'POST', headers: headers(true), body: JSON.stringify(payload), signal: controller.signal, credentials: 'same-origin' });
-      const result = await response.json();
+      const result = await request('/api/test-provider-connection', payload, { signal: controller.signal });
       if (!isCurrent() || connectionProbe !== controller) return;
-      if (!response.ok) throw new Error(result.error || 'Connection test failed.');
       $('connection-test-result').textContent = result.message;
       $('connection-test-result').className = result.ok ? 'test-success' : 'form-error';
     } catch (error) {
@@ -1207,7 +1231,7 @@ function openWorkspace(): void {
     button.disabled = true;
     $('workspace-error').textContent = '';
     try {
-      const result = await request<{ path?: string }>('/api/pick-workspace', {});
+      const result = await request('/api/pick-workspace', {});
       if (result.path) { $<HTMLInputElement>('workspace-path').value = result.path; await addWorkspace(result.path); }
     } catch (error) {
       $('workspace-error').textContent = `${error instanceof Error ? error.message : String(error)} You can enter the path below.`;
@@ -1220,7 +1244,7 @@ async function addWorkspace(path: string): Promise<void> {
   if (!path) return;
   $<HTMLButtonElement>('add-workspace').disabled = true;
   let workspaceId = '';
-  if (await mutate<{ ok: true; workspace: Workspace }>('/api/workspaces', { path }, (response) => {
+  if (await mutate('/api/workspaces', { path }, (response) => {
     if (!response?.workspace?.id) throw new Error('The local service did not return the added workspace.');
     workspaceId = response.workspace.id;
   })) {
@@ -1293,10 +1317,7 @@ function loadHistoryImages(): void {
     let value = historyImages.get(key);
     if (!value) {
       const generation = imageGeneration;
-      const params = new URLSearchParams({ id: state.activeId || '', message: image.dataset.messageId!, index: image.dataset.imageIndex! });
-      value = fetch(`/api/image?${params}`, { headers: headers(), credentials: 'same-origin' }).then(async (response) => {
-        if (!response.ok) throw new Error('Image attachment could not be loaded.');
-        const blob = await response.blob();
+      value = download('/api/image', { id: state.activeId, message: image.dataset.messageId!, index: Number(image.dataset.imageIndex) }).then((blob) => {
         if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type)) throw new Error('Invalid image attachment.');
         if (generation !== imageGeneration || disposed) throw new Error('Conversation changed.');
         return URL.createObjectURL(blob);
@@ -1319,14 +1340,25 @@ input.addEventListener('paste', (event) => {
   const files = Array.from(event.clipboardData?.items || []).filter((item) => item.kind === 'file' && item.type.startsWith('image/')).map((item) => item.getAsFile()).filter((file): file is File => !!file);
   if (files.length) { event.preventDefault(); void addImageFiles(files); }
 });
-$('composer-form').addEventListener('dragover', (event) => {
-  if (event.dataTransfer?.types.includes('Files')) { event.preventDefault(); if (!requestBusy && !readingImages) $('composer-form').classList.add('drag-images'); }
+installWorkspaceFileDrop({
+  form: $('composer-form'), input, native: nativeFileDrop,
+  busy: () => requestBusy || !snapshotLoaded,
+  context: () => `${selectedWorkspace()?.id}/${state.activeId}/${draftGeneration}`,
+  workspaceID: () => selectedWorkspace()?.id,
+  disposed: () => disposed,
+  resolve: async (workspaceId, paths) => (await request('/api/workspace-references', { workspaceId, paths })).paths || [],
+  images: addImageFiles,
+  pending: (pending) => { resolvingReferences = pending; render(); },
+  changed: () => { localError = ''; resizeComposer(); render(); },
+  error: (message) => { localError = message; render(); },
 });
-$('composer-form').addEventListener('dragleave', () => $('composer-form').classList.remove('drag-images'));
-$('composer-form').addEventListener('drop', (event) => {
-  event.preventDefault();
-  $('composer-form').classList.remove('drag-images');
-  void addImageFiles(Array.from(event.dataTransfer?.files || []));
+nativeMenu = installNativeMenu({
+  native: nativeMenus,
+  context: () => ({ ready: snapshotLoaded, busy: requestBusy || readingImages || resolvingReferences, workspaceId: selectedWorkspace()?.id, activeId: state.activeId }),
+  request,
+  canExport: () => !!state.conversations.find((entry) => entry.id === state.activeId) && !conversationRunning(state.activeId),
+  actions: { newConversation, chooseWorkspace: openWorkspace, exportConversation, settings: openSettings },
+  error: (message) => { localError = message; render(); },
 });
 
 function resizeComposer(): void { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
@@ -1336,6 +1368,13 @@ document.addEventListener('click', async (event) => {
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand');
   if (!target) return;
+  if (target.dataset.copyMessage) {
+    const message = state.messages.find((entry) => entry.id === target.dataset.copyMessage && entry.role === 'assistant');
+    if (message?.text && message.status !== 'streaming' && !(target as HTMLButtonElement).disabled) {
+      await copyWithFeedback(target as HTMLButtonElement, () => copyText(message.text), 'Response copied.');
+    }
+    return;
+  }
   if (target.dataset.dismissCompletion) {
     dismissCompletion(target.dataset.dismissCompletion);
     return;
@@ -1345,7 +1384,7 @@ document.addEventListener('click', async (event) => {
     const entry = state.queuedMessages.find((message) => message.id === target.dataset.queuedMessage);
     if (!entry) return;
     if (target.dataset.queueAction === 'edit') openQueueEditor(entry);
-    else await mutate(`/api/queue/${target.dataset.queueAction}`, { id: state.activeId, messageId: entry.id });
+    else if (target.dataset.queueAction === 'delete' || target.dataset.queueAction === 'steer') await mutate(`/api/queue/${target.dataset.queueAction}`, { id: state.activeId, messageId: entry.id });
     return;
   }
   if (target.dataset.conversationMenu) { openConversationMenu(target.dataset.conversationMenu, target); return; }
@@ -1364,7 +1403,12 @@ document.addEventListener('click', async (event) => {
   if (target.dataset.fileKind && target.dataset.filePath && target.dataset.fileOwner) {
     if (requestBusy || (target.dataset.fileKind === 'resource' ? workspaceRun(target.dataset.fileOwner) : conversationRunning(target.dataset.fileOwner))) return;
     const kind = target.dataset.fileKind;
-    const payload = { kind, ...(kind === 'resource' ? { workspaceId: target.dataset.fileOwner } : { id: target.dataset.fileOwner }), path: target.dataset.filePath, action: target.dataset.fileAction };
+    const payload = { kind, ...(kind === 'resource' ? { workspaceId: target.dataset.fileOwner } : { id: target.dataset.fileOwner }), path: target.dataset.filePath, action: target.dataset.fileAction || '' };
+    if (kind === 'artifact' && ['copy', 'copy-path'].includes(payload.action || '')) {
+      if ((target as HTMLButtonElement).disabled) return;
+      await copyWithFeedback(target as HTMLButtonElement, () => payload.action === 'copy' ? request('/api/file', payload).then(() => {}) : copyText(payload.path), payload.action === 'copy' ? 'File copied.' : 'Path copied.');
+      return;
+    }
     if (!await mutate('/api/file', payload) && kind === 'resource') $('resources-error').textContent = localError;
     return;
   }
@@ -1374,7 +1418,7 @@ document.addEventListener('click', async (event) => {
     const entry = mcpConnections.find((item) => item.name === (target.dataset.mcpToggle || target.dataset.mcpRemove));
     if (!entry) return;
     $('mcp-error').textContent = '';
-    const ok = target.dataset.mcpRemove ? await mutate('/api/mcp/remove', { name: entry.name }) : await mutate('/api/mcp/save', { name: entry.name, type: entry.type, url: entry.url, command: entry.command, args: entry.args || [], enabled: !entry.enabled });
+    const ok = target.dataset.mcpRemove ? await mutate('/api/mcp/remove', { name: entry.name }) : await mutate('/api/mcp/save', { name: entry.name, type: entry.type, oauth: entry.oauth, url: entry.url, command: entry.command, args: entry.args || [], enabled: !entry.enabled });
     if (ok) { await loadMCP(); if (target.dataset.mcpRemove && $<HTMLInputElement>('mcp-name').value === entry.name) editMCP(); }
     else $('mcp-error').textContent = localError;
     return;
@@ -1481,7 +1525,6 @@ document.addEventListener('keydown', (event) => {
       return;
     }
   }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); void newConversation(); }
 });
 $('history-list').addEventListener('scroll', () => closeConversationMenu(), { passive: true });
 window.addEventListener('resize', () => closeConversationMenu());
@@ -1520,7 +1563,7 @@ async function streamEvents(): Promise<void> {
           if (disposed) return;
           try {
             if (typeof event.data !== 'string') throw new Error('The local service returned an invalid event.');
-            setState(JSON.parse(event.data) as State);
+            setState(parseStream('/api/socket', event.data));
             retryDelay = 700;
           } catch (error) {
             transportError = error instanceof Error ? error.message : String(error);
@@ -1549,7 +1592,7 @@ async function streamEvents(): Promise<void> {
 const runtimeClock = window.setInterval(() => {
   if (state.running && state.runtime && activeRunPhases.has(state.runtime.phase)) renderRuntimeTiming();
 }, 1000);
-window.addEventListener('beforeunload', () => { disposed = true; window.clearInterval(runtimeClock); clearDraftImages(); clearHistoryImages(); eventSocket?.close(); });
+window.addEventListener('beforeunload', () => { disposed = true; nativeMenu?.dispose(); window.clearInterval(runtimeClock); clearDraftImages(); clearHistoryImages(); eventSocket?.close(); });
 systemAppearance.addEventListener('change', () => {
   if (appearanceMode(state.settings.appearance) === 'system') applyAppearance('system');
 });

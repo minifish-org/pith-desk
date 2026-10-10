@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/transfer"
 	"github.com/minifish-org/pith-desk/internal/desk"
 	"github.com/minifish-org/pith-desk/internal/host"
 )
@@ -36,30 +37,29 @@ func run() error {
 
 	preview := flag.Bool("preview", false, "serve the interface for a browser without opening a desktop window")
 	dataDir := flag.String("data-dir", "", "directory for settings and conversation history")
+	devURL := flag.String("dev-url", "", "loopback Vite origin for frontend hot reload (isolated development data)")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flag.Args())
 	}
-	if *dataDir == "" {
-		base, err := os.UserConfigDir()
-		if err != nil {
-			return fmt.Errorf("find application data directory: %w", err)
-		}
-		*dataDir = filepath.Join(base, "Pith Desk")
+	var err error
+	*dataDir, err = applicationDataDir(*dataDir, *devURL != "")
+	if err != nil {
+		return err
 	}
 	if *preview {
-		return runPreview(*dataDir)
+		return runPreview(*dataDir, *devURL)
 	}
-	return runDesktop(*dataDir)
+	return runDesktop(*dataDir, *devURL)
 }
 
-func runPreview(dataDir string) error {
+func runPreview(dataDir, devURL string) error {
 	service, err := desk.New(dataDir)
 	if err != nil {
 		return err
 	}
 	defer service.Close()
-	server, err := host.Start(service, nil)
+	server, err := startHost(service, nil, devURL)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func runPreview(dataDir string) error {
 	return nil
 }
 
-func runDesktop(dataDir string) error {
+func runDesktop(dataDir, devURL string) error {
 	// Keep native window state with the selected application data, including
 	// isolated test instances started with --data-dir.
 	dataDir, err := filepath.Abs(dataDir)
@@ -87,6 +87,9 @@ func runDesktop(dataDir string) error {
 	mygo.App.OnDidBecomeActive(func() { appActive.Store(true) })
 	mygo.App.OnDidResignActive(func() { appActive.Store(false) })
 	var dialogMu sync.Mutex
+	// Register before Run: macOS can deliver a previous notification's click
+	// before the application service and window have been created.
+	notifications := newDesktopNotifications()
 
 	mygo.App.WhenReady(func() {
 		service, startupErr = desk.New(dataDir)
@@ -111,16 +114,22 @@ func runDesktop(dataDir string) error {
 			}
 			return paths[0], nil
 		}
-		server, startupErr = host.Start(service, pickDirectory, func(mode desk.AppearanceMode) {
+		server, startupErr = startHost(service, pickDirectory, devURL, func(mode desk.AppearanceMode) {
 			mygo.Theme.SetSource(mygo.ThemeSource(mode))
 		})
 		if startupErr != nil {
 			mygo.App.Quit()
 			return
 		}
+		installDockApprovalStatus(server)
 		server.SetFileActions(mygo.Shell.OpenPath, func(path string) error {
 			mygo.Shell.ShowItemInFolder(path)
 			return nil
+		})
+		server.SetClipboardActions(func(text string) error {
+			return mygo.Clipboard.Write(transfer.TextData(text))
+		}, func(path string) error {
+			return mygo.Clipboard.WriteFiles(path)
 		})
 		server.SetExportAction(func(markdown string) error {
 			dialogMu.Lock()
@@ -159,42 +168,16 @@ func runDesktop(dataDir string) error {
 			BackgroundColor: "light-dark(#F7F8FB, #17191C)", StateKey: "main",
 		})
 		window.Store(win)
-		var notificationsMu sync.Mutex
-		var notifications []*mygo.Notification
+		installWorkspaceFileDrop(win, server)
+		installQuitConfirmation(service, win, &dialogMu)
+		installNativeMenu(server, win)
+		notifications.Ready(service, win, &dialogMu)
 		server.SetCompletionAction(func(entry desk.Conversation, workspace desk.Workspace) {
 			// macOS may retain its key window after the app loses activation.
 			if (appActive.Load() && !mygo.App.IsHidden() && win.IsFocused() && !win.IsMinimized()) || !mygo.NotificationsSupported() {
 				return
 			}
-			notification := mygo.NewNotification(mygo.NotificationOptions{
-				Title: "Task completed", Body: workspace.Name + " · " + entry.Title, Silent: true,
-			})
-			notification.OnClick(func() {
-				// Session loading can touch disk. Keep it off the native UI thread.
-				go func() {
-					if err := service.OpenConversation(entry.ID); err != nil {
-						log.Printf("Open completed conversation: %v", err)
-						return
-					}
-					win.Restore()
-					win.Show()
-					win.Focus()
-					notification.Close()
-				}()
-			})
-			if err := notification.Show(); err != nil {
-				notification.Close()
-				log.Printf("Show task notification: %v", err)
-				return
-			}
-			// Bound retained click handlers and old Notification Center entries.
-			notificationsMu.Lock()
-			defer notificationsMu.Unlock()
-			notifications = append(notifications, notification)
-			if len(notifications) > 32 {
-				notifications[0].Close()
-				notifications = notifications[1:]
-			}
+			notifications.Show(entry, workspace)
 		})
 		win.OnReadyToShow(win.Show)
 		appURL, _ := url.Parse(server.URL)
@@ -233,6 +216,7 @@ func runDesktop(dataDir string) error {
 	// Closing the last window quits the app by default. Cleanup also covers
 	// Cmd+Q and termination signals, and releases pending Agent work.
 	err = mygo.App.Run()
+	notifications.Close()
 	if service != nil {
 		service.Close()
 	}

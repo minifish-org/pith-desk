@@ -78,9 +78,13 @@ The choice is saved for that conversation and survives restarting the app. It do
 
 While Pith is working, the send button becomes **Stop** when the composer is empty. Adding text or images switches it back to send; sending a message queues it for when the current task would otherwise finish. In **Pending messages**, edit or delete individual messages, or click **Steer** to turn one into an **Instruction** for the next turn boundary. Steering waits for the current model response and tool batch; it does not interrupt a running command. Editing preserves attached images. Messages already received by the agent cannot be edited or deleted. Stop cancels the task and clears its pending messages; they are not carried into a later task or another conversation.
 
+Closing the desktop window or pressing `⌘Q` asks for confirmation when any workspace has an active task, including one waiting for approval. **Keep working** leaves those tasks running; it is the default when you press Return. **Stop tasks and quit** interrupts all tasks and exits the app. An idle app closes immediately. In this preview, Escape does not dismiss the confirmation; use **Keep working** or Return.
+
 ### Run status and recovery
 
 Expand the status line above the composer to see the running model, Pith session token usage, estimated conversation context, context summary count, recorded tool failures and estimated cost. Expand **Request breakdown** within those statistics for each reported request, including retries and context summaries, with input/output/cache tokens, purpose, status, saved rates and price source. Model retries and context summarization have their own status. Conversation context excludes system instructions and tool schemas. Costs are USD estimates from the bundled Pith/Pi catalog or custom prices, not the provider bill. Requests with unknown usage or prices are excluded from totals. No external pricing or exchange-rate API is called. Earlier requests made before the ledger was added are not reconstructed.
+
+Expand a **Command** tool entry to see its exact command text, initial working directory and output. Its header shows **Running**, **Completed** or **Failed**, and the details survive reopening the conversation. A numeric exit code appears only when supplied as structured tool-result metadata. The current pinned Pith SDK does not supply one; Pith Desk does not infer it from output or error messages.
 
 The same status line shows the latest task's total elapsed time and average output tokens per second. Time includes tools, approval waits, retries and context summaries; speed uses that task's reported output tokens (including reasoning), excluding input, cache and earlier tasks. It is a task average, not instantaneous model decoding speed. Completed and stopped timing survives reopening. Old runs without timing show **Not recorded**; interrupted checkpoints show a lower-bound duration and no speed, excluding app downtime.
 
@@ -96,13 +100,38 @@ The rc.11 preview supports **concurrent tasks in separate workspace folders**. A
 
 The rc.12 preview replaces the sidebar's text badges with a small blue spinning ring and an amber approval icon. The ring has a fixed gap and indicates activity, without estimating progress. A completed task leaves a blue unread dot until its conversation is viewed. Completion in another conversation shows an in-app notice; when the desktop app is in the background, it sends a silent macOS notification instead. Both offer navigation to the completed conversation. System notifications require OS permission and remain subject to Focus and screen-sharing rules. These indicators and notifications are not included in rc.11.
 
+The local source build retains notification targets across launches on macOS.
+Clicking a valid older notification starts or activates the packaged app and
+opens its workspace conversation. Targets expire after seven days, a newer
+completed run in the same conversation, or removal of the conversation/workspace;
+at most 32 are retained. An unavailable target shows a short explanation. macOS
+starts the normal application data profile; custom `--data-dir` profiles must be
+reopened with the same argument before clicking. The OS does not replay launch
+arguments. Linux and Windows notification backends support current-process
+clicks only.
+
+The native **File** menu provides **New Conversation** (`Cmd/Ctrl+N`),
+**Choose Workspace…** (`Cmd/Ctrl+O`) and **Export Current Conversation…**
+(`Cmd/Ctrl+Shift+E`). **Settings…** uses `Cmd/Ctrl+,`; macOS places it in the
+application menu. The standard edit, view, window and quit controls remain.
+Page actions wait for loading, requests and dialogs; export is disabled for the
+current running or approval-pending conversation. Opening settings and choosing
+another workspace remain available while tasks run. Configuration changes and
+quit confirmation retain their existing rules.
+
 **Delete conversation** permanently removes its local session history, image attachments and run receipt. **Remove workspace**, in the folder's `…` menu, unlinks the folder and deletes all its conversations and related application data. Both require confirmation. A running conversation cannot be deleted; a workspace with an active task or overlapping active folder cannot be removed. Unrelated idle conversations remain manageable while other tasks run. Workspace folders and their files—including files created by Pith and exported documents—are never deleted. There is no archive or restore feature. Removing a folder leaves no dangling conversations.
 
 Deletion intent is saved before the catalog changes. If cleanup is interrupted, Pith Desk retries committed deletions on startup; uncommitted requests leave their conversation data intact. Cleanup errors are reported and never treated as a successful deletion.
 
 Press `⌘N` to start a conversation in the current workspace.
 
-After a task finishes, successful file writes and edits appear in the **Generated files** section, collapsed by default with a file count. Expand it to see the file cards. **Open** uses the default application; **Reveal** shows the file in Finder. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview shows paths but native file actions require the desktop app.
+After a reply stops streaming, **Copy response** copies its original text and Markdown.
+
+After a task finishes, successful file writes and edits appear in the **Generated files** section, collapsed by default with a file count. Expand it to see the file cards. **Open** uses the default application; **Reveal** shows the file in Finder. **Copy file** places the file on the system clipboard so you can paste it into Finder; the original stays in place. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview offers **Copy path**; native file actions require the desktop app.
+
+Drop existing files from the selected workspace into the message area to insert editable, workspace-relative paths. Multiple files, spaces and Chinese names are supported. These are plain Markdown path references; dropping them does not import or read their contents. Images keep their existing attachment behavior. Browser preview can validate complete local file URIs; when the browser hides the path, type the relative path or use the desktop app.
+
+On macOS, the Dock shows **!** while any workspace task awaits approval, including a conversation you are not viewing. Resolving all approvals or stopping those tasks clears the badge. Other platforms retain the in-app approval indicators.
 
 ### Workspace instructions, skills and prompt templates
 
@@ -181,13 +210,22 @@ npm --prefix frontend ci
 npm run dev
 ```
 
-`dev` builds the frontend and starts the native desktop window with CGO disabled. The same UI can be inspected in a browser:
+`dev` starts Vite and the native desktop window with frontend hot reload, `GOWORK=off` and CGO disabled. CSS updates in place; TypeScript changes reload the interface. Restart the command after Go changes. The same development UI can be inspected in a browser:
 
 ```sh
 npm run preview
 ```
 
-Open the loopback URL printed by the process. The browser preview uses the real local backend and the same local data. Its workspace picker accepts a path; the native application also has a folder dialog. Only one process may open a data directory at a time. Close the native application before previewing, or run `CGO_ENABLED=0 go run ./cmd/pith-desk --preview --data-dir /path/to/separate/test-data` after building the frontend. This is a local development preview, not a server deployment mode.
+Open the loopback URL printed by the process. Both development commands default to **Pith Desk Development** under the system application-data directory, separate from the installed app's **Pith Desk** data. They perform one initial frontend build for Go's embedded assets, then serve source changes through Vite behind the existing loopback authentication and navigation policy. Only one process may open a data directory at a time. To run development windows and browser preview together, choose separate directories, for example `npm run dev -- --data-dir /tmp/desk-native-dev` and `npm run preview -- --data-dir /tmp/desk-browser-dev`. Development refuses paths that overlap the default installed-app data directory, including symlink aliases. Use disposable workspaces too: their files are real even when application data is isolated.
+
+For an embedded-UI browser check, run `GOWORK=off CGO_ENABLED=0 go run ./cmd/pith-desk --preview --data-dir /path/to/separate/test-data` after `npm run build:ui`. Packaged applications keep the embedded frontend and do not start Vite. The development runner chooses separate loopback ports and closes its frontend and Go process when stopped. Preview is local development, not a server deployment mode.
+
+HTTP requests, queries, responses and streamed State types come from Go's
+`internal/wire` registry and JSON tags. Run `npm run generate:contract` after a
+schema change; `npm run check:contract` rejects stale generated TypeScript or
+host route drift. `build:ui` and the CI check run this check automatically.
+The frontend retains the authenticated loopback HTTP/WebSocket transport.
+Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
 ## Build a Mac application
 
@@ -210,6 +248,7 @@ Both Pith and MyGo are pinned in `go.mod`; applications build without a sibling 
 - `frontend/src/`: layout, settings, conversations, streamed state and approval controls.
 - `internal/desk/`: the application service and its Pith SDK adapter, persisted settings/history and tool policy.
 - `internal/host/`: embedded frontend, authenticated loopback API and streamed snapshots.
+- `internal/wire/` and `cmd/contractgen/`: Go request/response schemas and generated TypeScript contracts.
 - `cmd/pith-desk/`: the native window, folder picker, application lifetime and browser preview.
 - `mygo.config.ts`: build and packaging settings.
 

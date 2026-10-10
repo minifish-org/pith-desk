@@ -303,6 +303,14 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .tool-message summary .icon:last-child { margin-left: 4px; width: 10px; height: 10px; }
 .tool-status { margin-left: auto; font-size: 11px; color: var(--muted-tonal); }
 .tool-message pre { margin: 0; padding: 14px; border-top: 1px solid var(--border); max-height: 270px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted-tonal); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.command-details { padding: 12px 14px; border-top: 1px solid var(--border); }
+.tool-field-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; }
+.tool-message .command-text { padding: 0; border: 0; color: var(--text); max-height: 180px; }
+.command-directory { margin-top: 12px; }
+.command-directory code { display: block; font-size: 11px; color: var(--muted-tonal); overflow-wrap: anywhere; }
+.command-output { border-top: 1px solid var(--border); }
+.command-output > .tool-field-label { margin: 10px 14px 0; }
+.command-output pre { border-top: 0; }
 .system-message { margin: 0 0 22px; padding: 10px 13px; border-left: 2px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.5; }
 .agent-working { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 12px; }
 .working-dots { display: flex; gap: 4px; }

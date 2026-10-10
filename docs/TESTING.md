@@ -4,6 +4,7 @@
 
 ```sh
 GOWORK=off npm run build:ui
+node --experimental-strip-types --test frontend/tests/*.test.mjs
 GOWORK=off CGO_ENABLED=0 go test ./...
 GOWORK=off CGO_ENABLED=0 go vet ./...
 GOWORK=off CGO_ENABLED=1 go test -race ./internal/...
@@ -91,14 +92,184 @@ workspace. Keep its model and connection settings separate from everyday data.
    restart with pending mutations, check their recovery, and edit/delete before
    reviewed continuation. Stop a second task; its pending queue must clear.
 5. Approve a write or edit. After completion, Open and Reveal the generated file.
+   Copy the response and check that its original Markdown is preserved. Copy
+   the generated file and paste into a disposable Finder folder; the bytes
+   must match and the source must remain. Browser preview offers Copy path.
    Failed writes, missing files, and files outside the workspace must not appear.
 6. Export Markdown. Save it through the native dialog, inspect its title/messages/
    tool results, and test Cancel. Cancel must not start a browser download.
-7. Quit and reopen normally. Check saved titles, deletion results, permissions,
+7. With a task waiting for approval in one workspace, switch to an idle
+   workspace and close the window. A single quit confirmation must appear.
+   **Keep working** and Return must keep the window open and preserve that
+   approval. Repeat with `Cmd+Q`, including another `Cmd+Q` while the sheet is
+   open; it must not create another confirmation. Then approve a disposable
+   long-running command and choose **Stop tasks and quit** while it runs;
+   the app must exit. Closing an idle app must not show a confirmation.
+   The pinned MyGo 0.3.6 macOS dialog does not dismiss this sheet with Escape
+   when the default and cancel button are the same; use **Keep working** or
+   Return for cancellation.
+8. Quit and reopen normally. Check saved titles, deletion results, permissions,
    connection configuration, and generated files. Connections are re-established
    explicitly or when the next task starts.
 
 ## Latest verification
+
+### Desktop batch 2 (2026-10-10, local changes)
+
+The native menu reuses existing conversation, workspace, export and settings
+actions. A disposable Apple Silicon bundle verified File-menu creation,
+one new conversation per Cmd+N, Cmd+, settings, Cmd+O workspace selection and
+Cmd+Shift+E native Markdown save/cancel. The saved file retained its title,
+messages and tool result. Dialogs disabled related menu items; a pending
+approval disabled export while leaving new conversations and workspace
+selection available. Standard Cmd+Q still showed the task confirmation;
+Keep working preserved the approval. Idle quit exited without a resident process.
+
+Completion targets are private, bounded to 32 and valid for seven days. Tests
+cover service restart and cross-workspace navigation, read acknowledgement,
+deleted/removed/expired/superseded targets, unavailable catalog retries,
+permission denial and final-quit ordering. A real packaged native fixture
+requested OS notification permission. Quitting before answering it exited
+without hanging. After enabling only that fixture's notification permission,
+macOS returned `didGrant: 1` and `hasError: 0` when adding its notification.
+Its stable target remained on disk after the app exited.
+
+An isolated cold-launch test uses a test-only Go overlay to fix its data
+directory, with a normal Mach-O bundle executable and a separate signing ID.
+The OS does not replay `--data-dir`. A shell substituted as CFBundleExecutable
+gave the running binary a different signing identity; macOS rejected its
+notification authorization. That fixture issue was corrected without changing
+the production source or adding private entitlements. The production bundle's
+Mach-O and bundle signing identifiers match.
+
+The user clicked A's retained system notification after the fixture had fully
+exited with B selected. A new process started at 11:23:28 Singapore time
+(PID 65806; the previous PID 65038 had exited). The authenticated API selected
+conversation `c7c4afa44d79553f955ac9c988eb21b1` in workspace
+`47bcc6f034e6de5d2565e2f351ad7f85`; the native window showed workspace A,
+"Batch2 A" and its expected messages. The retained target count changed from
+one to zero. This verifies an actual OS notification-card click, cold process
+launch and cross-workspace navigation, combining the user's click with API,
+process and native-window checks.
+
+A second user OS-card click verified a deleted target. "Deleted Target"
+(`778580cdaa10739a2ac0723d6e47c2b5`) completed and notified in isolated workspace
+B, then was deleted before exit while A remained selected. The click launched
+PID 66006 at 11:25:50 Singapore time and displayed the native message
+"This notification has expired or its conversation was removed." The API kept
+A selected, the deleted target was absent from the catalog and the retained
+target count changed from one to zero. After OK, the native window still showed
+workspace A, "Batch2 A" and its expected messages.
+
+Expired targets passed automated checks and use the same unavailable-target
+message path. An expired notification's OS-card click was not separately
+exercised. The UI automation surface cannot select the notification-card window;
+these two native clicks were performed by the user and checked by API and
+native-window inspection. Reopening a custom profile manually requires the same
+data-directory argument before clicking.
+
+The Go-derived contract covers authenticated request bodies, GET queries,
+responses, State streams and binary downloads. Generated-file tampering,
+host route/method/body/query drift, and invalid frontend calls are rejected.
+The generator has no host or embedded-assets dependency and works before an
+initial frontend build. Transport tests retain bearer headers, same-origin
+requests, AbortSignal cancellation, query encoding, error handling and downloads.
+
+Final local checks passed 231 Go tests, 17 frontend tests, TypeScript/production
+UI build, vet and race checks with `GOWORK=off`. The ARM64 application at
+`build/batch2/darwin-arm64/Pith Desk.app` uses `CGO_ENABLED=0`; its ad-hoc
+signature verified and metadata retained the pinned MyGo/Pith dependencies.
+The first batch's opt-in native Dock badge and file-drop bridge tests passed
+again, including badge cleanup on quit and unchanged fixture file hashes.
+Fixture evidence is under ignored `output/playwright/batch2/`. Linux and Windows
+amd64 compilation passed with CGO disabled. Their native behavior and cold
+launch are not established; the pinned notification
+backends support current-process clicks only. Distribution signing,
+notarization and publication remain separate steps.
+
+### Desktop batch 1 (2026-10-10, local changes)
+
+`npm run dev` and `npm run preview` use Vite behind the existing Desk host and
+default to isolated development application data. With separate disposable
+data directories, CSS changed in place and a temporary TypeScript heading edit
+automatically appeared in both WKWebView and browser preview, without restarting
+Go. The temporary edits were restored. Two concurrent development origins used
+separate loopback ports. Packaged builds retain embedded assets.
+Data-directory regression checks reject symlinked ancestors and macOS case
+aliases, including final directories that do not exist yet. Existing ancestry
+also uses filesystem identity, rather than only a textual path comparison.
+
+Offline SSE fixtures and authenticated API checks exercised two disjoint
+workspaces awaiting approval while an idle third workspace was selected.
+Approving A preserved B's pending state; stopping B cleared aggregate approval
+while A continued streaming. Stopping A and denying another task cleared the
+remaining state. Approved A wrote the expected fixture bytes; B did not write.
+Native macOS tests read the actual MyGo Dock badge as `""`, `"!"`, `""`, `"!"`,
+then confirmed it was empty in the application's real quit hook.
+
+File-reference checks cover multiple files, spaces/Chinese/percent-encoded
+names, canonical symlink deduplication, private-data boundaries, missing files,
+directories, invalid URIs and atomic rejection of mixed invalid batches. Original
+fixture bytes remained unchanged. Frontend tests cover editable Markdown paths,
+backticks, selection replacement, both mixed image/path event orders, late
+responses after workspace switching, and browser basename rejection. Browser
+preview requires a complete local file URI or manual relative-path text; it
+cannot reconstruct an OS file path from `File.name`.
+
+An opt-in native integration test forwarded a synthesized native drop through
+the production bridge into a real MyGo WKWebView and authenticated host. The
+input contained both Chinese/space paths at the selected cursor location,
+an external file was rejected, a drop outside the composer was ignored and all
+fixture SHA-256 hashes were unchanged. This validates the event/bridge pipeline;
+an actual Finder mouse gesture was not exercised in this run.
+
+For native acceptance use a disposable workspace, drag multiple existing files
+from Finder onto the composer and confirm their editable relative references.
+Include a PNG with a text file, test a drop outside the composer and a file from
+another workspace, then verify original bytes. Repeat approval/stop from another
+workspace and check the Dock `!` clears. OS Finder gestures are a separate manual
+check from the automated native event/bridge tests.
+
+Run the native tests only in an interactive macOS session with isolated data:
+
+```sh
+GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^Test(ApprovalDockNativeBadgeRoundTrip|WorkspaceFileDropNativeBridge)$' -v -count=1
+```
+
+Local fixture evidence is under ignored `output/playwright/batch1/`. This batch
+does not establish Linux/Windows native behavior, signing for distribution or a
+published release.
+
+Final local checks passed 191 Go tests, 9 frontend tests, TypeScript/production
+UI build, vet and race checks with `GOWORK=off`. The ARM64 application under
+`build/batch1/darwin-arm64/Pith Desk.app` was rebuilt with `CGO_ENABLED=0`; its
+ad-hoc signature verified and build metadata confirmed the pinned MyGo/Pith
+modules. An isolated packaged preview served embedded HTML, rejected development
+source/HMR routes and retained bearer authentication. Linux amd64 was checked
+for compilation only. Test processes and the local provider fixture were stopped.
+
+On 2026-10-10, an isolated Apple Silicon native smoke check used local provider
+fixtures and disposable application data to verify active-task quit confirmation.
+Closing the window from an idle workspace detected another workspace's pending
+approval. **Keep working** preserved that approval, as did cancelling `Cmd+Q`.
+Repeated `Cmd+Q` kept a single sheet open, and Return chose **Keep working**.
+An approved fixture `sleep 120` command displayed its running command and
+working directory; choosing **Stop tasks and quit** exited the application with
+code 0. Escape did not dismiss the sheet, confirming the pinned MyGo limitation
+described in the checklist. Controller tests cover idle exit, coalesced requests,
+one authorized quit sequence, cancellation/errors and tasks finishing before or
+during the confirmation; `GOWORK=off CGO_ENABLED=0 go test ./cmd/pith-desk` passed.
+
+The same check verified idle window close without a dialog, native reply copy
+with exact Markdown, and native file copy pasted into Finder with identical
+bytes and the original retained. Successful, running and failed commands showed
+their command and initial directory; the failed command kept its SDK-provided
+error output. Browser checks covered light/dark themes, the 900-pixel minimum
+window width, command details after reload, exact reply copy and explicit path
+copy, with no console errors. The frontend build, all 167 Go tests, vet and the
+race suite passed with `GOWORK=off`. macOS ARM64 packaging and Windows/Linux
+amd64 compilation passed with CGO disabled. Windows/Linux native behavior was
+not exercised.
 
 On 2026-10-09, the MyGo module and CLI upgrade from 0.2.1 to 0.3.6 passed
 the frontend build, Go tests and vet, internal race checks, Linux amd64/arm64

@@ -1,22 +1,9 @@
 import type { State } from './main';
 
-export interface CostSummary {
-  total: number;
-  runTotal: number;
-  requestCount: number;
-  unknownRequests: number;
-  runRequests: number;
-  runUnknownRequests: number;
-  unavailable?: boolean;
-}
+import type { CostSummary, CostReport } from './contract.generated';
+import type { ApiRequest } from './api';
+export type { CostSummary } from './contract.generated';
 
-type RequestCost = {
-  id: string; time: string; provider: string; providerName?: string;
-  model: string; modelName?: string; purpose: string; status: string;
-  known: boolean; source: string; price: unknown;
-  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number; cost: { total: number } };
-};
-type CostReport = CostSummary & { requests: RequestCost[] };
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 });
 const numbers = new Intl.NumberFormat();
 const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -32,7 +19,7 @@ export function formatCost(cost: CostSummary | undefined, latestTask = false): s
 
 // The snapshot carries only totals. Read the ledger when its inline disclosure
 // is open, once per saved-request revision rather than on every streamed token.
-export function createCostUI(api: { state: () => State; request: <T>(path: string) => Promise<T> }) {
+export function createCostUI(api: { state: () => State; request: ApiRequest }) {
   const section = document.getElementById('cost-requests') as HTMLDetailsElement;
   const runtime = document.getElementById('run-status') as HTMLDetailsElement;
   const content = document.getElementById('cost-ledger')!;
@@ -46,7 +33,7 @@ export function createCostUI(api: { state: () => State; request: <T>(path: strin
   function show(report: CostReport) {
     const expanded = new Set(Array.from(content.querySelectorAll<HTMLDetailsElement>('details[data-cost-id][open]'), (row) => row.dataset.costId));
     const n = (value: number) => numbers.format(value || 0);
-    content.innerHTML = `<p class="cost-note">USD estimates for recorded requests, not a provider bill. Prices are saved per request; retries and context summaries are included when usage is reported. ${report.unknownRequests ? `${report.unknownRequests} request(s) have unknown prices or usage and are excluded. ` : ''}Older requests made before recording began are not reconstructed.</p><div class="cost-table"><table><thead><tr><th>Request</th><th>Input</th><th>Output</th><th>Cache read / write</th><th>Estimate</th></tr></thead><tbody>${report.requests.map((r) => `<tr><td><strong>${escape(r.purpose)} · ${escape(r.status)}</strong><br>${escape(r.providerName || r.provider)} / ${escape(r.modelName || r.model)}<br><small>${escape(r.time)}</small><details data-cost-id="${escape(r.id)}" ${expanded.has(r.id) ? 'open' : ''}><summary>Price source and rates (USD / million tokens)</summary><p>${escape(r.source)}</p><pre>${escape(JSON.stringify(r.price, null, 2))}</pre>${r.usage.reasoning != null ? `<p>Reasoning tokens: ${n(r.usage.reasoning)} (included in output)</p>` : ''}</details></td><td>${n(r.usage.input)}</td><td>${n(r.usage.output)}</td><td>${n(r.usage.cacheRead)} / ${n(r.usage.cacheWrite)}</td><td>${r.known ? currency.format(r.usage.cost.total) : 'Unknown'}</td></tr>`).join('') || '<tr><td colspan="5">No recorded requests yet.</td></tr>'}</tbody></table></div>`;
+    content.innerHTML = `<p class="cost-note">USD estimates for recorded requests, not a provider bill. Prices are saved per request; retries and context summaries are included when usage is reported. ${report.unknownRequests ? `${report.unknownRequests} request(s) have unknown prices or usage and are excluded. ` : ''}Older requests made before recording began are not reconstructed.</p><div class="cost-table"><table><thead><tr><th>Request</th><th>Input</th><th>Output</th><th>Cache read / write</th><th>Estimate</th></tr></thead><tbody>${(report.requests || []).map((r) => `<tr><td><strong>${escape(r.purpose)} · ${escape(r.status)}</strong><br>${escape(r.providerName || r.provider)} / ${escape(r.modelName || r.model)}<br><small>${escape(r.time)}</small><details data-cost-id="${escape(r.id)}" ${expanded.has(r.id) ? 'open' : ''}><summary>Price source and rates (USD / million tokens)</summary><p>${escape(r.source)}</p><pre>${escape(JSON.stringify(r.price, null, 2))}</pre>${r.usage.reasoning != null ? `<p>Reasoning tokens: ${n(r.usage.reasoning)} (included in output)</p>` : ''}</details></td><td>${n(r.usage.input)}</td><td>${n(r.usage.output)}</td><td>${n(r.usage.cacheRead)} / ${n(r.usage.cacheWrite)}</td><td>${r.known ? currency.format(r.usage.cost.total) : 'Unknown'}</td></tr>`).join('') || '<tr><td colspan="5">No recorded requests yet.</td></tr>'}</tbody></table></div>`;
   }
 
   function render() {
@@ -68,7 +55,7 @@ export function createCostUI(api: { state: () => State; request: <T>(path: strin
     loading = true;
     const seq = generation;
     if (!content.childElementCount) content.textContent = 'Loading request breakdown…';
-    void api.request<CostReport>(`/api/costs?id=${encodeURIComponent(state.activeId!)}`).then((report) => {
+    void api.request('/api/costs', { query: { id: state.activeId } }).then((report) => {
       if (seq !== generation) return;
       show(report);
     }).catch(() => {

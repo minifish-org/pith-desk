@@ -89,14 +89,15 @@ func (mode PermissionMode) allows(tool string) bool {
 }
 
 type Message struct {
-	ID           string         `json:"id"`
-	Role         string         `json:"role"`
-	Text         string         `json:"text"`
-	ToolName     string         `json:"toolName,omitempty"`
-	ToolCallID   string         `json:"toolCallId,omitempty"`
-	Status       string         `json:"status,omitempty"`
-	Images       []MessageImage `json:"images,omitempty"`
-	BranchNodeID string         `json:"branchNodeId,omitempty"`
+	ID           string          `json:"id"`
+	Role         string          `json:"role"`
+	Text         string          `json:"text"`
+	ToolName     string          `json:"toolName,omitempty"`
+	ToolCallID   string          `json:"toolCallId,omitempty"`
+	Status       string          `json:"status,omitempty"`
+	Images       []MessageImage  `json:"images,omitempty"`
+	BranchNodeID string          `json:"branchNodeId,omitempty"`
+	Command      *CommandDetails `json:"command,omitempty"`
 }
 
 type Approval struct {
@@ -274,6 +275,7 @@ func (s *Service) Snapshot() State {
 	out.Messages = append([]Message{}, s.active.Messages...)
 	for i := range out.Messages {
 		out.Messages[i].Images = append([]MessageImage(nil), out.Messages[i].Images...)
+		out.Messages[i].Command = cloneCommandDetails(out.Messages[i].Command)
 	}
 	out.QueuedMessages = append([]QueuedMessage{}, s.active.QueuedMessages...)
 	for i := range out.QueuedMessages {
@@ -386,6 +388,12 @@ func (s *Service) OpenConversation(id string) error {
 	if err := s.availableLocked(); err != nil {
 		return err
 	}
+	return s.openConversationLocked(id)
+}
+
+// openConversationLocked shares navigation with validated notification targets.
+// The caller holds s.mu and has checked that the service is available.
+func (s *Service) openConversationLocked(id string) error {
 	old := s.state.ActiveID
 	previous := s.active
 	if err := s.loadMessagesLocked(id); err != nil {
@@ -959,7 +967,11 @@ func (r *conversationRuntime) observe(event codingagent.SessionEvent, manager *c
 		r.Runtime.Phase = "working"
 	case codingagent.SessionEventToolExecutionStart:
 		r.Runtime.Phase = "tool"
-		r.Messages = append(r.Messages, Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, ToolCallID: event.ToolCallID, Text: "Running…", Status: "running"})
+		message := Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, ToolCallID: event.ToolCallID, Text: "Running…", Status: "running"}
+		if event.ToolName == "run_command" {
+			message.Command = commandDetailsFromSession(manager, event.ToolCallID)
+		}
+		r.Messages = append(r.Messages, message)
 	case codingagent.SessionEventToolExecutionEnd:
 		r.Runtime.Phase = "working"
 		if event.IsError {
@@ -970,6 +982,12 @@ func (r *conversationRuntime) observe(event codingagent.SessionEvent, manager *c
 				r.Messages[i].Status = "done"
 				if event.IsError {
 					r.Messages[i].Status = "error"
+				}
+				if event.Message != nil && event.Message.Message != nil && event.Message.Message.ToolResult != nil {
+					result := event.Message.Message.ToolResult
+					r.Messages[i].Text = blockText(result.Content)
+					r.Messages[i].Images = messageImages(result.Content)
+					applyCommandResult(r.Messages[i].Command, result.Details)
 				}
 			}
 		}
@@ -1016,6 +1034,7 @@ func (r *conversationRuntime) appendProviderText(data any) {
 
 func messagesFrom(manager *codingagent.SessionManager) []Message {
 	messages := []Message{}
+	commands := map[string]*CommandDetails{}
 	// Context is the complete active branch. BuildContextEntries is the model's
 	// compacted view and would hide older messages from the user's history.
 	for _, entry := range manager.Context() {
@@ -1039,7 +1058,9 @@ func messagesFrom(manager *codingagent.SessionManager) []Message {
 			for _, block := range msg.Assistant.Content {
 				if block.IsToolCall() {
 					out.BranchNodeID = ""
-					break
+					if command := commandDetailsForCall(block.ToolCall.Name, block.ToolCall.Arguments, manager.GetCwd()); command != nil {
+						commands[block.ToolCall.Id] = command
+					}
 				}
 			}
 			if msg.Assistant.StopReason == aitypes.StopReasonError || msg.Assistant.StopReason == aitypes.StopReasonAborted {
@@ -1050,6 +1071,10 @@ func messagesFrom(manager *codingagent.SessionManager) []Message {
 			out.ToolCallID = msg.ToolResult.ToolCallId
 			out.Text, out.Status = blockText(msg.ToolResult.Content), "done"
 			out.Images = messageImages(msg.ToolResult.Content)
+			if out.ToolName == "run_command" {
+				out.Command = cloneCommandDetails(commands[out.ToolCallID])
+				applyCommandResult(out.Command, msg.ToolResult.Details)
+			}
 			if msg.ToolResult.IsError {
 				out.Status = "error"
 			}

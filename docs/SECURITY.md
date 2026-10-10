@@ -6,7 +6,24 @@ Pith Desk runs under your own operating-system account. It is intended for one l
 
 The host listens only on a randomly selected IPv4 loopback port. Every API request requires a fresh process-local bearer token. HTTP requests use the Authorization header; the live state WebSocket carries the token in a request subprotocol, which the server does not echo. The trusted index page bootstraps that token; it is never placed in a URL or browser storage. Host and Origin checks reject cross-site requests and DNS-rebound hostnames. There is no CORS access for foreign pages. The built UI has a Content Security Policy and never serves workspace files as web content.
 
+Generated Go/TypeScript contracts describe this same authenticated transport.
+Native menu state is submitted through its authenticated endpoint; task state
+and conversation identity are checked against the service. Menu activation
+forwards only fixed action names to existing page handlers, which recheck their
+current loading, request and dialog state.
+
+Completion notification targets are stored in private `notifications.json`
+beside application data. The OS receives an ID, title and workspace/conversation
+label; no token, credential or filesystem path is included in the target ID.
+Targets are bounded to 32 and seven days. Clicks validate the retained session,
+workspace and completed run under the service lock before navigating. A missing,
+expired, deleted or superseded target does not create a conversation or select a
+different target. Delivered valid notifications survive process exit; no
+background process is kept for them.
+
 These controls address access from other websites. They do not protect against malicious processes already running as your user, browser extensions with access to the preview, or a compromised operating system. Only trusted application assets belong in the native window.
+
+Frontend hot reload is explicitly enabled only with a loopback `--dev-url`. The Desk host injects its own credential into Vite's HTML, forwards a limited set of frontend/HMR routes, and retains its Host, Origin, cross-site, API authentication and navigation checks. Normal builds serve embedded assets. Development defaults to a separate application-data directory and rejects overlap with the default installed-app directory, including symlinked ancestors and macOS case aliases. Existing directory ancestry is checked by filesystem identity; macOS also reserves planned case variants of the default application-data name. Development workspaces still contain real files; use disposable folders for acceptance checks.
 
 ## Model credentials and data
 
@@ -34,7 +51,11 @@ Code mode runs in the SDK's existing JavaScript/WASM runtime. Every nested tool 
 
 MCP servers are external programs or services selected by the user. They have their own access and may read or change data beyond a workspace. The workspace file policy does not confine them. Local servers receive essential process variables and the overrides explicitly configured for that server, not the application's full ambient environment. Only registered tools from enabled connections are exposed through deferred discovery, and external calls use a separate approval path. Configuration changes cannot replace tools during a running task. Connections are closed on application shutdown.
 
-Generated-file Open and Reveal actions accept only successful recorded write/edit results that still resolve to regular files inside the workspace. Resource actions accept only instruction, skill and prompt files discovered by Pith, including inherited instruction files. The built-in editor may only mutate project resources inside the selected workspace; inherited instructions remain read-only. Both paths exclude private application storage; arbitrary model-generated links do not gain native file access. Opening a file invokes its system-associated application and does not serve it as web content.
+Generated-file Open, Reveal and Copy file actions accept only successful recorded write/edit results that still resolve to regular files inside the workspace. Resource actions accept only instruction, skill and prompt files discovered by Pith, including inherited instruction files. The built-in editor may only mutate project resources inside the selected workspace; inherited instructions remain read-only. Both paths exclude private application storage; arbitrary model-generated links do not gain native file access. Opening a file invokes its system-associated application and does not serve it as web content.
+
+Copy controls write to the clipboard only when clicked by the user. Desktop **Copy response** writes the reply's original text and Markdown through the authenticated native clipboard action. **Copy file** writes a native file reference after the generated-file checks above; it leaves the source file in place. Browser preview uses the browser clipboard for response text and **Copy path**, rather than copying a native file reference.
+
+Dropped workspace files become plain, editable relative-path text. The authenticated reference endpoint uses the existing canonical workspace/private-data policy and rooted file checks, rejects directories, missing files and paths outside the selected workspace, and validates the whole batch before returning references. It does not copy or read file contents. The native window forwards only the file-drop event; it does not expose MyGo bound methods or trust browser file basenames. Later agent file tools reapply the workspace policy.
 
 Markdown exports use a native save dialog in the desktop app, or an authenticated download in browser preview. They may include local file contents and tool results, so keep them with the same care as the original conversation. Deleting a conversation does not remove previously exported documents.
 

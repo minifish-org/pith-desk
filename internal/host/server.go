@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	aitypes "github.com/minifish-org/pith/packages/ai/types"
 
 	assets "github.com/minifish-org/pith-desk"
 	"github.com/minifish-org/pith-desk/internal/desk"
+	"github.com/minifish-org/pith-desk/internal/wire"
 )
 
 type Server struct {
@@ -40,13 +40,25 @@ type Server struct {
 	appearanceChanged func(desk.AppearanceMode)
 	openFile          func(string) error
 	revealFile        func(string) error
+	copyText          func(string) error
+	copyFile          func(string) error
 	exportMarkdown    func(string) error
 	saveDiagnostics   func(string) error
 	completionAction  func(desk.Conversation, desk.Workspace)
 	completedRuns     map[string]string
+	development       *developmentFrontend
+	approvalAction    func(bool)
+	approvalPending   bool
+	nativeFileDrop    bool
+	nativeMenuInput   NativeMenuStateInput
+	nativeMenuAction  func(desk.State, NativeMenuStateInput)
 }
 
 func Start(service *desk.Service, picker func() (string, error), appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {
+	return start(service, picker, nil, appearanceChanged...)
+}
+
+func start(service *desk.Service, picker func() (string, error), development *developmentFrontend, appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -68,6 +80,7 @@ func Start(service *desk.Service, picker func() (string, error), appearanceChang
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{URL: "http://" + ln.Addr().String(), listener: ln, token: hex.EncodeToString(key[:]), service: service, picker: picker, files: http.FileServer(http.FS(web)), index: index, ctx: ctx, cancel: cancel, clients: make(map[chan []byte]struct{})}
+	s.development = development
 	if len(appearanceChanged) > 0 {
 		s.appearanceChanged = appearanceChanged[0]
 	}
@@ -80,6 +93,8 @@ func Start(service *desk.Service, picker func() (string, error), appearanceChang
 
 func (s *Server) Close() error {
 	s.cancel()
+	s.clearApprovalAction()
+	s.clearNativeMenuAction()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return s.server.Shutdown(ctx)
@@ -95,6 +110,8 @@ func (s *Server) broadcast() {
 		case <-s.service.Changes():
 			s.mu.Lock()
 			state := s.service.Snapshot()
+			s.updateApprovalLocked(state)
+			s.updateNativeMenuLocked(state)
 			data, _ := json.Marshal(state)
 			completions := s.newCompletionsLocked(state)
 			action := s.completionAction
@@ -150,9 +167,31 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			index := strings.ReplaceAll(string(s.index), "__DESK_TOKEN__", s.token)
+			indexBytes := s.index
+			if s.development != nil {
+				var err error
+				indexBytes, err = s.development.index(r.Context())
+				if err != nil {
+					http.Error(w, "Development frontend unavailable", http.StatusBadGateway)
+					return
+				}
+			}
+			index := strings.ReplaceAll(string(indexBytes), "__DESK_TOKEN__", s.token)
 			index = strings.ReplaceAll(index, "__DESK_APPEARANCE__", string(s.service.Snapshot().Settings.Appearance))
+			s.mu.Lock()
+			nativeClipboard := s.copyText != nil && s.copyFile != nil
+			nativeFileDrop := s.nativeFileDrop
+			nativeMenus := s.nativeMenuAction != nil
+			s.mu.Unlock()
+			index = strings.ReplaceAll(index, "__DESK_NATIVE_CLIPBOARD__", fmt.Sprint(nativeClipboard))
+			index = strings.ReplaceAll(index, "__DESK_NATIVE_FILE_DROP__", fmt.Sprint(nativeFileDrop))
+			index = strings.ReplaceAll(index, "__DESK_NATIVE_MENUS__", fmt.Sprint(nativeMenus))
 			_, _ = w.Write([]byte(index))
+			return
+		}
+		if s.development != nil && developmentAssetPath(r.URL.Path) {
+			w.Header().Set("Cache-Control", "no-store")
+			s.development.proxy.ServeHTTP(w, r)
 			return
 		}
 		// Only the trusted built assets are served. Workspace files are never web roots.
@@ -213,16 +252,19 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	var err error
 	switch r.URL.Path {
+	case "/api/native-menu-state":
+		var in NativeMenuStateInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
+			err = s.SetNativeMenuState(in)
+		}
 	case "/api/config":
 		var in desk.ConfigInput
-		if err = decode(&in); err == nil {
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.Configure(in)
 		}
 	case "/api/appearance":
-		var in struct {
-			Mode desk.AppearanceMode `json:"mode"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.AppearanceInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			// Serialize persisted changes and the native theme update so two
 			// concurrent requests cannot leave the window on an older mode.
 			s.appearanceMu.Lock()
@@ -233,70 +275,48 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			s.appearanceMu.Unlock()
 		}
 	case "/api/workspaces":
-		var in struct {
-			Path string `json:"path"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.PathInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			var workspace desk.Workspace
 			workspace, err = s.service.AddWorkspace(in.Path)
 			if err == nil {
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "workspace": workspace})
+				wire.WriteJSON(w, r.Method, r.URL.Path, wire.WorkspaceResponse{OK: true, Workspace: workspace})
 				return
 			}
 		}
 	case "/api/conversations":
-		var in struct {
-			WorkspaceID string `json:"workspaceId"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.WorkspaceInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			_, err = s.service.CreateConversation(in.WorkspaceID)
 		}
 	case "/api/open":
-		var in struct {
-			ID string `json:"id"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.IDInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.OpenConversation(in.ID)
 		}
 	case "/api/read":
-		var in struct {
-			ID    string `json:"id"`
-			RunID string `json:"runId"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.ReadInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.MarkConversationRead(in.ID, in.RunID)
 		}
 	case "/api/send":
-		var in struct {
-			ID     string                 `json:"id"`
-			Text   string                 `json:"text"`
-			Images []aitypes.ImageContent `json:"images"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.SendInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.SendConversation(in.ID, in.Text, in.Images...)
 		}
 	case "/api/abort":
-		var in struct {
-			ID string `json:"id"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.IDInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.AbortConversation(in.ID)
 		}
 	case "/api/approval":
-		var in struct {
-			ID          string `json:"id"`
-			Allow       bool   `json:"allow"`
-			AlwaysAllow bool   `json:"alwaysAllow,omitempty"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.ApprovalInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.DecideApprovalWithScope(in.ID, in.Allow, in.AlwaysAllow)
 		}
 	case "/api/permissions":
-		var in struct {
-			ID   string              `json:"id"`
-			Mode desk.PermissionMode `json:"mode"`
-		}
-		if err = decode(&in); err == nil {
+		var in wire.PermissionsInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.SetPermissionMode(in.ID, in.Mode)
 		}
 	case "/api/pick-workspace":
@@ -307,7 +327,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		var path string
 		path, err = s.picker()
 		if err == nil {
-			_ = json.NewEncoder(w).Encode(map[string]string{"path": path})
+			wire.WriteJSON(w, r.Method, r.URL.Path, wire.PathResponse{Path: path})
 			return
 		}
 	default:
@@ -321,7 +341,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err.Error(), 400)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	wire.WriteJSON(w, r.Method, r.URL.Path, wire.OKResponse{OK: true})
 }
 
 func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +374,7 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) fail(w http.ResponseWriter, message string, status int) {
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(wire.ErrorResponse{Error: message})
 }
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {

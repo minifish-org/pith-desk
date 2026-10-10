@@ -1,21 +1,12 @@
-interface Conversation {
-  id: string;
-  title: string;
-  workspaceId: string;
-  completedRunId?: string;
-  unread?: boolean;
-}
-interface CompletionState {
-  activeId: string | null;
-  conversations: Conversation[];
-  workspaces: { id: string; name: string }[];
-  runs: { conversationId: string; needsApproval: boolean }[];
-}
+import type { Conversation } from './contract.generated';
+import type { State } from './main';
+import type { ApiRequest } from './api';
+type CompletionState = Pick<State, 'activeId' | 'conversations' | 'workspaces' | 'runs'>;
 interface Notice { id: string; runID: string; title: string; workspace: string }
 
 export function createCompletionUI(deps: {
   state: () => CompletionState;
-  request: <T>(path: string, payload?: unknown) => Promise<T>;
+  request: ApiRequest;
   renderHistory: () => void;
   escape: (value: unknown) => string;
   icon: (name: string) => string;
