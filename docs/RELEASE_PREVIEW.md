@@ -128,9 +128,10 @@ Recent workspace concurrency improvements:
 
 Recent generated-file improvements:
 
-- Generated files are collapsed by default into one row with a file count.
-  Expand the row to see paths and Open/Reveal actions. Refreshes keep the current
-  expanded state; switching conversations collapses the section again.
+- Conversation files live behind a file button with a count in the top-right
+  title bar. Click to open a floating list with preview and file actions; click
+  outside, click the button again, or press Escape to close it. The button is
+  hidden when there are no files, and switching conversations closes the list.
 
 Recent composer and typography improvements:
 

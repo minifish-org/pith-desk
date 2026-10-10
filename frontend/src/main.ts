@@ -99,6 +99,7 @@ let artifactsError = '';
 let artifactsLoading = false;
 let artifactsRequest = 0;
 let artifactsSignature = '';
+let artifactsOpen = false;
 let queueSignature = '';
 let queueEditTarget: { conversationId: string; messageId: string } | null = null;
 let resources: WorkspaceResources | null = null;
@@ -171,7 +172,7 @@ $('app').innerHTML = `
     <header class="topbar">
       <button class="quiet-icon mobile-menu" data-action="menu" aria-label="Open sidebar">${icon('menu')}</button>
       <div class="breadcrumb">${icon('folder')}<span id="workspace-label">No workspace</span>${icon('chevron', 'breadcrumb-chevron')}<span class="breadcrumb-current" id="conversation-label">New conversation</span></div>
-      <div class="conversation-actions"><button class="quiet-icon compact-action" data-sdk="compact" data-sdk-idle title="Compress context by summarizing older messages" aria-label="Compress context">${icon('compress')}<span>Compact</span></button></div>
+      <div class="conversation-actions"><button class="quiet-icon compact-action" data-sdk="compact" data-sdk-idle title="Compress context by summarizing older messages" aria-label="Compress context">${icon('compress')}<span>Compact</span></button><div id="artifacts-control" class="artifacts-control" hidden><button id="artifacts-toggle" type="button" class="quiet-icon artifacts-toggle" aria-label="Conversation files" title="Conversation files" aria-expanded="false" aria-controls="artifacts">${icon('file')}<span id="artifacts-count" class="artifacts-count" aria-hidden="true"></span></button><section id="artifacts" class="artifacts-panel" aria-labelledby="artifacts-title" tabindex="-1" hidden></section></div></div>
     </header>
     <section id="conversation-find" class="conversation-find" aria-label="Find in conversation" hidden>
       <input type="search" aria-label="Find in this conversation" placeholder="Find in this conversation" autocomplete="off" />
@@ -183,7 +184,6 @@ $('app').innerHTML = `
     <div class="conversation-region"><section id="chat-scroll" class="chat-scroll" aria-label="Conversation" tabindex="-1">
       <div id="welcome" class="welcome"></div>
       <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text"></div>
-      <details id="artifacts" class="artifacts" aria-label="Generated files" hidden></details>
     </section><button id="back-to-latest" type="button" class="secondary-button back-to-latest" hidden>${icon('down')}<span>Back to latest</span></button></div>
     <div class="composer-region">
       <div id="approval" class="approval-region"></div>
@@ -738,7 +738,7 @@ function setState(next: WireState): void {
   const initialized = snapshotLoaded;
   state = { ...next, workspaces: next.workspaces || [], conversations: next.conversations || [], messages: next.messages || [], runs: Array.isArray(next.runs) ? next.runs : [], queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
   runtimeReceivedAt = performance.now();
-  if (activeChanged) { imageViewer.close(); clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; $<HTMLDetailsElement>('artifacts').open = false; $<HTMLDialogElement>('preview-dialog').close(); }
+  if (activeChanged) { imageViewer.close(); clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; setArtifactsOpen(false); $<HTMLDialogElement>('preview-dialog').close(); }
   loadComposerDraft();
   snapshotLoaded = true;
   updateCompletions(initialized);
@@ -932,13 +932,27 @@ async function copyWithFeedback(button: HTMLButtonElement, action: () => Promise
   }
 }
 
+function setArtifactsOpen(open: boolean, restoreFocus = false): void {
+  artifactsOpen = open && !$('artifacts-control').hidden;
+  $('artifacts').hidden = !artifactsOpen;
+  $('artifacts-toggle').setAttribute('aria-expanded', String(artifactsOpen));
+  if (artifactsOpen) $('artifacts').focus();
+  else if (restoreFocus && !$('artifacts-control').hidden) $('artifacts-toggle').focus();
+}
+
 function renderArtifacts(): void {
   const region = $('artifacts');
   const signature = JSON.stringify([state.activeId, artifacts, artifactsError, artifactsLoading]);
   if (signature === artifactsSignature) return;
   artifactsSignature = signature;
-  region.hidden = !state.activeId || (!artifacts.length && !artifactsError && !artifactsLoading);
-  region.innerHTML = `<summary>${icon('file')}<span class="artifacts-label">Generated files</span><span class="artifacts-count">${artifacts.length} ${artifacts.length === 1 ? 'file' : 'files'}</span>${artifactsLoading ? '<span class="artifacts-status">Looking for files…</span>' : ''}${artifactsError ? '<span class="artifacts-error">Unavailable</span>' : ''}${icon('down')}</summary><div class="artifacts-content">${artifacts.map((file) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(file.name)}</strong><span class="file-path">${escape(file.path)}</span></div>${fileActions('artifact', state.activeId || '', file.path, true)}</article>`).join('')}${artifactsError ? `<p class="form-error" role="alert">${escape(artifactsError)}</p>` : ''}</div>`;
+  $('artifacts-control').hidden = !state.activeId || (!artifacts.length && !artifactsError);
+  if ($('artifacts-control').hidden) setArtifactsOpen(false);
+  const count = `${artifacts.length} ${artifacts.length === 1 ? 'file' : 'files'}`;
+  const label = artifactsError ? 'Conversation files unavailable' : `Conversation files (${count})`;
+  $('artifacts-toggle').setAttribute('aria-label', label);
+  $('artifacts-toggle').title = label;
+  $('artifacts-count').textContent = artifacts.length ? String(artifacts.length) : '!';
+  region.innerHTML = `<div class="artifacts-heading"><h2 id="artifacts-title">Files <span>${count}</span></h2><button type="button" class="quiet-icon" data-artifacts-close aria-label="Close files">${icon('close')}</button></div>${artifactsLoading ? '<p class="artifacts-status" role="status">Looking for files…</p>' : ''}<div class="artifacts-content">${artifacts.map((file) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(file.name)}</strong><span class="file-path">${escape(file.path)}</span></div>${fileActions('artifact', state.activeId || '', file.path, true)}</article>`).join('')}${artifactsError ? `<p class="form-error" role="alert">${escape(artifactsError)}</p>` : ''}</div>`;
 }
 
 function clearFilePreview(): void {
@@ -1472,10 +1486,13 @@ function resizeComposer(): void { input.style.height = 'auto'; input.style.heigh
 
 document.addEventListener('click', async (event) => {
   const clicked = event.target as HTMLElement;
+  if (artifactsOpen && !clicked.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
   if (clicked instanceof HTMLImageElement && clicked.matches('.history-image, .draft-image img, .file-preview-image')) { imageViewer.open(clicked); return; }
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand');
   if (!target) return;
+  if (target.id === 'artifacts-toggle') { setArtifactsOpen(!artifactsOpen); return; }
+  if (target.hasAttribute('data-artifacts-close')) { setArtifactsOpen(false, true); return; }
   if (target.hasAttribute('data-copy-code') && !(target as HTMLButtonElement).disabled) {
     const code = target.closest('.code-block')?.querySelector('pre > code');
     if (code) await copyWithFeedback(target as HTMLButtonElement, () => copyText(code.textContent || ''), 'Code copied.');
@@ -1627,7 +1644,14 @@ $<HTMLSelectElement>('permission-mode').addEventListener('change', async (event)
 input.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void send(); }
 });
+document.addEventListener('focusin', (event) => {
+  const target = event.target as HTMLElement;
+  if (artifactsOpen && !target.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
+});
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && artifactsOpen && !document.querySelector('dialog[open]')) {
+    event.preventDefault(); setArtifactsOpen(false, true); return;
+  }
   if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLImageElement && event.target.matches('.history-image, .draft-image img, .file-preview-image')) {
     event.preventDefault(); imageViewer.open(event.target); return;
   }

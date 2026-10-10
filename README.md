@@ -152,7 +152,7 @@ expanded tool results for the current app session. New output follows the bottom
 when you are already there; when reading earlier content, **Back to latest**
 returns to the end.
 
-After a task finishes, successful file writes and edits appear in the **Generated files** section, collapsed by default with a file count. Expand it to see the file cards. **Open** uses the default application; **Reveal** shows the file in Finder. **Copy file** places the file on the system clipboard so you can paste it into Finder; the original stays in place. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview offers **Copy path**; native file actions require the desktop app.
+After a task finishes, successful file writes and edits appear in the conversation's **Files** panel. The file button in the top-right title bar shows a count and is hidden when there are no files. Click it to open the file list; click it again, click outside, or press Escape to close. Switching conversations closes the panel. **Open** uses the default application; **Reveal** shows the file in Finder. **Copy file** places the file on the system clipboard so you can paste it into Finder; the original stays in place. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview offers **Copy path**; native file actions require the desktop app.
 
 **Preview** opens the file in a dialog within Desk: PNG, JPEG, GIF and WebP
 images up to 50 MiB, rendered Markdown, and UTF-8 text. Long text previews show
