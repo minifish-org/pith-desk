@@ -24,15 +24,28 @@ export function installConversationReader(scroll: HTMLElement, messages: HTMLEle
   let pendingPosition: ReadingPosition | undefined;
   let restoring = false;
   let searchSignature = '';
+  let contentHeight = scroll.scrollHeight;
+  let viewportHeight = scroll.clientHeight;
+  let viewportWidth = scroll.clientWidth;
 
   const nearBottom = () => scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
-  function capture(): ReadingPosition {
+  const layoutChanged = () => contentHeight !== scroll.scrollHeight || viewportHeight !== scroll.clientHeight || viewportWidth !== scroll.clientWidth;
+  function recordLayout(): void {
+    contentHeight = scroll.scrollHeight;
+    viewportHeight = scroll.clientHeight;
+    viewportWidth = scroll.clientWidth;
+  }
+  function capture(follow = nearBottom()): ReadingPosition {
     const top = scroll.getBoundingClientRect().top;
     const anchor = [...messages.querySelectorAll<HTMLElement>('[data-reading-id]')].find((element) => element.getBoundingClientRect().bottom > top);
-    return { top: scroll.scrollTop, follow: nearBottom(), anchor: anchor?.dataset.readingId, offset: anchor ? anchor.getBoundingClientRect().top - top : undefined };
+    return { top: scroll.scrollTop, follow, anchor: anchor?.dataset.readingId, offset: anchor ? anchor.getBoundingClientRect().top - top : undefined };
   }
   function updateLatest(): void { latest.hidden = !messages.childElementCount || nearBottom(); }
-  function remember(): void { if (activeID && !restoring) positions.set(activeID, capture()); updateLatest(); }
+  function remember(): void {
+    if (activeID && !restoring && !pendingPosition) positions.set(activeID, capture());
+    recordLayout();
+    updateLatest();
+  }
   function restore(position: ReadingPosition): void {
     restoring = true;
     if (position.follow) scroll.scrollTop = scroll.scrollHeight;
@@ -43,7 +56,16 @@ export function installConversationReader(scroll: HTMLElement, messages: HTMLEle
         : position.top;
     }
     restoring = false;
-    remember();
+    // Following is user intent. Layout changes (including image decoding) must
+    // not turn it off, or turn a history reader back into a follower.
+    if (activeID) positions.set(activeID, capture(position.follow));
+    recordLayout();
+    updateLatest();
+  }
+  function followLatest(): void {
+    const position = { top: 0, follow: true };
+    if (pendingPosition) pendingPosition = position;
+    restore(position);
   }
 
   function clearMarks(): void {
@@ -141,8 +163,16 @@ export function installConversationReader(scroll: HTMLElement, messages: HTMLEle
     if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'f') { event.preventDefault(); openFind(); }
     else if (event.key === 'Escape' && !bar.hidden) { event.preventDefault(); closeFind(); }
   });
-  latest.addEventListener('click', () => { scroll.scrollTop = scroll.scrollHeight; remember(); });
-  scroll.addEventListener('scroll', remember, { passive: true });
+  latest.addEventListener('click', followLatest);
+  scroll.addEventListener('scroll', () => {
+    if (restoring || pendingPosition) return;
+    const saved = positions.get(activeID);
+    // A resize can clamp scrollTop and dispatch a scroll before ResizeObserver.
+    // Only scrolling within a stable layout changes the following preference.
+    if (saved && layoutChanged()) restore(saved);
+    else if (!saved || Math.abs(scroll.scrollTop - saved.top) > 1) remember();
+    else updateLatest();
+  }, { passive: true });
   // Async image decoding and resizing must not displace an existing anchor.
   const observer = new ResizeObserver(() => {
     if (!pendingPosition && activeID) {
@@ -155,8 +185,8 @@ export function installConversationReader(scroll: HTMLElement, messages: HTMLEle
   observer.observe(scroll);
   return {
     beforeRender(id: string): void {
-      if (activeID) positions.set(activeID, pendingPosition || capture());
-      pendingPosition = id === activeID ? pendingPosition || capture() : positions.get(id) || { top: 0, follow: true };
+      if (activeID && !positions.has(activeID)) positions.set(activeID, capture());
+      pendingPosition = id === activeID ? pendingPosition || positions.get(activeID) || capture() : positions.get(id) || { top: 0, follow: true };
       if (id !== activeID) { selected = -1; matches = []; searchSignature = ''; }
       activeID = id;
       cancelAnimationFrame(frame);
@@ -172,6 +202,7 @@ export function installConversationReader(scroll: HTMLElement, messages: HTMLEle
       });
     },
     prune(ids: string[]): void { const keep = new Set(ids); for (const id of positions.keys()) if (!keep.has(id)) positions.delete(id); },
+    followLatest,
     openFind,
   };
 }

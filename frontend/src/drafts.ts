@@ -1,5 +1,5 @@
 import type { ApiRequest, RequestOptions } from './api.ts';
-import type { Draft, DraftScope } from './contract.generated.ts';
+import type { Draft, DraftScope, DraftImage } from './contract.generated.ts';
 
 export function draftKey(scope: DraftScope): string {
   return scope.id ? `conversation:${scope.id}` : scope.workspaceId ? `workspace:${scope.workspaceId}` : '';
@@ -21,7 +21,7 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
         entry.autosaving = false;
         if (entries.get(draftKey(entry.scope)) === entry && entry.draft.revision > revision && entry.saved < entry.draft.revision) schedule(entry);
       }
-    }, entry.draft.text.length > 64 * 1024 ? Math.max(delay, 1000) : delay);
+    }, entry.draft.text.length > 64 * 1024 || entry.draft.images?.length ? Math.max(delay, 1000) : delay);
   }
   async function load(scope: DraftScope): Promise<Draft> {
     const key = draftKey(scope);
@@ -41,7 +41,7 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
     });
     return entry.loading;
   }
-  function update(scope: DraftScope, text: string): void {
+  function update(scope: DraftScope, text: string, images: DraftImage[] = []): void {
     const key = draftKey(scope);
     if (!key) return;
     let entry = entries.get(key);
@@ -49,8 +49,8 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
       entry = { scope, draft: { text: '', revision: 0 }, saved: 0 };
       entries.set(key, entry);
     }
-    if (entry.loading || entry.draft.text === text) return;
-    entry.draft = { text, revision: Math.max(Date.now(), entry.draft.revision + 1) };
+    if (entry.loading || entry.draft.text === text && sameImages(entry.draft.images, images)) return;
+    entry.draft = { text, images, revision: Math.max(Date.now(), entry.draft.revision + 1) };
     schedule(entry);
   }
   async function flush(scope: DraftScope, options?: RequestOptions): Promise<void> {
@@ -78,8 +78,15 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
       }
     }
   }
-  function clearIfUnchanged(scope: DraftScope, submittedText: string): void {
-    if (entries.get(draftKey(scope))?.draft.text === submittedText) update(scope, '');
+  function clearIfUnchanged(scope: DraftScope, submittedText: string, submittedImages: DraftImage[] = []): void {
+    const draft = entries.get(draftKey(scope))?.draft;
+    if (!draft) return;
+    const ids = new Set(submittedImages.map((image) => image.id));
+    update(scope, draft.text === submittedText ? '' : draft.text, (draft.images || []).filter((image) => !ids.has(image.id)));
   }
   return { load, update, flush, flushAll, prune, clearIfUnchanged };
+}
+
+function sameImages(a: DraftImage[] = [], b: DraftImage[] = []): boolean {
+  return a.length === b.length && a.every((image, index) => image.id === b[index].id);
 }

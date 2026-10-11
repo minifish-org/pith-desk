@@ -1,6 +1,7 @@
 package desk
 
 import (
+	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,38 @@ func TestDraftsSurviveRestartAndRejectLateSavesAfterClear(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "drafts", "workspace-"+workspace.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("removed workspace retained draft: %v", err)
+	}
+}
+
+func TestImageDraftsRemainScopedPrivateAndSurviveRestart(t *testing.T) {
+	s, workspace, conversation, dataDir := productFeatureService(t)
+	pic := imageFixture(t, color.RGBA{R: 255, A: 255})
+	draft := Draft{Text: "Keep image", Revision: 100, Images: []DraftImage{{ImageContent: pic, ID: "image-a", Name: "a.png", Size: 100}}}
+	scope := DraftScope{ID: conversation.ID}
+	if _, err := s.SaveDraft(DraftInput{DraftScope: scope, Draft: draft}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Draft(DraftScope{WorkspaceID: workspace.ID}); err != nil || len(got.Images) != 0 {
+		t.Fatalf("draft crossed scopes: %+v %v", got, err)
+	}
+	if _, err := s.SaveDraft(DraftInput{DraftScope: scope, Draft: Draft{Revision: 101, Images: []DraftImage{{ImageContent: pic, ID: "", Size: 100}}}}); err == nil {
+		t.Fatal("invalid image metadata accepted")
+	}
+	s.Close()
+	reopened, err := New(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	got, err := reopened.Draft(scope)
+	if err != nil || len(got.Images) != 1 || got.Images[0].Data != pic.Data || got.Text != draft.Text {
+		t.Fatalf("image draft not restored: %+v %v", got, err)
+	}
+	if _, err := reopened.SaveDraft(DraftInput{DraftScope: scope, Draft: Draft{Revision: 102}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := reopened.SaveDraft(DraftInput{DraftScope: scope, Draft: draft}); err != nil || len(got.Images) != 0 {
+		t.Fatalf("late save restored submitted image: %+v %v", got, err)
 	}
 }
 

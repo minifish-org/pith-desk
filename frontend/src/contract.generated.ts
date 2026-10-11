@@ -125,6 +125,16 @@ export interface CustomConnectionInput {
 export interface Draft {
   text: string;
   revision: number;
+  images?: (DraftImage)[];
+}
+
+export interface DraftImage {
+  type: ContentBlockType;
+  data: string;
+  mimeType: string;
+  id: string;
+  name: string;
+  size: number;
 }
 
 export interface DraftInput {
@@ -132,6 +142,7 @@ export interface DraftInput {
   workspaceId?: string;
   text: string;
   revision: number;
+  images?: (DraftImage)[];
 }
 
 export interface DraftScope {

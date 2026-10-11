@@ -9,7 +9,7 @@ function storage() {
     if (input.query) return records.get(key) || { text: '', revision: 0 };
     saves.push({ input, options });
     const existing = records.get(key) || { text: '', revision: 0 };
-    if (input.revision > existing.revision) records.set(key, { text: input.text, revision: input.revision });
+    if (input.revision > existing.revision) records.set(key, { text: input.text, images: input.images, revision: input.revision });
     return records.get(key);
   };
   return { request, records, saves, errors, drafts: () => createDrafts(request, (error) => errors.push(error), 10000) };
@@ -116,4 +116,22 @@ test('large autosaves wait for the in-flight write and then save only the latest
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(writes, [text, text + ' latest']);
   assert.equal(db.records.get('conversation:a').text, text + ' latest');
+});
+
+
+test('image drafts survive switches and restart, and submission preserves newer attachments', async () => {
+  const db = storage(), drafts = db.drafts(), a = { id: 'a' }, b = { id: 'b' };
+  const image = { id: 'image-a', name: 'a.png', size: 12, type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' };
+  await drafts.load(a); await drafts.load(b);
+  drafts.update(a, 'with image', [image]);
+  drafts.update(b, 'other');
+  await drafts.flushAll();
+  assert.deepEqual((await db.drafts().load(a)).images, [image]);
+  const newer = { ...image, id: 'newer', name: 'new.png' };
+  drafts.update(a, 'typed while sending', [image, newer]);
+  drafts.clearIfUnchanged(a, 'with image', [image]);
+  await drafts.flushAll();
+  assert.equal(db.records.get('conversation:a').text, 'typed while sending');
+  assert.deepEqual(db.records.get('conversation:a').images, [newer]);
+  assert.equal(db.records.get('conversation:b').text, 'other');
 });

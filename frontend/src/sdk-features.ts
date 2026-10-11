@@ -10,7 +10,6 @@ type API = {
   mutate: ApiMutate;
   error: () => string;
   workspaceBusy: (id: string) => boolean;
-  workspace: () => { id: string; name: string; path: string } | undefined;
   draft: (text: string) => void;
   refreshResources: () => Promise<void>;
   settings: () => void;
@@ -77,8 +76,8 @@ export function createSDKUI(api: API) {
     };
   }
 
-  async function resource(kind: string, path?: string) {
-    const workspace = api.workspace(); if (!workspace) return;
+  async function resource(workspaceId: string, kind: string, path?: string) {
+    const workspace = api.state().workspaces.find((entry) => entry.id === workspaceId); if (!workspace) return;
     const seq = open(path ? 'Edit workspace resource' : `Create ${kind}`, '<p>Loading…</p>');
     const content = path ? (await api.request('/api/resource-content', { query: { workspaceId: workspace.id, path } })).content : kind === 'skill' ? '---\nname: my-skill\ndescription: Describe when to use this skill.\n---\n\nWrite the instructions here.\n' : kind === 'template' ? '---\ndescription: Describe this prompt.\n---\n\nHelp me with $@.\n' : '# Project instructions\n\n';
     if (seq !== generation) return;
@@ -130,7 +129,7 @@ export function createSDKUI(api: API) {
     try {
       switch (target.dataset.sdk) {
         case 'custom': await custom(target.dataset.id); break;
-        case 'resource': await resource(target.dataset.kind || 'instructions', target.dataset.path); break;
+        case 'resource': await resource(target.dataset.workspace || '', target.dataset.kind || 'instructions', target.dataset.path); break;
         case 'use-resource': api.draft(target.dataset.command || ''); $<HTMLDialogElement>('resources-dialog').close(); break;
         case 'history': await history(); break;
         case 'branch':
@@ -157,9 +156,9 @@ export function createSDKUI(api: API) {
     providerActions(provider: ProviderChoice) {
       return `<div class="feature-toolbar">${provider.oauth ? `<button type="button" class="secondary-button" data-sdk="${provider.signedIn ? 'logout' : 'login'}" data-id="${escape(provider.id)}">${provider.signedIn ? 'Sign out' : 'Sign in with provider'}</button>` : ''}${provider.custom ? `<button type="button" class="secondary-button" data-sdk="custom" data-id="${escape(provider.id)}">Edit models and prices</button><button type="button" class="secondary-button destructive-button" data-sdk="remove-connection" data-id="${escape(provider.id)}">Remove connection</button>` : ''}</div>`;
     },
-    resourceActions(kind: string, resource: Resource) {
+    resourceActions(kind: string, resource: Resource, workspaceId: string) {
       const command = kind === 'skill' ? `/skill:${resource.name} ` : `/${resource.name} `;
-      return `<div class="file-actions">${kind !== 'instructions' ? `<button class="secondary-button" data-sdk="use-resource" data-command="${escape(command)}">Use</button>` : ''}<button class="secondary-button" data-sdk="resource" data-kind="${kind}" data-path="${escape(resource.path)}">View / edit</button></div>`;
+      return `<div class="file-actions">${kind !== 'instructions' ? `<button class="secondary-button" data-sdk="use-resource" data-command="${escape(command)}">Use</button>` : ''}<button class="secondary-button" data-sdk="resource" data-workspace="${escape(workspaceId)}" data-kind="${kind}" data-path="${escape(resource.path)}">View / edit</button></div>`;
     },
   };
 }

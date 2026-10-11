@@ -1,5 +1,7 @@
 import './style.css';
 import { createDrafts, draftKey } from './drafts';
+import { createMutations } from './mutations';
+import { controlDisabled, setControlPending } from './controls';
 import { renderMarkdown } from './previews';
 import { mountPagedPreview } from './paged-preview';
 import { createSDKUI } from './sdk-features';
@@ -12,7 +14,7 @@ import { installConversationReader } from './conversation-reader';
 import { imagePreviewBlob, installImageViewer } from './image-viewer';
 
 import { createAPI, parseStream, type MutationPath, type MutationInput, type MutationResponse } from './api';
-import type { State as WireState, Workspace, Conversation, QueuedMessage, Artifact, ResourceInventory as WorkspaceResources, MCPServerView as MCPConnection, ImageContent, RunSummary, Message, RuntimeStatus, ModelCatalog, PermissionMode, AppearanceMode, ProviderChoice, DraftScope } from './contract.generated';
+import type { State as WireState, Workspace, Conversation, QueuedMessage, Artifact, ResourceInventory as WorkspaceResources, MCPServerView as MCPConnection, ImageContent, RunSummary, Message, RuntimeStatus, ModelCatalog, PermissionMode, AppearanceMode, ProviderChoice, DraftScope, DraftImage as WireDraftImage } from './contract.generated';
 export type { ProviderChoice } from './contract.generated';
 
 // The Go snapshot normalizes these collections; retain a defensive boundary
@@ -239,10 +241,11 @@ const historyStatus = (entry: Conversation) => completionUI.historyStatus(entry)
 const updateCompletions = (initialized: boolean) => completionUI.observe(initialized);
 const acknowledgeViewedCompletion = () => completionUI.acknowledgeViewed();
 const dismissCompletion = (runID: string) => completionUI.dismiss(runID);
+const mutations = createMutations({ request, refresh, busy: () => requestBusy, setBusy: (value) => { requestBusy = value; }, error: (message) => { localError = message; }, render });
 const sdkUI = createSDKUI({
   state: () => state, request, mutate, error: () => localError,
   busy: () => requestBusy || draftLoading || !snapshotLoaded,
-  workspace: selectedWorkspace, workspaceBusy: (id) => !!workspaceRun(id), settings: openSettings,
+  workspaceBusy: (id) => !!workspaceRun(id), settings: openSettings,
   refreshProviderAuth: (provider) => refreshSettingsAuth?.(provider),
   draft: (text) => { input.value = text + input.value; rememberDraft(); resizeComposer(); input.focus(); render(); },
   refreshResources: loadResources, refreshMCP: loadMCP,
@@ -259,7 +262,7 @@ function activePermissionMode(): PermissionMode {
 }
 
 function rememberDraft(): void {
-  if (!draftLoading) drafts.update(composerScope, input.value);
+  if (!draftLoading) drafts.update(composerScope, input.value, draftImages.map(({ url, ...image }) => image));
 }
 
 function loadComposerDraft(): void {
@@ -268,6 +271,7 @@ function loadComposerDraft(): void {
   const oldScope = composerScope;
   const exists = oldScope.id ? state.conversations.some((entry) => entry.id === oldScope.id) : state.workspaces.some((entry) => entry.id === oldScope.workspaceId);
   if (exists) { rememberDraft(); void drafts.flush(oldScope).catch(() => {}); }
+  clearDraftImages();
   composerScope = scope;
   const generation = ++draftLoadGeneration;
   input.value = '';
@@ -275,9 +279,12 @@ function loadComposerDraft(): void {
   input.readOnly = draftLoading;
   drafts.prune(state.conversations.map((entry) => entry.id), state.workspaces.map((entry) => entry.id));
   if (!draftLoading) return;
-  composerDraftReady = drafts.load(scope).then((draft) => {
+  composerDraftReady = drafts.load(scope).then(async (draft) => {
     if (disposed || generation !== draftLoadGeneration) return;
+    const images = await restoreDraftImages(draft.images || [], () => !disposed && generation === draftLoadGeneration);
+    if (disposed || generation !== draftLoadGeneration) { images.forEach((image) => URL.revokeObjectURL(image.url)); return; }
     input.value = draft.text;
+    draftImages = images;
   }).catch((error) => {
     if (generation === draftLoadGeneration) localError = `Draft could not be restored: ${error instanceof Error ? error.message : String(error)}`;
   }).finally(() => {
@@ -320,7 +327,14 @@ function render(): void {
     const currentFolds = new Map(Array.from($('messages').querySelectorAll<HTMLDetailsElement>('[data-tool-fold]'), (element) => [element.dataset.toolFold!, element.open] as const));
     if (renderedActiveId) conversationFolds.set(renderedActiveId, currentFolds);
     const folds = changedConversation ? conversationFolds.get(state.activeId || '') || new Map<string, boolean>() : currentFolds;
+    // Keep decoded images across stream updates so their intrinsic dimensions
+    // and lazy-loading state do not reset every time the message text changes.
+    const historyImageNodes = new Map(Array.from($('messages').querySelectorAll<HTMLImageElement>('img[data-image-key]'), (image) => [image.dataset.imageKey!, image] as const));
     $('messages').innerHTML = renderMessages(state.messages, folds) + (state.running && !state.pendingApproval ? '<div class="agent-working" role="status"><span class="working-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Working…</span></div>' : '');
+    for (const image of $('messages').querySelectorAll<HTMLImageElement>('img[data-image-key]')) {
+      const previous = historyImageNodes.get(image.dataset.imageKey!);
+      if (previous) image.replaceWith(previous);
+    }
     messagesSignature = signature;
     renderedActiveId = state.activeId;
     loadHistoryImages();
@@ -363,10 +377,10 @@ function render(): void {
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-idle-action]')) {
     const conversationId = button.dataset.idleConversation;
     const workspaceId = button.dataset.idleWorkspace;
-    button.disabled = !!button.dataset.copyPending || requestBusy || (button.hasAttribute('data-global-idle') ? anyRunning() : conversationId ? conversationRunning(conversationId) : workspaceId ? !!workspaceRun(workspaceId) : state.running);
+    button.disabled = controlDisabled(button, requestBusy || (button.hasAttribute('data-global-idle') ? anyRunning() : conversationId ? conversationRunning(conversationId) : workspaceId ? !!workspaceRun(workspaceId) : state.running));
   }
-  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-global-idle]')) button.disabled = requestBusy || anyRunning();
-  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = requestBusy || anyRunning();
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-global-idle]')) button.disabled = controlDisabled(button, requestBusy || anyRunning());
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = controlDisabled(button, requestBusy || anyRunning());
   nativeMenu?.update();
 }
 
@@ -740,7 +754,7 @@ function setState(next: WireState): void {
   const initialized = snapshotLoaded;
   state = { ...next, workspaces: next.workspaces || [], conversations: next.conversations || [], messages: next.messages || [], runs: Array.isArray(next.runs) ? next.runs : [], queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [] };
   runtimeReceivedAt = performance.now();
-  if (activeChanged) { imageViewer.close(); clearDraftImages(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; setArtifactsOpen(false); $<HTMLDialogElement>('preview-dialog').close(); }
+  if (activeChanged) { imageViewer.close(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; setArtifactsOpen(false); $<HTMLDialogElement>('preview-dialog').close(); }
   loadComposerDraft();
   snapshotLoaded = true;
   updateCompletions(initialized);
@@ -758,23 +772,8 @@ function headers(json = false): Headers {
 
 async function refresh(): Promise<void> { setState(await request('/api/state')); }
 
-async function mutate<P extends MutationPath>(path: P, payload: MutationInput<P>, onResponse?: (response: MutationResponse<P>) => void): Promise<boolean> {
-  if (requestBusy) return false;
-  requestBusy = true;
-  localError = '';
-  render();
-  try {
-    const response = await request(path, payload);
-    onResponse?.(response);
-    await refresh();
-    return true;
-  } catch (error) {
-    localError = error instanceof Error ? error.message : String(error);
-    return false;
-  } finally {
-    requestBusy = false;
-    render();
-  }
+function mutate<P extends MutationPath>(path: P, payload: MutationInput<P>, onResponse?: (response: MutationResponse<P>) => void): Promise<boolean> {
+  return mutations(path, payload, onResponse);
 }
 
 async function newConversation(workspaceId = selectedWorkspace()?.id): Promise<void> {
@@ -793,10 +792,11 @@ async function send(): Promise<void> {
   const sourceScope = composerScope;
   const text = input.value.trim();
   const images = draftImages.map(({ type, data, mimeType }) => ({ type, data, mimeType }));
-  const submittedIds = new Set(draftImages.map((image) => image.id));
+  const submittedImages = draftImages.map(({ url, ...image }) => image);
+  const submittedIds = new Set(submittedImages.map((image) => image.id));
   if ((!text && !images.length) || requestBusy || draftLoading || readingImages || resolvingReferences) return;
   if (images.length && !state.settings.supportsImages) { localError = 'Choose an image-capable model in Settings, or remove the attachments.'; render(); return; }
-  if (state.running) { await queueMessage(text, draft, images, submittedIds); return; }
+  if (state.running) { await queueMessage(text, draft, images, submittedImages); return; }
   if (!state.settings.hasApiKey) { openSettings(); return; }
   if (!selectedWorkspace()) { openWorkspace(); return; }
   rememberDraft();
@@ -806,25 +806,31 @@ async function send(): Promise<void> {
     // Creating the first conversation changes the composer scope. Carry the
     // initial text into it before sending so a rejected send remains editable.
     await composerDraftReady;
+    if (!state.activeId) return;
     if (composerScope.id === state.activeId && input.value === '') {
       input.value = draft;
+      draftImages = await restoreDraftImages(submittedImages, () => composerScope.id === state.activeId);
       rememberDraft();
     }
   }
   const id = state.activeId;
   if (await mutate('/api/send', { id, text, images }, () => {
-    drafts.clearIfUnchanged(sourceScope, draft);
-    if (composerScope.id === id && input.value === draft) { input.value = ''; rememberDraft(); }
-    clearDraftImages(submittedIds);
+    drafts.clearIfUnchanged(sourceScope, draft, submittedImages);
+    if (sourceScope.id !== id) drafts.clearIfUnchanged({ id }, draft, submittedImages);
+    if (composerScope.id === id) {
+      if (input.value === draft) input.value = '';
+      clearDraftImages(submittedIds);
+      rememberDraft();
+    }
   })) {
     await drafts.flushAll();
     resizeComposer();
     render();
-    chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior: 'smooth' });
+    reader.followLatest();
   }
 }
 
-async function queueMessage(text: string, draft: string, images: ImageInput[], submittedIds: Set<string>): Promise<void> {
+async function queueMessage(text: string, draft: string, images: ImageInput[], submittedImages: Omit<DraftImage, 'url'>[]): Promise<void> {
   const id = state.activeId;
   if (!id || requestBusy) return;
   requestBusy = true;
@@ -833,9 +839,12 @@ async function queueMessage(text: string, draft: string, images: ImageInput[], s
   try {
     // A queue POST is sent exactly once. A lost response must not duplicate work.
     await request('/api/queue', { id, text, images });
-    clearDraftImages(submittedIds);
-    drafts.clearIfUnchanged({ id }, draft);
-    if (composerScope.id === id && input.value === draft) { input.value = ''; rememberDraft(); }
+    drafts.clearIfUnchanged({ id }, draft, submittedImages);
+    if (composerScope.id === id) {
+      if (input.value === draft) input.value = '';
+      clearDraftImages(new Set(submittedImages.map((image) => image.id)));
+      rememberDraft();
+    }
     await drafts.flushAll();
     resizeComposer();
     await refresh().catch(() => { localError = 'Message submitted. Waiting for the local service to update the pending list.'; });
@@ -1008,7 +1017,7 @@ function openResources(): void {
   if (!workspace) { openWorkspace(); return; }
   resourcesWorkspaceId = workspace.id;
   resources = null;
-  $('resources-content').innerHTML = `${dialogHeading('Workspace resources', 'resources-title', 'resources-dialog', workspace.name)}<p class="modal-description">Instructions, skills and prompt templates are loaded by Pith for each task. Edit them here or open their Markdown files.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-resources">Refresh</button><button class="secondary-button" data-sdk="resource" data-kind="skill">Add skill</button><button class="secondary-button" data-sdk="resource" data-kind="template">Add prompt template</button></div><div id="resources-list"><p class="feature-hint">Loading workspace resources…</p></div><div id="resources-error" class="form-error" role="alert"></div>`;
+  $('resources-content').innerHTML = `${dialogHeading('Workspace resources', 'resources-title', 'resources-dialog', workspace.name)}<p class="modal-description">Instructions, skills and prompt templates are loaded by Pith for each task. Edit them here or open their Markdown files.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-resources">Refresh</button><button class="secondary-button" data-sdk="resource" data-workspace="${escape(resourcesWorkspaceId)}" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}" data-kind="skill">Add skill</button><button class="secondary-button" data-sdk="resource" data-workspace="${escape(resourcesWorkspaceId)}" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}" data-kind="template">Add prompt template</button></div><div id="resources-list"><p class="feature-hint">Loading workspace resources…</p></div><div id="resources-error" class="form-error" role="alert"></div>`;
   showDialog('resources-dialog');
   void loadResources();
 }
@@ -1031,7 +1040,7 @@ function renderResources(): void {
   const workspace = state.workspaces.find((entry) => entry.id === resourcesWorkspaceId);
   const rootPath = `${workspace?.path.replace(/\\/g, '/').replace(/\/$/, '')}/AGENTS.md`;
   const hasInstructions = (resources.instructions || []).some((entry) => entry.path.replace(/\\/g, '/') === rootPath);
-  $('resources-list').innerHTML = `<section class="resource-section"><h3>Instructions</h3>${(resources.instructions || []).map((entry) => `<article class="resource-card"><div class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('instructions', entry)}</div><details class="resource-preview"><summary>View instructions</summary><pre>${escape(entry.content)}</pre></details></article>`).join('') || '<p class="feature-hint">No workspace instructions found.</p>'}${!hasInstructions ? '<button class="secondary-button" data-sdk="resource" data-kind="instructions" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}">Create AGENTS.md in this workspace</button>' : ''}</section><section class="resource-section"><h3>Skills</h3>${(resources.skills || []).map((entry) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('skill', entry)}</article>`).join('') || '<p class="feature-hint">No skills found. Add .pi/skills/&lt;skill-name&gt;/SKILL.md in this workspace, then refresh.</p>'}</section><section class="resource-section"><h3>Prompt templates</h3>${(resources.templates || []).map((entry) => `<article class="file-card"><div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${sdkUI.resourceActions('template', entry)}</article>`).join('') || '<p class="feature-hint">No prompt templates yet.</p>'}</section>${(resources.diagnostics || []).length ? `<section class="resource-section resource-diagnostics"><h3>Resource notes</h3>${(resources.diagnostics || []).map((entry) => `<p>${escape(entry)}</p>`).join('')}</section>` : ''}`;
+  $('resources-list').innerHTML = `<section class="resource-section"><h3>Instructions</h3>${(resources.instructions || []).map((entry) => `<article class="resource-card"><div class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('instructions', entry, resourcesWorkspaceId)}</div><details class="resource-preview"><summary>View instructions</summary><pre>${escape(entry.content)}</pre></details></article>`).join('') || '<p class="feature-hint">No workspace instructions found.</p>'}${!hasInstructions ? `<button class="secondary-button" data-sdk="resource" data-workspace="${escape(resourcesWorkspaceId)}" data-kind="instructions" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}">Create AGENTS.md in this workspace</button>` : ''}</section><section class="resource-section"><h3>Skills</h3>${(resources.skills || []).map((entry) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('skill', entry, resourcesWorkspaceId)}</article>`).join('') || '<p class="feature-hint">No skills found. Add .pi/skills/&lt;skill-name&gt;/SKILL.md in this workspace, then refresh.</p>'}</section><section class="resource-section"><h3>Prompt templates</h3>${(resources.templates || []).map((entry) => `<article class="file-card"><div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${sdkUI.resourceActions('template', entry, resourcesWorkspaceId)}</article>`).join('') || '<p class="feature-hint">No prompt templates yet.</p>'}</section>${(resources.diagnostics || []).length ? `<section class="resource-section resource-diagnostics"><h3>Resource notes</h3>${(resources.diagnostics || []).map((entry) => `<p>${escape(entry)}</p>`).join('')}</section>` : ''}`;
   render();
 }
 
@@ -1197,7 +1206,7 @@ function setupModelEditor(prefix: string, catalog: ModelCatalog, configuredOnly:
 async function openModelPicker(): Promise<void> {
   if (anyRunning() || requestBusy) return;
   if (!state.settings.hasConnections && !state.settings.hasApiKey) { openSettings(); return; }
-  $('model-content').innerHTML = `${dialogHeading('Choose a model', 'model-title', 'model-dialog', 'PITH MODEL CATALOG')}<form id="model-form">${modelEditorMarkup('picker')}<div id="model-error" class="form-error" role="alert"></div><div class="modal-footer"><button type="button" class="secondary-button" data-close="model-dialog">Cancel</button><button type="submit" class="primary-button" id="choose-model" data-global-idle disabled>Use model</button></div></form>`;
+  $('model-content').innerHTML = `${dialogHeading('Choose a model', 'model-title', 'model-dialog', 'PITH MODEL CATALOG')}<form id="model-form">${modelEditorMarkup('picker')}<div id="model-error" class="form-error" role="alert"></div><div class="modal-footer"><button type="button" class="secondary-button" data-close="model-dialog">Cancel</button><button type="submit" class="primary-button" id="choose-model" data-global-idle data-control-pending="true" disabled>Use model</button></div></form>`;
   showDialog('model-dialog');
   const form = $<HTMLFormElement>('model-form');
   const isCurrent = () => $<HTMLDialogElement>('model-dialog').open && $('model-form') === form;
@@ -1206,7 +1215,8 @@ async function openModelPicker(): Promise<void> {
     if (!isCurrent()) return;
     if (!(catalog.providers || []).some((entry) => entry.hasApiKey)) { $<HTMLDialogElement>('model-dialog').close(); openSettings(); return; }
     setupModelEditor('picker', catalog, true);
-    $<HTMLButtonElement>('choose-model').disabled = anyRunning() || requestBusy;
+    setControlPending($<HTMLButtonElement>('choose-model'), false);
+    render();
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (anyRunning() || requestBusy) return;
@@ -1272,7 +1282,7 @@ function openSettings(): void {
       </section>
       <section class="settings-section connection-test">
         <p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p>
-        <div class="settings-actions"><button type="button" class="secondary-button" id="test-connection" data-global-idle data-idle-action>Test connection</button></div>
+        <div class="settings-actions"><button type="button" class="secondary-button" id="test-connection" data-control-pending="true" disabled data-global-idle data-idle-action>Test connection</button></div>
         <div id="connection-test-result" role="status" aria-live="polite"></div>
       </section>
       <div id="settings-error" class="form-error" role="alert"></div>
@@ -1280,7 +1290,7 @@ function openSettings(): void {
         <p class="field-hint">Version, usage and failure category only; no conversation, file contents, paths or credentials.</p>
         <div class="settings-actions"><button type="button" class="secondary-button" data-action="diagnostics">Save diagnostics</button></div>
       </section>
-      <div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-global-idle type="submit">Save settings</button></div>
+      <div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-control-pending="true" disabled data-global-idle type="submit">Save settings</button></div>
     </form>`;
   renderAppearance();
   $<HTMLDialogElement>('settings-dialog').showModal();
@@ -1326,7 +1336,7 @@ function openSettings(): void {
       if (select.value === providerID) keyStatus();
     }).catch((error) => { if (isCurrent()) $('settings-error').textContent = String(error); });
   };
-  $<HTMLButtonElement>('save-settings').disabled = true;
+  setControlPending($<HTMLButtonElement>('save-settings'), true);
   void request('/api/models').then((result) => {
     if (!isCurrent()) return;
     catalog = result;
@@ -1348,7 +1358,9 @@ function openSettings(): void {
     };
     providerSelect.addEventListener('change', () => chooseProvider(true));
     chooseProvider(false);
-    $<HTMLButtonElement>('save-settings').disabled = anyRunning() || requestBusy;
+    setControlPending($<HTMLButtonElement>('save-settings'), false);
+    setControlPending($<HTMLButtonElement>('test-connection'), false);
+    render();
   }).catch((error) => { if (isCurrent()) $('settings-error').textContent = String(error); });
   $<HTMLInputElement>('base-url').addEventListener('input', keyStatus);
   $<HTMLInputElement>('base-url').addEventListener('invalid', () => { $<HTMLDetailsElement>('provider-advanced').open = true; });
@@ -1361,7 +1373,7 @@ function openSettings(): void {
     const payload = { provider: $<HTMLSelectElement>('settings-provider').value, baseUrl: String(form.get('baseUrl') || '').trim(), apiKey: String(form.get('apiKey') || '').trim() };
     const button = $<HTMLButtonElement>('test-connection');
     button.textContent = 'Cancel test';
-    $<HTMLButtonElement>('save-settings').disabled = true;
+    setControlPending($<HTMLButtonElement>('save-settings'), true);
     $('connection-test-result').textContent = 'Testing streaming and tool calling…';
     try {
       const result = await request('/api/test-provider-connection', payload, { signal: controller.signal });
@@ -1374,7 +1386,7 @@ function openSettings(): void {
         $('connection-test-result').className = 'form-error';
       }
     } finally {
-      if (connectionProbe === controller) { connectionProbe = null; if (isCurrent()) { button.textContent = 'Test connection'; $<HTMLButtonElement>('save-settings').disabled = false; } }
+      if (connectionProbe === controller) { connectionProbe = null; if (isCurrent()) { button.textContent = 'Test connection'; setControlPending($<HTMLButtonElement>('save-settings'), false); render(); } }
     }
   });
   originalForm.addEventListener('input', (event) => {
@@ -1388,12 +1400,12 @@ function openSettings(): void {
     const form = new FormData(event.currentTarget as HTMLFormElement);
     const apiKey = String(form.get('apiKey') || '').trim();
     const payload = { provider: $<HTMLSelectElement>('settings-provider').value, baseUrl: String(form.get('baseUrl')).trim(), ...(apiKey ? { apiKey } : {}) };
-    $<HTMLButtonElement>('save-settings').disabled = true;
+    setControlPending($<HTMLButtonElement>('save-settings'), true);
     const saved = await mutate('/api/provider-config', payload);
     if (!isCurrent()) return;
     if (!saved) $('settings-error').textContent = localError;
     $<HTMLInputElement>('api-key').value = '';
-    $<HTMLButtonElement>('save-settings').disabled = false;
+    setControlPending($<HTMLButtonElement>('save-settings'), false); render();
     if (saved) { $<HTMLDialogElement>('settings-dialog').close(); if (!state.settings.hasApiKey && state.settings.hasConnections) await openModelPicker(); }
   });
   document.getElementById('remove-key')?.addEventListener('click', async () => {
@@ -1446,7 +1458,7 @@ function closeSidebar(): void { $('sidebar').classList.remove('open'); $('sideba
 function renderDraftImages(): void {
   $('draft-images').hidden = !draftImages.length;
   $('draft-images').innerHTML = draftImages.map((image) => `<figure class="draft-image"><img src="${escape(image.url)}" alt="${escape(image.name)}" role="button" tabindex="0" title="Click to enlarge" /><figcaption>${escape(image.name)}</figcaption><button type="button" class="remove-image" data-remove-image="${image.id}" aria-label="Remove ${escape(image.name)}" ${requestBusy || readingImages ? 'disabled' : ''}>${icon('close')}</button></figure>`).join('');
-  $<HTMLButtonElement>('attach-images').disabled = requestBusy || readingImages || !snapshotLoaded;
+  $<HTMLButtonElement>('attach-images').disabled = requestBusy || readingImages || draftLoading || !snapshotLoaded;
   const guidance = $('image-guidance');
   guidance.hidden = !draftImages.length;
   guidance.textContent = state.settings.supportsImages
@@ -1463,8 +1475,17 @@ function clearDraftImages(ids?: Set<string>): void {
   });
 }
 
+async function restoreDraftImages(images: WireDraftImage[], active: () => boolean): Promise<DraftImage[]> {
+  const restored: DraftImage[] = [];
+  for (const image of images) {
+    const blob = await imagePreviewBlob(image.data, image.mimeType, active);
+    if (blob && active()) restored.push({ ...image, type: 'image', url: URL.createObjectURL(blob) });
+  }
+  return restored;
+}
+
 async function addImageFiles(files: File[]): Promise<void> {
-  if (!files.length || requestBusy || readingImages) return;
+  if (!files.length || requestBusy || readingImages || draftLoading) return;
   readingImages = true;
   localError = '';
   render();
@@ -1486,6 +1507,7 @@ async function addImageFiles(files: File[]): Promise<void> {
     }
     if (disposed || generation !== draftGeneration) { for (const image of added) URL.revokeObjectURL(image.url); return; }
     draftImages.push(...added);
+    rememberDraft();
   } catch (error) {
     for (const image of added) URL.revokeObjectURL(image.url);
     localError = error instanceof Error ? error.message : String(error);
@@ -1500,6 +1522,7 @@ function clearHistoryImages(): void {
 
 function loadHistoryImages(): void {
   for (const image of $('messages').querySelectorAll<HTMLImageElement>('img[data-image-key]')) {
+    if (image.hasAttribute('src')) continue;
     const key = image.dataset.imageKey!;
     let value = historyImages.get(key);
     if (!value) {
@@ -1593,7 +1616,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (target.dataset.newWorkspace) { await newConversation(target.dataset.newWorkspace); return; }
-  if (target.dataset.removeImage) { if (!requestBusy && !readingImages) { clearDraftImages(new Set([target.dataset.removeImage])); render(); } return; }
+  if (target.dataset.removeImage) { if (!requestBusy && !readingImages) { clearDraftImages(new Set([target.dataset.removeImage])); rememberDraft(); render(); } return; }
   if (target.dataset.close) { $<HTMLDialogElement>(target.dataset.close).close(); return; }
   if (target.dataset.previewPath && target.dataset.previewId) { await openArtifactPreview(target.dataset.previewId, target.dataset.previewPath); return; }
   if (target.classList.contains('brand')) { event.preventDefault(); input.focus(); return; }

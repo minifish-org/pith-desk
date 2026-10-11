@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	aitypes "github.com/minifish-org/pith/packages/ai/types"
 )
 
 const MaxDraftBytes = 8 << 20
@@ -18,8 +20,17 @@ type DraftScope struct {
 }
 
 type Draft struct {
-	Text     string `json:"text"`
-	Revision int64  `json:"revision"`
+	Text     string       `json:"text"`
+	Revision int64        `json:"revision"`
+	Images   []DraftImage `json:"images,omitempty"`
+}
+
+// Draft attachments remain private to their composer scope, outside snapshots.
+type DraftImage struct {
+	aitypes.ImageContent
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Size int    `json:"size"`
 }
 
 type DraftInput struct {
@@ -82,6 +93,18 @@ func (s *Service) SaveDraft(in DraftInput) (Draft, error) {
 	}
 	if len(in.Text) > MaxDraftBytes || !utf8.ValidString(in.Text) || in.Revision <= 0 || in.Revision > 9007199254740991 {
 		return Draft{}, errors.New("Draft must be valid text of 8 MiB or less with a valid revision")
+	}
+	images := make([]aitypes.ImageContent, len(in.Images))
+	ids := make(map[string]bool, len(in.Images))
+	for i, image := range in.Images {
+		if image.ID == "" || len(image.ID) > 128 || ids[image.ID] || len(image.Name) > 1024 || !utf8.ValidString(image.Name) || image.Size <= 0 || image.Size > MaxImageUploadBytes {
+			return Draft{}, errors.New("Draft image has invalid metadata")
+		}
+		ids[image.ID] = true
+		images[i] = image.ImageContent
+	}
+	if _, err := validateImages(images, &aitypes.Model{Input: []aitypes.ModelInputModality{"text", "image"}}); err != nil {
+		return Draft{}, err
 	}
 	previous, err := readDraft(path)
 	if err != nil {
