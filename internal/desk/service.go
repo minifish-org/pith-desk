@@ -3,7 +3,6 @@
 package desk
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -18,9 +17,7 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/minifish-org/pith-desk/internal/localstore"
 	"github.com/minifish-org/pith-desk/internal/workspacefs"
-	agenttypes "github.com/minifish-org/pith/packages/agent/types"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
-	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
 
 type Settings struct {
@@ -150,9 +147,10 @@ type catalogState struct {
 }
 
 type Service struct {
+	journals    TaskJournal
 	connections Connections
-	active      *conversationRuntime
-	runtimes    map[string]*conversationRuntime
+	active      *RunExecution
+	tasks       TaskSupervisor
 	mu          sync.Mutex
 	dataDir     string
 	files       localstore.Store
@@ -195,10 +193,11 @@ func New(dataDir string) (*Service, error) {
 	if err := os.Chmod(abs, 0700); err != nil {
 		return nil, err
 	}
-	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), runtimes: map[string]*conversationRuntime{},
+	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), tasks: TaskSupervisor{runs: map[string]*RunExecution{}},
 		dataLock: dataLock, closeDone: make(chan struct{}),
 		catalog: Catalog{path: filepath.Join(abs, "catalog.json"), catalogState: catalogState{Workspaces: []Workspace{}, Conversations: []Conversation{}}}}
 	s.connections = newConnections(abs, &s.mu)
+	s.journals = TaskJournal{dataDir: abs}
 	s.selectRuntimeLocked(s.newRuntimeLocked(""))
 	if err := s.connections.restore(s.files); err != nil {
 		return nil, err
@@ -231,14 +230,7 @@ func (s *Service) Changes() <-chan struct{} { return s.changes }
 func (s *Service) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tasks := make(map[string]snapshotTask, len(s.runtimes))
-	for id, runtime := range s.runtimes {
-		if runtime == nil {
-			continue
-		}
-		tasks[id] = snapshotTask{conversationID: runtime.id, workspaceID: runtime.workspace.ID,
-			phase: runtime.Runtime.Phase, running: runtime.Running, needsApproval: runtime.PendingApproval != nil}
-	}
+	tasks := s.tasks.snapshotTasks()
 	return (SnapshotBuilder{}).build(snapshotSources{
 		settings: s.connections.Settings, login: s.connections.Login,
 		workspaces: s.catalog.Workspaces, conversations: s.catalog.Conversations, activeID: s.catalog.ActiveID,
@@ -374,6 +366,10 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 }
 
 func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, compact bool) error {
+	return s.startTaskWithQueueLocked(text, images, compact, nil)
+}
+
+func (s *Service) startTaskWithQueueLocked(text string, images []aitypes.ImageContent, compact bool, pending []QueuedMessage) error {
 	if s.restarting {
 		return errors.New("Pith Desk is updating; try again after restart")
 	}
@@ -428,89 +424,16 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	if err := s.catalog.update(index, next, s.files); err != nil {
 		return err
 	}
-	previousRuntime, previousFailure := r.Runtime, r.Failure
-	r.runDone = make(chan struct{})
-	r.Running = true
-	r.Failure = nil
-	r.Runtime.Phase, r.Runtime.Model, r.Runtime.ContextWindow = "starting", model.Id, model.ContextWindow
-	r.Runtime.Provider, r.Runtime.ThinkingLevel = s.connections.config.Provider, s.connections.config.ThinkingLevel
-	r.Runtime.RunID = newID()
-	r.runStarted = time.Now()
-	r.Runtime.Timing = TaskTiming{StartedAt: r.runStarted.UTC().Format(time.RFC3339Nano)}
-	r.Runtime.Cost.RunTotal, r.Runtime.Cost.RunRequests, r.Runtime.Cost.RunUnknownRequests = 0, 0, 0
-	r.Runtime.UpdatedAt = timestamp()
-	if err := s.files.WriteJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: r.Runtime}); err != nil {
-		r.runStarted = time.Time{}
-		r.Running = false
-		r.Runtime, r.Failure = previousRuntime, previousFailure
-		r.runCancel = nil
-		close(r.runDone)
-		return err
-	}
-	r.aborting = false
-	r.clearQueueLocked()
-	r.queueClosing = false
-	r.Error = ""
-	s.changedLocked()
-	done := r.runDone
-	journal, err := r.admitDurableLocked(conversation.ID, workspace, s.connections.taskConfig(), model, durableInput{RunID: r.Runtime.RunID, Text: text, Images: images, Compact: compact})
-	if err != nil {
-		r.Running = false
-		r.Runtime, r.Failure = previousRuntime, previousFailure
-		r.runStarted = time.Time{}
-		_ = s.files.WriteJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: previousRuntime, Failure: previousFailure})
-		close(r.runDone)
-		r.runCancel = nil
-		return err
-	}
-	r.durable = journal
-	r.runCancel = func() { _, _ = journal.harness.AbortTask(context.Background(), journal.task) }
-	go func() {
-		runErr := journal.harness.Resume()
-		if runErr == nil {
-			_, runErr = journal.harness.WaitForTask(context.Background(), journal.task)
-		}
-		_ = journal.harness.Close(context.Background())
-		s.mu.Lock()
-		if r.durable == journal {
-			r.durable = nil
-		}
-		if runErr != nil && !s.closed {
-			r.Error = "Durable task: " + runErr.Error()
-		}
-		// Admission may fail before run's cleanup can freeze the timer.
-		if !r.runStarted.IsZero() {
-			r.updateTimingLocked()
-			r.runStarted = time.Time{}
-			if r.aborting || s.closed || errors.Is(runErr, context.Canceled) {
-				r.Runtime.Phase = "stopped"
-				r.Failure = &Failure{Kind: "stopped", Message: "You stopped this task.", Advice: "Completed actions remain in place. Review before continuing.", CanContinue: true}
-			} else if runErr != nil {
-				r.Runtime.Phase = "error"
-				r.Failure = classifyFailure(runErr, "starting")
-			} else {
-				r.Runtime.Phase = "complete"
-			}
-			r.Runtime.UpdatedAt = timestamp()
-			if err := s.files.WriteJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
-				r.Error = err.Error()
-			}
-		}
-		r.Running = false
-		r.runCancel = nil
+	return r.admitAndStartLocked(workspace, s.connections.taskConfig(), model, text, images, compact, pending, func(runErr error) {
 		if !s.closed && runErr == nil && r.Runtime.Phase == "complete" {
 			if err := s.completeConversationLocked(r.id, r.Runtime.RunID); err != nil {
 				r.Error = "Task completed, but its unread status could not be saved: " + err.Error()
 			}
 		}
 		if s.active != r {
-			delete(s.runtimes, r.id)
+			s.tasks.remove(r.id)
 		}
-		close(done)
-		s.changedLocked()
-		s.mu.Unlock()
-	}()
-	return nil
+	})
 }
 
 func (s *Service) Abort() {
@@ -523,20 +446,12 @@ func (s *Service) Abort() {
 // AbortConversation targets the submitted conversation even after UI navigation.
 func (s *Service) AbortConversation(id string) error {
 	s.mu.Lock()
-	r := s.runtimes[id]
+	r := s.tasks.runs[id]
 	if r == nil || !r.Running {
 		s.mu.Unlock()
 		return errors.New("This conversation has no running task")
 	}
-	cancel, session := r.runCancel, r.session
-	r.aborting = true
-	r.PendingApproval, r.approval, r.approvalCtx = nil, nil, nil
-	if err := r.durableQueueLocked("desk.clear-queue", QueuedMessage{}); err != nil {
-		r.Error = err.Error()
-	}
-	r.clearQueueLocked()
-	r.queueClosing = true
-	s.changedLocked()
+	cancel, session := r.prepareAbortLocked()
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -579,8 +494,8 @@ func (s *Service) SetPermissionMode(id string, mode PermissionMode) error {
 func (s *Service) DecideApprovalWithScope(id string, allow, alwaysAllow bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var r *conversationRuntime
-	for _, candidate := range s.runtimes {
+	var r *RunExecution
+	for _, candidate := range s.tasks.runs {
 		if candidate.PendingApproval != nil && candidate.PendingApproval.ID == id {
 			r = candidate
 			break
@@ -622,21 +537,6 @@ func (s *Service) persistPermissionModeLocked(id string, mode PermissionMode) er
 	return s.catalog.setPermission(id, mode, s.files)
 }
 
-func (r *conversationRuntime) permissionModeLocked() PermissionMode {
-	s := r.service
-	if index := s.conversationIndexLocked(r.id); index >= 0 {
-		return normalizedPermissionMode(s.catalog.Conversations[index].PermissionMode)
-	}
-	return PermissionAsk
-}
-
-func (r *conversationRuntime) resolveApprovalLocked(allow bool) {
-	r.approval <- allow // Each decision channel is buffered and answered once.
-	r.approval = nil    // Prevent a second reply from blocking or changing the decision.
-	r.approvalCtx = nil
-	r.PendingApproval = nil
-}
-
 func (s *Service) Close() {
 	s.mu.Lock()
 	if s.closed {
@@ -649,18 +549,7 @@ func (s *Service) Close() {
 	mcpCancel := s.connections.mcpConnectCancel
 	probeCancel, probeDone := s.connections.probeCancel, s.connections.probeDone
 	loginCancel, loginDone := s.connections.loginCancel, s.connections.loginDone
-	type closingRun struct {
-		journal *deskDurable
-		done    chan struct{}
-	}
-	var runs []closingRun
-	for _, r := range s.runtimes {
-		if r.Running {
-			runs = append(runs, closingRun{r.durable, r.runDone})
-			r.clearQueueLocked()
-			r.queueClosing = true
-		}
-	}
+	runs := s.tasks.prepareClose()
 	s.mu.Unlock()
 	if loginCancel != nil {
 		loginCancel()
@@ -671,17 +560,7 @@ func (s *Service) Close() {
 	if mcpCancel != nil {
 		mcpCancel()
 	}
-	// Cancel every harness before waiting for any one. Close preserves uncertain
-	// tasks for reviewed recovery; explicit Abort instead settles them as stopped.
-	var workers sync.WaitGroup
-	for _, r := range runs {
-		workers.Add(1)
-		go func() { defer workers.Done(); _ = r.journal.harness.Close(context.Background()) }()
-	}
-	workers.Wait()
-	for _, r := range runs {
-		<-r.done
-	}
+	closeTasks(runs)
 	if loginDone != nil {
 		<-loginDone
 	}
@@ -693,256 +572,11 @@ func (s *Service) Close() {
 	close(s.closeDone)
 }
 
-func (r *conversationRuntime) run(ctx context.Context, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool) {
-	s := r.service
-	var manager *codingagent.SessionManager
-	var session *codingagent.AgentSession
-	var registry *codingagent.ToolRegistry
-	var policy *filePolicy
-	var runErr error
-	defer func() {
-		if session != nil {
-			_ = session.Close()
-		}
-		if registry != nil {
-			_ = registry.CloseTools()
-		}
-		if policy != nil {
-			_ = policy.root.Close()
-		}
-		r.closeMCP()
-		s.mu.Lock()
-		if manager != nil {
-			r.updateRuntimeLocked(manager)
-			r.Messages = messagesFrom(manager)
-			_ = manager.Close()
-		}
-		if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, codingagent.ErrAgentAborted) {
-			r.Failure = classifyFailure(runErr, r.Runtime.Phase)
-			r.Runtime.Phase = "error"
-		} else if ctx.Err() != nil || errors.Is(runErr, codingagent.ErrAgentAborted) {
-			r.Runtime.Phase = "stopped"
-			r.Failure = &Failure{Kind: "stopped", Message: "You stopped this task.", Advice: "Completed actions remain in place. Review before continuing.", CanContinue: true}
-		} else {
-			r.Runtime.Phase = "complete"
-		}
-		r.Runtime.UpdatedAt = timestamp()
-		r.updateTimingLocked()
-		r.runStarted = time.Time{}
-		if err := s.files.WriteJSON(s.receiptFile(id), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
-			r.Error = "Task history was saved, but run status could not be saved: " + err.Error()
-		}
-		r.session, r.activeManager, r.runCancel = nil, nil, nil
-		r.aborting = false
-		r.clearQueueLocked()
-		r.queueClosing = true
-		r.externalTools = map[string]bool{}
-		r.PendingApproval, r.approval = nil, nil
-		r.approvalCtx = nil
-		if runErr != nil && !errors.Is(runErr, context.Canceled) && !errors.Is(runErr, codingagent.ErrAgentAborted) {
-			r.Error = redact(runErr.Error(), config.APIKey)
-		}
-		if index := s.conversationIndexLocked(id); index >= 0 {
-			s.catalog.touch(index, timestamp())
-		}
-		if err := s.persistCatalogLocked(); err != nil {
-			r.Error = err.Error()
-		}
-		s.changedLocked()
-		s.mu.Unlock()
-	}()
-	if runErr = ctx.Err(); runErr != nil {
-		return
-	}
-	manager, runErr = s.sessionAdapter().open(id, workspace.Path)
-	if runErr != nil {
-		return
-	}
-	s.mu.Lock()
-	index := s.conversationIndexLocked(id)
-	if index >= 0 {
-		runErr = ensureSessionTitle(manager, s.catalog.Conversations[index].Title)
-		if runErr == nil {
-			s.catalog.rememberTitle(index, latestSessionTitle(manager, s.catalog.Conversations[index].Title))
-		}
-	}
-	s.mu.Unlock()
-	if runErr != nil {
-		return
-	}
-	if runErr = workspacefs.ValidateResources(workspace.Path, s.dataDir, codingagent.ConfigDirName); runErr != nil {
-		return
-	}
-	if err := r.connectMCP(ctx); err != nil && ctx.Err() == nil {
-		s.mu.Lock()
-		r.Error = err.Error()
-		s.changedLocked()
-		s.mu.Unlock()
-	}
-	if runErr = ctx.Err(); runErr != nil {
-		return
-	}
-	policy, runErr = newFilePolicy(workspace.Path, s.dataDir)
-	if runErr != nil {
-		return
-	}
-	policy.allowImages = model.SupportsImageInput()
-	registry, runErr = r.buildTools(policy)
-	if runErr != nil {
-		return
-	}
-	thinking := agenttypes.ThinkingLevel(config.ThinkingLevel)
-	s.mu.Lock()
-	mode := r.permissionModeLocked()
-	s.mu.Unlock()
-	stream, streamErr := s.connections.stream(ctx, config)
-	if streamErr != nil {
-		runErr = streamErr
-		return
-	}
-	s.mu.Lock()
-	runID := r.Runtime.RunID
-	s.mu.Unlock()
-	stream = s.meteredStream(ctx, id, runID, config, stream, func() string {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if r.Runtime.Phase == "compacting" {
-			return "compaction"
-		}
-		return "agent"
-	}, r.appendAssistantText)
-	session, runErr = codingagent.CreateAgentSession(codingagent.SessionOptions{
-		Cwd: workspace.Path, Manager: manager, Tools: registry,
-		Model: codingagent.ModelOptions{Model: model, ThinkingLevel: thinking, StreamFn: stream,
-			APIKey: func(context.Context, string) (string, error) { return config.APIKey, nil }},
-		Resources: codingagent.ResourceOptions{Cwd: workspace.Path, SystemPrompt: deskPrompt(mode)},
-		Policy:    r.compactionWithStream(model, config.APIKey, stream),
-	})
-	if runErr != nil {
-		return
-	}
-	s.mu.Lock()
-	r.session, r.activeManager = session, manager
-	r.Runtime.Phase = "working"
-	r.updateRuntimeLocked(manager)
-	s.changedLocked()
-	s.mu.Unlock()
-	unsubscribe := session.Subscribe(func(event codingagent.SessionEvent) {
-		r.observe(event, manager)
-	})
-	defer unsubscribe()
-	if compact {
-		runErr = session.Compact(ctx)
-	} else {
-		_, runErr = session.Prompt(ctx, text, codingagent.PromptOptions{Images: images})
-	}
-	s.mu.Lock()
-	r.queueClosing = true
-	s.mu.Unlock()
-}
-
-func deskPrompt(mode PermissionMode) string {
-	permission := "Ask is selected: write_file, edit_file, and run_command request user approval."
-	switch normalizedPermissionMode(mode) {
-	case PermissionWorkspaceWrite:
-		permission = "Workspace changes is selected: write_file and edit_file are allowed inside the workspace; run_command requests user approval."
-	case PermissionFullAccess:
-		permission = "Full access is selected: workspace file changes and run_command are allowed without individual approval. Commands have the user's OS account permissions and can access files or networks beyond the workspace."
-	}
-	return `You are Pith Desk, a personal assistant working with the user's selected folder.
-Help the user read, organize, edit, and create useful files. Use the available tools to complete tasks.
-Use read_file, grep_files, find_files, and list_files to inspect the workspace.
-Skills may refer to a tool named read. In this desktop, use read_file instead: it is the guarded file reader. The unguarded builtin read tool is unavailable.
-Use write_file for new files and edit_file for existing content. File tools stay inside the selected workspace in every permission mode.
-Use run_command only when file tools cannot complete the task. It runs with the user's OS permissions, without an OS sandbox.
-Do not attempt to read credentials or private application settings. Never claim a file was changed before its tool succeeds.
-Explain results concisely and name any files created or changed.
-Codemode is enabled. Use it when code can efficiently combine independent tool calls or filter structured results. Internal calls use the same permission checks.
-Use tool_search to discover MCP tools when needed; discovered tools can be called through codemode.
-Enabled MCP tools use names beginning with mcp__. They use the external server's permissions rather than the workspace file boundary. Ask and workspace-write modes require individual approval for every MCP call; full-access also authorizes the enabled MCP tools.
-The user can change permissions during a task; tools enforce the current selection. At the start of this task:
-` + permission
-}
-
-func compactionPolicy(model *aitypes.Model, apiKey string) codingagent.RunPolicy {
-	return codingagent.RunPolicy{
-		CompactReserveTokens: int(model.MaxTokens), KeepRecentMessages: 16,
-		Summarize: func(ctx context.Context, messages []agenttypes.AgentMessage) (string, error) {
-			// Summarization constructs fresh request options, so explicitly bind
-			// the same credential used by the session without ambient env state.
-			stream := func(m *aitypes.Model, transcript *aitypes.TranscriptContext, options *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream {
-				request := aitypes.SimpleStreamOptions{}
-				if options != nil {
-					request = *options
-				}
-				request.APIKey = &apiKey
-				return providerStream(m, transcript, &request)
-			}
-			return codingagent.GenerateSummary(ctx, messages, model, codingagent.DefaultCompactionPolicy.ReserveTokens, stream, nil, nil)
-		},
-	}
-}
-
-func (r *conversationRuntime) observe(event codingagent.SessionEvent, manager *codingagent.SessionManager) {
-	s := r.service
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	switch event.Type {
-	case codingagent.SessionEventMessageEnd:
-		r.Messages = messagesFrom(manager)
-		r.updateRuntimeLocked(manager)
-		r.Runtime.Phase = "working"
-		r.observeQueuedMessageLocked(event)
-		if err := s.files.WriteJSON(s.receiptFile(r.id), runReceipt{Runtime: r.Runtime}); err != nil {
-			r.Error = "Run status could not be saved: " + err.Error()
-		}
-	case codingagent.SessionEventAgentEnd:
-		r.queueClosing = true
-	case codingagent.SessionEventAutoRetryStart:
-		r.Runtime.Phase = "retrying"
-		r.queueClosing = false
-		r.queueReady = true
-		// Pith preserves pending queues across retry; dispatch only new messages.
-		r.dispatchQueueLocked()
-	case codingagent.SessionEventAutoRetryEnd:
-		r.Runtime.Phase = "working"
-	case codingagent.SessionEventToolExecutionStart:
-		r.Runtime.Phase = "tool"
-		message := Message{ID: "tool-" + event.ToolCallID, Role: "tool", ToolName: event.ToolName, ToolCallID: event.ToolCallID, Text: "Running…", Status: "running"}
-		if event.ToolName == "run_command" {
-			message.Command = commandDetailsFromSession(manager, event.ToolCallID)
-		}
-		r.Messages = append(r.Messages, message)
-	case codingagent.SessionEventToolExecutionEnd:
-		r.Runtime.Phase = "working"
-		if event.IsError {
-			r.Runtime.ToolFailures++
-		}
-		for i := range r.Messages {
-			if r.Messages[i].ID == "tool-"+event.ToolCallID {
-				r.Messages[i].Status = "done"
-				if event.IsError {
-					r.Messages[i].Status = "error"
-				}
-				if event.Message != nil && event.Message.Message != nil && event.Message.Message.ToolResult != nil {
-					result := event.Message.Message.ToolResult
-					r.Messages[i].Text = blockText(result.Content)
-					r.Messages[i].Images = messageImages(result.Content)
-					applyCommandResult(r.Messages[i].Command, result.Details)
-				}
-			}
-		}
-	default:
-		return
-	}
-	s.changedLocked()
-}
-
 func (s *Service) loadMessagesLocked(id string) error {
 	if s.conversationIndexLocked(id) < 0 {
 		return errors.New("Conversation not found")
 	}
-	if r := s.runtimes[id]; r != nil && r.Running {
+	if r := s.tasks.runs[id]; r != nil && r.Running {
 		s.selectRuntimeLocked(r)
 		return nil
 	}
@@ -950,7 +584,7 @@ func (s *Service) loadMessagesLocked(id string) error {
 	if err != nil {
 		return err
 	}
-	previous := s.runtimes[id]
+	previous := s.tasks.runs[id]
 	r := s.newRuntimeLocked(id)
 	if manager != nil {
 		defer manager.Close()
@@ -958,9 +592,9 @@ func (s *Service) loadMessagesLocked(id string) error {
 	}
 	if err := r.loadRuntimeLocked(id); err != nil {
 		if previous != nil {
-			s.runtimes[id] = previous
+			s.tasks.register(previous)
 		} else {
-			delete(s.runtimes, id)
+			s.tasks.remove(id)
 		}
 		return err
 	}

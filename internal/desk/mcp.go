@@ -408,7 +408,11 @@ func (s *Service) redactMCPLocked(text string) string { return s.connections.red
 
 func (s *Service) mcpDefinitions() []codingagent.ToolDefinition { return s.mcpDefinitionsFor(nil) }
 
-func (s *Service) mcpDefinitionsFor(owner *conversationRuntime) []codingagent.ToolDefinition {
+func (s *Service) mcpDefinitionsFor(owner *RunExecution) []codingagent.ToolDefinition {
+	return mcpToolDefinitions(s.executionDependencies(), owner)
+}
+
+func mcpToolDefinitions(s executionDependencies, owner *RunExecution) []codingagent.ToolDefinition {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	runtime := s.connections.mcpRuntime
@@ -445,7 +449,7 @@ func (s *Service) mcpDefinitionsFor(owner *conversationRuntime) []codingagent.To
 			<-watcherFinished
 			if err != nil {
 				s.mu.Lock()
-				message := s.redactMCPLocked(err.Error())
+				message := s.redactMCP(err.Error())
 				s.mu.Unlock()
 				return result, errors.New(message)
 			}
@@ -459,8 +463,8 @@ func (s *Service) loadMCPRuntime(ctx context.Context, configs []codingagent.MCPS
 	return s.connections.loadMCPRuntime(ctx, configs, s.files)
 }
 
-func (r *conversationRuntime) connectMCP(ctx context.Context) error {
-	s := r.service
+func (r *RunExecution) connectMCP(ctx context.Context) error {
+	s := r.dependencies
 	s.mu.Lock()
 	var configs []codingagent.MCPServerConfig
 	for _, config := range s.connections.mcpConfigs {
@@ -472,9 +476,9 @@ func (r *conversationRuntime) connectMCP(ctx context.Context) error {
 	if len(configs) == 0 {
 		return nil
 	}
-	runtime, diagnostics := s.loadMCPRuntime(ctx, configs)
+	runtime, diagnostics := s.connections.loadMCPRuntime(ctx, configs, *s.files)
 	s.mu.Lock()
-	if s.closed || ctx.Err() != nil {
+	if *s.closed || ctx.Err() != nil {
 		s.mu.Unlock()
 		closeMCPRuntime(runtime)
 		return context.Canceled
@@ -482,7 +486,7 @@ func (r *conversationRuntime) connectMCP(ctx context.Context) error {
 	r.mcpRuntime = runtime
 	var messages []string
 	for _, diagnostic := range diagnostics {
-		messages = append(messages, s.redactMCPLocked(diagnostic.Error()))
+		messages = append(messages, s.redactMCP(diagnostic.Error()))
 	}
 	s.mu.Unlock()
 	if len(messages) > 0 {
@@ -491,8 +495,8 @@ func (r *conversationRuntime) connectMCP(ctx context.Context) error {
 	return nil
 }
 
-func (r *conversationRuntime) closeMCP() {
-	s := r.service
+func (r *RunExecution) closeMCP() {
+	s := r.dependencies
 	s.mu.Lock()
 	runtime := r.mcpRuntime
 	r.mcpRuntime = nil

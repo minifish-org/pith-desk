@@ -107,7 +107,7 @@ func (s *Service) deleteDataLocked(workspaceID string, ids []string) error {
 	activeRemoved := s.catalog.ActiveID != next.ActiveID
 	s.catalog.replace(next)
 	for _, id := range ids {
-		delete(s.runtimes, id)
+		s.tasks.remove(id)
 	}
 	if activeRemoved {
 		s.selectRuntimeLocked(s.newRuntimeLocked(""))

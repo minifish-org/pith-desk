@@ -19,9 +19,10 @@ import (
 // remote side effects. Continue uses the saved transcript and a new instruction.
 type deskDurable struct {
 	harness      *dh.Harness
-	storage      *jsonl.Storage
+	storage      durable.Storage
 	conversation durable.ConversationID
 	task         durable.TaskID
+	wait         context.Context
 }
 
 type durableInput struct {
@@ -31,15 +32,25 @@ type durableInput struct {
 	Compact bool                   `json:"compact"`
 }
 
-func (s *Service) durableDir(id string) string { return filepath.Join(s.dataDir, "durable", id) }
+type TaskJournal struct {
+	dataDir string
+	open    func(string) (durable.Storage, error)
+}
 
-func (r *conversationRuntime) admitDurableLocked(id string, workspace Workspace, config savedConfig, model *aitypes.Model, input durableInput) (*deskDurable, error) {
-	s := r.service
-	path := s.durableDir(id)
+func (j *TaskJournal) dir(id string) string    { return filepath.Join(j.dataDir, "durable", id) }
+func (s *Service) durableDir(id string) string { return s.journals.dir(id) }
+
+func (r *RunExecution) admitDurableLocked(id string, workspace Workspace, config savedConfig, model *aitypes.Model, input durableInput) (*deskDurable, error) {
+	return r.admitDurableWithQueueLocked(id, workspace, config, model, input, nil)
+}
+
+func (r *RunExecution) admitDurableWithQueueLocked(id string, workspace Workspace, config savedConfig, model *aitypes.Model, input durableInput, pending []QueuedMessage) (*deskDurable, error) {
+	s := r.dependencies
+	path := s.journals.dir(id)
 	if err := os.MkdirAll(path, 0700); err != nil {
 		return nil, err
 	}
-	storage, err := jsonl.Open(context.Background(), path, jsonl.Options{Fsync: true})
+	storage, err := s.journals.openStorage(path)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +85,7 @@ func (r *conversationRuntime) admitDurableLocked(id string, workspace Workspace,
 		r.run(ctx, id, workspace, config, model, input.Text, input.Images, input.Compact)
 		s.mu.Lock()
 		phase := r.Runtime.Phase
-		closed := s.closed
+		closed := *s.closed
 		s.mu.Unlock()
 		if closed || ctx.Err() != nil {
 			return ctx.Err()
@@ -92,7 +103,17 @@ func (r *conversationRuntime) admitDurableLocked(id string, workspace Workspace,
 		_ = storage.Close(context.Background())
 		return nil, err
 	}
-	harness, err := dh.Open(context.Background(), storage, dh.Options{Registry: registry})
+	// The SDK reports scheduler/storage failures separately from WaitForTask.
+	// Wake this execution's waiter so it can close the harness before releasing
+	// occupancy. A report never cancels another conversation's execution.
+	wait, report := context.WithCancelCause(context.Background())
+	harness, err := dh.Open(context.Background(), storage, dh.Options{Registry: registry, OnReport: func(err error) {
+		// Abort replaces the running phase with the SDK's abort handler. Its
+		// canceled phase must finish that settlement instead of closing early.
+		if !errors.Is(err, context.Canceled) {
+			report(err)
+		}
+	}})
 	if err != nil {
 		_ = storage.Close(context.Background())
 		return nil, err
@@ -102,12 +123,23 @@ func (r *conversationRuntime) admitDurableLocked(id string, workspace Workspace,
 		_ = harness.Close(context.Background())
 		return nil, err
 	}
-	journal := &deskDurable{harness: harness, storage: storage, conversation: conversation.ID()}
+	journal := &deskDurable{harness: harness, storage: storage, conversation: conversation.ID(), wait: wait}
 	encoded, err := json.Marshal(input)
 	if err == nil {
 		err = harness.CommitConversation(context.Background(), conversation.ID(), func(tx *durable.Transaction) error {
 			if _, err := tx.AppendEntry(context.Background(), conversation.ID(), durable.EntryDraft{Kind: "desk.clear-queue", Data: json.RawMessage(`{}`)}); err != nil {
 				return err
+			}
+			// Reviewed continuation replaces the queue and admits the new task in
+			// one transaction. A failure cannot erase the uncommitted remainder.
+			for _, message := range pending {
+				payload, err := queuePayload(message)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.AppendEntry(context.Background(), conversation.ID(), durable.EntryDraft{Kind: "desk.queue", Data: payload}); err != nil {
+					return err
+				}
 			}
 			journal.task, err = tx.CreateTask(context.Background(), definition, encoded, durable.TaskOptions{Ownership: durable.TaskOwnership{Kind: "conversation"}, ConversationID: conversation.ID()})
 			return err
@@ -120,8 +152,8 @@ func (r *conversationRuntime) admitDurableLocked(id string, workspace Workspace,
 	return journal, nil
 }
 
-func (r *conversationRuntime) durableTaskID() durable.TaskID {
-	s := r.service
+func (r *RunExecution) durableTaskID() durable.TaskID {
+	s := r.dependencies
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if r.durable == nil {
@@ -130,12 +162,9 @@ func (r *conversationRuntime) durableTaskID() durable.TaskID {
 	return r.durable.task
 }
 
-func (r *conversationRuntime) durableQueueLocked(kind string, message QueuedMessage) error {
-	s := r.service
-	payload, err := json.Marshal(struct {
-		Message QueuedMessage          `json:"message"`
-		Images  []aitypes.ImageContent `json:"images,omitempty"`
-	}{message, message.Images})
+func (r *RunExecution) durableQueueLocked(kind string, message QueuedMessage) error {
+	s := r.dependencies
+	payload, err := queuePayload(message)
 	if err != nil {
 		return err
 	}
@@ -145,7 +174,7 @@ func (r *conversationRuntime) durableQueueLocked(kind string, message QueuedMess
 		if r.Failure == nil || r.Failure.Kind != "interrupted" || r.recoveredJournal == 0 {
 			return errors.New("The pending-message journal is no longer available")
 		}
-		storage, err := jsonl.Open(context.Background(), s.durableDir(r.id), jsonl.Options{Fsync: true})
+		storage, err := s.journals.openStorage(s.journals.dir(r.id))
 		if err != nil {
 			return err
 		}
@@ -163,14 +192,21 @@ func (r *conversationRuntime) durableQueueLocked(kind string, message QueuedMess
 	})
 }
 
-func (r *conversationRuntime) recoverDurableLocked(id string) error {
-	s := r.service
+func queuePayload(message QueuedMessage) (json.RawMessage, error) {
+	return json.Marshal(struct {
+		Message QueuedMessage          `json:"message"`
+		Images  []aitypes.ImageContent `json:"images,omitempty"`
+	}{message, message.Images})
+}
+
+func (r *RunExecution) recoverDurableLocked(id string) error {
+	s := r.dependencies
 	r.recoveredJournal = 0
-	path := s.durableDir(id)
+	path := s.journals.dir(id)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	storage, err := jsonl.Open(context.Background(), path, jsonl.Options{Fsync: true})
+	storage, err := s.journals.openStorage(path)
 	if err != nil {
 		return err
 	}
@@ -261,4 +297,13 @@ func (r *conversationRuntime) recoverDurableLocked(id string) error {
 		}
 	}
 	return nil
+}
+
+// A per-service factory exposes the application's journal commit windows while
+// default reads/writes continue through the pinned SDK's fsynced JSONL adapter.
+func (j *TaskJournal) openStorage(path string) (durable.Storage, error) {
+	if j.open != nil {
+		return j.open(path)
+	}
+	return jsonl.Open(context.Background(), path, jsonl.Options{Fsync: true})
 }

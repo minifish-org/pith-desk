@@ -260,8 +260,8 @@ func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, err
 	return s.active.buildTools(policy)
 }
 
-func (r *conversationRuntime) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, error) {
-	s := r.service
+func (r *RunExecution) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, error) {
+	s := r.dependencies
 	read := codingagent.CreateReadToolDefinition(policy.path, &codingagent.ReadToolOptions{Operations: policy})
 	write := codingagent.CreateWriteToolDefinition(policy.path, &codingagent.WriteToolOptions{Operations: policy})
 	edit := codingagent.CreateEditToolDefinition(policy.path, &codingagent.EditToolOptions{Operations: editOperations{policy}})
@@ -289,7 +289,7 @@ func (r *conversationRuntime) buildTools(policy *filePolicy) (*codingagent.ToolR
 		definitions[i].Name = names[i]
 	}
 	external := map[string]bool{}
-	for _, definition := range s.mcpDefinitionsFor(r) {
+	for _, definition := range mcpToolDefinitions(s, r) {
 		external[definition.Name] = true
 		definitions = append(definitions, definition)
 	}
@@ -352,67 +352,4 @@ func (r *conversationRuntime) buildTools(policy *filePolicy) (*codingagent.ToolR
 	}
 	complete = true
 	return registry, nil
-}
-
-func (r *conversationRuntime) requestApproval(ctx context.Context, call codingagent.ToolCall, policies ...*filePolicy) error {
-	s := r.service
-	select {
-	case r.approvalGate <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	defer func() { <-r.approvalGate }()
-	s.mu.Lock()
-	if s.closed || r.aborting || ctx.Err() != nil {
-		s.mu.Unlock()
-		return context.Canceled
-	}
-	alreadyAllowed := r.permissionAllowsLocked(call.Name)
-	s.mu.Unlock()
-	if alreadyAllowed {
-		return ctx.Err()
-	}
-	approval := &Approval{ID: newID(), ToolName: call.Name, Args: append(json.RawMessage(nil), call.Arguments...)}
-	if (call.Name == "write_file" || call.Name == "edit_file") && len(policies) > 0 {
-		approval.Preview, approval.fileReview = fileApprovalPreview(policies[0], call.Name, call.Arguments)
-	}
-	if call.Name == "run_command" {
-		approval.Warning = "This command runs with your computer account's permissions. It can access files and network outside the workspace. There is no OS sandbox."
-	} else if strings.HasPrefix(call.Name, "mcp__") {
-		approval.Warning = "This enabled MCP tool uses the external server's permissions. It can access or change data outside this workspace."
-	}
-	decision := make(chan bool, 1)
-	s.mu.Lock()
-	if s.closed || r.aborting || ctx.Err() != nil {
-		s.mu.Unlock()
-		return context.Canceled
-	}
-	// A previous call may have waited in the gate while the user changed mode.
-	// Recheck under the service lock immediately before creating an approval.
-	if r.permissionAllowsLocked(call.Name) {
-		s.mu.Unlock()
-		return ctx.Err()
-	}
-	r.PendingApproval, r.approval = approval, decision
-	r.approvalCtx = ctx
-	s.changedLocked()
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		if r.PendingApproval != nil && r.PendingApproval.ID == approval.ID {
-			r.PendingApproval, r.approval = nil, nil
-			r.approvalCtx = nil
-			s.changedLocked()
-		}
-		s.mu.Unlock()
-	}()
-	select {
-	case allowed := <-decision:
-		if !allowed {
-			return errors.New("The user declined this action; do not repeat it without a new request")
-		}
-		return ctx.Err()
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }

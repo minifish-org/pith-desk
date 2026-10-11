@@ -9,11 +9,11 @@ import (
 
 // Use the SDK's normalized text events across all provider protocols. Reasoning,
 // tool arguments and compaction summaries never become visible reply text.
-func (r *conversationRuntime) appendAssistantText(event aitypes.AssistantMessageEvent) {
+func (r *RunExecution) appendAssistantText(event aitypes.AssistantMessageEvent) {
 	if event.Type != aitypes.AssistantEventTextDelta || event.Delta == nil || *event.Delta == "" {
 		return
 	}
-	s := r.service
+	s := r.dependencies
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	last := len(r.Messages) - 1
@@ -29,6 +29,10 @@ func (r *conversationRuntime) appendAssistantText(event aitypes.AssistantMessage
 // terminal event. Retries and summaries are separate ledger records, without
 // double-counting message/session totals or recalculating old prices.
 func (s *Service) meteredStream(ctx context.Context, id, runID string, config savedConfig, base agenttypes.StreamFn, purpose func() string, observe func(aitypes.AssistantMessageEvent)) agenttypes.StreamFn {
+	return meterStream(ctx, id, runID, config, base, purpose, observe, s.recordCost)
+}
+
+func meterStream(ctx context.Context, id, runID string, config savedConfig, base agenttypes.StreamFn, purpose func() string, observe func(aitypes.AssistantMessageEvent), recordCost func(string, string, string, *aitypes.Model, savedConfig, aitypes.AssistantMessage)) agenttypes.StreamFn {
 	return func(model *aitypes.Model, transcript *aitypes.TranscriptContext, options *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream {
 		requestPurpose := purpose()
 		upstream := base(model, transcript, options)
@@ -41,7 +45,7 @@ func (s *Service) meteredStream(ctx context.Context, id, runID string, config sa
 					// arrived before the forwarding goroutine ran.
 					response, err := upstream.Result(ctx)
 					if err == nil {
-						s.recordCost(id, runID, requestPurpose, model, config, response)
+						recordCost(id, runID, requestPurpose, model, config, response)
 					}
 					output.End(nil)
 					return
@@ -57,7 +61,7 @@ func (s *Service) meteredStream(ctx context.Context, id, runID string, config sa
 					if event.Type == "done" || event.Type == "error" {
 						response, err := upstream.Result(ctx)
 						if err == nil {
-							s.recordCost(id, runID, requestPurpose, model, config, response)
+							recordCost(id, runID, requestPurpose, model, config, response)
 						}
 						output.Push(event)
 						return

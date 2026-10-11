@@ -37,9 +37,9 @@ func snapshotFixtureService() *Service {
 			},
 			ActiveID: "chat-a",
 		}},
-		runtimes: map[string]*conversationRuntime{},
+		tasks: TaskSupervisor{runs: map[string]*RunExecution{}},
 	}
-	s.active = &conversationRuntime{service: s, id: "chat-a", workspace: s.catalog.Workspaces[0], ConversationState: &ConversationState{
+	s.active = &RunExecution{dependencies: s.executionDependencies(), id: "chat-a", workspace: s.catalog.Workspaces[0], ConversationState: &ConversationState{
 		Messages: []Message{
 			{ID: "message-user", Role: "user", Text: "检查图片", BranchNodeID: "node-user", Images: []MessageImage{{Index: 0, MimeType: "image/png"}}},
 			{ID: "message-tool", Role: "tool", Text: "done", ToolName: "run_command", ToolCallID: "call-command", Status: "done", Command: &CommandDetails{Text: "pwd", Cwd: "/fixture/workspace-a", ExitCode: &exitCode}},
@@ -57,9 +57,9 @@ func snapshotFixtureService() *Service {
 			ContextTokens: 19, ContextWindow: 1000, Compactions: 1, ToolFailures: 1, UpdatedAt: "2026-10-11T00:00:01Z",
 		},
 	}}
-	s.runtimes["chat-a"] = s.active
-	s.runtimes["chat-b"] = &conversationRuntime{service: s, id: "chat-b", workspace: s.catalog.Workspaces[1], ConversationState: &ConversationState{Running: true, Runtime: RuntimeStatus{Phase: "working"}}}
-	s.runtimes["chat-idle"] = &conversationRuntime{service: s, id: "chat-idle", ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}
+	s.tasks.runs["chat-a"] = s.active
+	s.tasks.runs["chat-b"] = &RunExecution{dependencies: s.executionDependencies(), id: "chat-b", workspace: s.catalog.Workspaces[1], ConversationState: &ConversationState{Running: true, Runtime: RuntimeStatus{Phase: "working"}}}
+	s.tasks.runs["chat-idle"] = &RunExecution{dependencies: s.executionDependencies(), id: "chat-idle", ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}
 	return s
 }
 
@@ -108,7 +108,7 @@ func TestSnapshotNestedIsolation(t *testing.T) {
 			live.ConversationState = *s.active.ConversationState
 			live.Runs = nil
 			if tc.name == "runs" {
-				s.runtimes["chat-a"].Runtime.Phase = "changed"
+				s.tasks.runs["chat-a"].Runtime.Phase = "changed"
 			} else {
 				tc.mutate(&live)
 				s.connections.applicationState = applicationState{Settings: live.Settings, Login: live.Login}
@@ -195,11 +195,11 @@ func TestSnapshotFixedJSON(t *testing.T) {
 			s := snapshotFixtureService()
 			switch name {
 			case "empty":
-				s = &Service{connections: Connections{applicationState: applicationState{Settings: Settings{Appearance: AppearanceSystem, ImageUploadLimit: MaxImageUploadBytes}}}, active: &conversationRuntime{ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}}
+				s = &Service{connections: Connections{applicationState: applicationState{Settings: Settings{Appearance: AppearanceSystem, ImageUploadLimit: MaxImageUploadBytes}}}, active: &RunExecution{ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}}
 			case "active":
 				s.connections.Login, s.active.Failure, s.active.Error = nil, nil, ""
 			case "idle":
-				s.active.Running, s.runtimes["chat-b"].Running = false, false
+				s.active.Running, s.tasks.runs["chat-b"].Running = false, false
 				s.active.PendingApproval = nil
 				s.active.Runtime.Phase = "interrupted"
 				s.active.Messages = append(s.active.Messages, Message{ID: "message-pending", Role: "tool", Text: "", ToolName: "run_command", ToolCallID: "call-pending", Status: "running", Command: &CommandDetails{Text: "echo fixture", Cwd: "/fixture/workspace-a"}})
