@@ -658,3 +658,8 @@ mark.find-current { background: var(--accent); color: white; }
 .completion-dismiss { width: 22px; height: 22px; flex: 0 0 22px; }
 @media (max-width: 700px) { .completion-notices { right: 16px; top: 76px; } }
 .workspace-busy { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }
+
+.update-settings { padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.update-settings h3 { margin: 0 0 8px; }
+.update-settings > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.update-settings progress { width: 100%; margin-bottom: 12px; accent-color: var(--accent); }

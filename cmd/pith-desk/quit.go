@@ -13,7 +13,7 @@ import (
 
 // installQuitConfirmation keeps a close or quit from interrupting work without
 // an explicit decision. Closing an idle window still quits the application.
-func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogMu *sync.Mutex) {
+func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogMu *sync.Mutex) *quitConfirmation {
 	active := func() bool { return len(service.Snapshot().Runs) != 0 }
 	controller := &quitConfirmation{
 		active: active,
@@ -52,6 +52,7 @@ func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogM
 	window.OnClose(func(e *mygo.CloseEvent) { intercept(e) })
 	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) { intercept(e) })
 	mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) { controller.finish() })
+	return controller
 }
 
 func flushDesktopDrafts(window *mygo.Window) error {
@@ -122,5 +123,24 @@ func (c *quitConfirmation) resolve() {
 func (c *quitConfirmation) finish() {
 	c.mu.Lock()
 	c.authorized = false
+	c.mu.Unlock()
+}
+
+// prepareUpdate reserves the exit sequence across download/install, so a
+// concurrent close cannot kill the updater or trigger a second confirmation.
+func (c *quitConfirmation) prepareUpdate() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pending || c.authorized {
+		return false
+	}
+	c.pending = true
+	return true
+}
+
+func (c *quitConfirmation) finishUpdate(success bool) {
+	c.mu.Lock()
+	c.pending = false
+	c.authorized = success
 	c.mu.Unlock()
 }

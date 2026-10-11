@@ -122,7 +122,7 @@ func TestNativeMenuShortcutsAndRolesDoNotDuplicateQuit(t *testing.T) {
 		}
 	}
 	visit(items)
-	want := map[string]string{"CmdOrCtrl+N": "desk-new", "CmdOrCtrl+O": "desk-workspace", "CmdOrCtrl+Shift+E": "desk-export", "CmdOrCtrl+,": "desk-settings"}
+	want := map[string]string{"": "desk-update", "CmdOrCtrl+N": "desk-new", "CmdOrCtrl+O": "desk-workspace", "CmdOrCtrl+Shift+E": "desk-export", "CmdOrCtrl+,": "desk-settings"}
 	if !reflect.DeepEqual(seen, want) || quit != 1 {
 		t.Fatalf("unexpected menu shortcuts or quit count: %v, %d", seen, quit)
 	}

@@ -29,6 +29,9 @@ type QueuedMessage struct {
 func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageContent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.restarting {
+		return errors.New("Pith Desk is updating; try again after restart")
+	}
 	r := s.runtimes[id]
 	if id == "" || r == nil {
 		return errors.New("Conversation not found")

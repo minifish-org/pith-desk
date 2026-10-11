@@ -92,6 +92,12 @@ func runDesktop(dataDir, devURL string) error {
 	notifications := newDesktopNotifications()
 
 	mygo.App.WhenReady(func() {
+		executable, _ := os.Executable()
+		releaseVersion := desktopReleaseVersion(executable)
+		if releaseVersion != "" {
+			desk.Version = releaseVersion
+			mygo.App.SetVersion(releaseVersion)
+		}
 		service, startupErr = desk.New(dataDir)
 		if startupErr != nil {
 			mygo.App.Quit()
@@ -169,7 +175,13 @@ func runDesktop(dataDir, devURL string) error {
 		})
 		window.Store(win)
 		installWorkspaceFileDrop(win, server)
-		installQuitConfirmation(service, win, &dialogMu)
+		exit := installQuitConfirmation(service, win, &dialogMu)
+		updater := newDesktopUpdater(service, win, &dialogMu, exit, releaseVersion, devURL != "")
+		server.SetUpdateActions(updater.status, updater.start)
+		mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) { updater.cancel() })
+		// MyGo starts the replacement during OnQuit, before App.Run returns.
+		// Release Desk's data lock before that new process opens the same data.
+		mygo.App.OnQuit(service.Close)
 		installNativeMenu(server, win)
 		notifications.Ready(service, win, &dialogMu)
 		server.SetCompletionAction(func(entry desk.Conversation, workspace desk.Workspace) {

@@ -158,6 +158,7 @@ type Service struct {
 	config           savedConfig
 	state            State
 	closed           bool
+	restarting       bool
 	changes          chan struct{}
 	dataLock         *flock.Flock
 	closeDone        chan struct{}
@@ -436,6 +437,9 @@ func (s *Service) sendLocked(text string, images ...aitypes.ImageContent) error 
 }
 
 func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, compact bool) error {
+	if s.restarting {
+		return errors.New("Pith Desk is updating; try again after restart")
+	}
 	if err := s.availableLocked(); err != nil {
 		return err
 	}

@@ -44,6 +44,8 @@ type Server struct {
 	copyFile          func(string) error
 	exportMarkdown    func(string) error
 	saveDiagnostics   func(string) error
+	updateStatus      func() wire.UpdateStatus
+	updateAction      func(string) error
 	completionAction  func(desk.Conversation, desk.Workspace)
 	completedRuns     map[string]string
 	development       *developmentFrontend

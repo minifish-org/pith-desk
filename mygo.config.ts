@@ -1,4 +1,5 @@
 import { defineConfig } from "mygo-cli";
+import { readFileSync } from "node:fs";
 
 export default defineConfig({
   name: "Pith Desk",
@@ -12,6 +13,13 @@ export default defineConfig({
   bindings: ".mygo/bindings.ts",
   out: "build",
   resources: ["LICENSE", "third_party", "docs/THIRD_PARTY.md"],
+  updates: {
+    publicKey: readFileSync(new URL("./resources/update-public-key.txt", import.meta.url), "utf8").trim(),
+    // CI publishes this pointer only after the immutable release assets exist.
+    // Preview releases are not included in GitHub's releases/latest endpoint.
+    url: "https://raw.githubusercontent.com/minifish-org/pith-desk/updates/preview",
+    deltas: 0,
+  },
   macos: {
     minimumSystemVersion: "12.0",
     signingIdentity: "-",

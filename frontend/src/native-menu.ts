@@ -8,7 +8,7 @@ interface MenuContext {
   activeId?: string | null;
 }
 
-type MenuAction = 'new-conversation' | 'choose-workspace' | 'export-conversation' | 'settings';
+type MenuAction = 'new-conversation' | 'choose-workspace' | 'export-conversation' | 'settings' | 'check-updates';
 type Action = () => void | Promise<void>;
 
 interface NativeMenuOptions {
@@ -16,7 +16,7 @@ interface NativeMenuOptions {
   context: () => MenuContext;
   request: ApiRequest;
   canExport: () => boolean;
-  actions: { newConversation: Action; chooseWorkspace: Action; exportConversation: Action; settings: Action };
+  actions: { newConversation: Action; chooseWorkspace: Action; exportConversation: Action; settings: Action; checkUpdates?: Action };
   error?: (message: string) => void;
 }
 
@@ -79,6 +79,7 @@ export function installNativeMenu(options: NativeMenuOptions): { update: () => v
       'choose-workspace': options.actions.chooseWorkspace,
       'export-conversation': options.actions.exportConversation,
       settings: options.actions.settings,
+      'check-updates': options.actions.checkUpdates || options.actions.settings,
     };
     // Existing actions set their request/dialog state synchronously before
     // awaiting HTTP, so a second activation sees the new busy/modal state.
@@ -95,7 +96,7 @@ export function installNativeMenu(options: NativeMenuOptions): { update: () => v
     const detail = (event as CustomEvent<unknown>).detail;
     if (!detail || typeof detail !== 'object' || !('action' in detail)) return;
     const action = detail.action;
-    if (action === 'new-conversation' || action === 'choose-workspace' || action === 'export-conversation' || action === 'settings') dispatch(action);
+    if (action === 'new-conversation' || action === 'choose-workspace' || action === 'export-conversation' || action === 'settings' || action === 'check-updates') dispatch(action);
   };
   const onKeyDown = (event: KeyboardEvent): void => {
     if (options.native || disposed || event.repeat || event.isComposing || event.shiftKey || event.altKey) return;

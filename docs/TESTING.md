@@ -702,3 +702,15 @@ the tallest image in a row. No document overflow or browser console errors were
 observed. TypeScript/UI checks and ARM64 app packaging passed. Screenshots are
 retained under ignored `output/playwright/attachment-layout-*.png`; no live
 provider or user conversation was used. This was verified locally before release.
+
+## Self-update checks
+
+Updater regression tests cover idle install/restart, one active-task
+confirmation, cancellation, draft-save failure, download/signature failure,
+duplicate requests and concurrent quit. Host tests enforce authentication and
+reject page-provided download URLs. Release-script tests verify signatures and
+RC version ordering. For native acceptance, use disposable app bundles and data:
+check an older release, click Update and restart, verify the new process's full
+version, restored draft and released data lock. Exercise both idle and pending
+approval confirmation, and verify that cancel leaves the old app and task intact.
+Never test bundle replacement against the normal installed app.

@@ -17,7 +17,8 @@ import (
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
 
-const Version = "0.1.0"
+// The desktop host replaces this with the release identity in the app bundle.
+var Version = "0.1.0-dev"
 
 // Only structured metadata goes into the receipt or diagnostic export. Provider
 // response bodies, prompts, paths, tool arguments and credentials never do.

@@ -39,6 +39,12 @@ func (s *Server) SetDiagnosticsAction(save func(string) error) {
 	s.saveDiagnostics = save
 }
 
+func (s *Server) SetUpdateActions(status func() wire.UpdateStatus, action func(string) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateStatus, s.updateAction = status, action
+}
+
 // These handlers run only after the common host, origin and token checks.
 func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodGet {
@@ -47,6 +53,14 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 	var value any
 	var err error
 	switch r.URL.Path {
+	case "/api/update":
+		s.mu.Lock()
+		status := s.updateStatus
+		s.mu.Unlock()
+		value = wire.UpdateStatus{Version: desk.Version, Phase: "disabled", Message: "Updates are available in the desktop release app."}
+		if status != nil {
+			value = status()
+		}
 	case "/api/image":
 		query, queryErr := wire.ReadQuery[wire.ImageQuery](r)
 		if queryErr != nil {
@@ -164,6 +178,18 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, decode func(any) error) bool {
 	var err error
 	switch r.URL.Path {
+	case "/api/update":
+		var in wire.UpdateInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
+			s.mu.Lock()
+			action := s.updateAction
+			s.mu.Unlock()
+			if action == nil {
+				err = errors.New("Updates are available in the desktop release app")
+			} else {
+				err = action(in.Action)
+			}
+		}
 	case "/api/draft":
 		var in desk.DraftInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {

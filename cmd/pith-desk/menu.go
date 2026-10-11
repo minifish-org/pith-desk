@@ -51,7 +51,7 @@ func (a nativeMenuAvailability) permits(action string) bool {
 		return a.ChooseWorkspace
 	case "export-conversation":
 		return a.Export
-	case "settings":
+	case "settings", "check-updates":
 		return a.Settings
 	}
 	return false
@@ -79,6 +79,7 @@ func installNativeMenu(server *host.Server, window *mygo.Window) *nativeMenuCont
 		menu.ItemByID("desk-workspace").SetEnabled(available.ChooseWorkspace)
 		menu.ItemByID("desk-export").SetEnabled(available.Export)
 		menu.ItemByID("desk-settings").SetEnabled(available.Settings)
+		menu.ItemByID("desk-update").SetEnabled(available.Settings)
 	}
 	mygo.App.SetMenu(menu)
 	server.SetNativeMenuAction(controller.setState)
@@ -97,6 +98,7 @@ func nativeMenuTemplate(dispatch func(string)) []*mygo.MenuItem {
 		return &mygo.MenuItem{ID: id, Label: label, Accelerator: shortcut, Disabled: true, Click: func(*mygo.MenuItem, *mygo.Window) { dispatch(action) }}
 	}
 	settings := item("desk-settings", "Settings…", "CmdOrCtrl+,", "settings")
+	updates := item("desk-update", "Check for Updates…", "", "check-updates")
 	file := []*mygo.MenuItem{
 		item("desk-new", "New Conversation", "CmdOrCtrl+N", "new-conversation"),
 		item("desk-workspace", "Choose Workspace…", "CmdOrCtrl+O", "choose-workspace"),
@@ -107,14 +109,14 @@ func nativeMenuTemplate(dispatch func(string)) []*mygo.MenuItem {
 	app := &mygo.MenuItem{Role: mygo.RoleAppMenu}
 	if runtime.GOOS == "darwin" {
 		app.Submenu = []*mygo.MenuItem{
-			{Role: mygo.RoleAbout}, mygo.Separator(), settings, mygo.Separator(),
+			{Role: mygo.RoleAbout}, updates, mygo.Separator(), settings, mygo.Separator(),
 			{Role: mygo.RoleServices}, mygo.Separator(),
 			{Role: mygo.RoleHide}, {Role: mygo.RoleHideOthers}, {Role: mygo.RoleUnhide},
 			mygo.Separator(), {Role: mygo.RoleQuit},
 		}
 		file = append(file, &mygo.MenuItem{Role: mygo.RoleClose})
 	} else {
-		file = append(file, settings, mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleQuit})
+		file = append(file, settings, updates, mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleQuit})
 	}
 	return []*mygo.MenuItem{
 		app,
@@ -128,7 +130,7 @@ func nativeMenuTemplate(dispatch func(string)) []*mygo.MenuItem {
 // Only fixed action names enter the page; no page-controlled code is evaluated.
 func nativeMenuScript(action string) string {
 	switch action {
-	case "new-conversation", "choose-workspace", "export-conversation", "settings":
+	case "new-conversation", "choose-workspace", "export-conversation", "settings", "check-updates":
 		return "window.dispatchEvent(new CustomEvent('pith:native-menu', {detail: {action: '" + action + "'}}))"
 	}
 	return "false"

@@ -7,6 +7,7 @@ import { createCostUI, formatCost, type CostSummary } from './costs';
 import { createCompletionUI } from './completion';
 import { installWorkspaceFileDrop } from './workspace-files';
 import { installNativeMenu } from './native-menu';
+import { mountUpdates } from './updates';
 import { installConversationReader } from './conversation-reader';
 import { imagePreviewBlob, installImageViewer } from './image-viewer';
 
@@ -77,6 +78,7 @@ let connection: 'connecting' | 'connected' | 'reconnecting' = 'connecting';
 let requestBusy = false;
 let resolvingReferences = false;
 let nativeMenu: ReturnType<typeof installNativeMenu> | undefined;
+let settingsUpdates: ReturnType<typeof mountUpdates> | undefined;
 let connectionProbe: AbortController | null = null;
 let refreshSettingsAuth: ((provider: string) => void) | null = null;
 let localError = '';
@@ -1214,13 +1216,15 @@ $<HTMLSelectElement>('composer-thinking').addEventListener('change', async (even
 });
 
 function openSettings(): void {
+  settingsUpdates?.dispose();
   closeSidebar();
   const appearanceSection = `<section class="appearance-settings" aria-labelledby="appearance-title"><div><h3 id="appearance-title">Appearance</h3><p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p></div><label class="sr-only" for="appearance-mode">Appearance</label><select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select><div id="appearance-error" class="form-error" role="alert"></div></section>`;
   connectionProbe?.abort();
   connectionProbe = null;
-  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button><form id="settings-form"><label class="field-label" for="settings-provider">Provider</label><select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select><div id="provider-actions"></div><details id="provider-advanced" class="provider-advanced"><summary>Advanced connection settings</summary><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div><p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p></details><p id="provider-auth-hint" class="field-hint" hidden></p><div id="provider-api-key"><label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p><button class="remove-key" id="remove-key" type="button" hidden>Remove saved API key</button></div><div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-global-idle data-idle-action>Test connection</button><p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-global-idle type="submit">Save settings</button></div></form>`;
+  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<section id="update-settings" class="update-settings" aria-labelledby="update-title"><h3 id="update-title">Updates</h3><p class="field-hint" data-update-version></p><p class="field-hint" role="status" aria-live="polite" data-update-message>Loading update status…</p><progress max="100" value="0" aria-label="Update progress" hidden></progress><div><button class="secondary-button" type="button" data-update-check disabled>Check for updates</button><button class="primary-button" type="button" data-update-install hidden>Update and restart</button></div></section><p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button><form id="settings-form"><label class="field-label" for="settings-provider">Provider</label><select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select><div id="provider-actions"></div><details id="provider-advanced" class="provider-advanced"><summary>Advanced connection settings</summary><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div><p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p></details><p id="provider-auth-hint" class="field-hint" hidden></p><div id="provider-api-key"><label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p><button class="remove-key" id="remove-key" type="button" hidden>Remove saved API key</button></div><div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-global-idle data-idle-action>Test connection</button><p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-global-idle type="submit">Save settings</button></div></form>`;
   renderAppearance();
   $<HTMLDialogElement>('settings-dialog').showModal();
+  settingsUpdates = mountUpdates($('update-settings'), request);
   let catalog: ModelCatalog | null = null;
   const originalForm = $<HTMLFormElement>('settings-form');
   const isCurrent = () => $<HTMLDialogElement>('settings-dialog').open && document.getElementById('settings-form') === originalForm;
@@ -1478,7 +1482,7 @@ nativeMenu = installNativeMenu({
   context: () => ({ ready: snapshotLoaded, busy: requestBusy || draftLoading || readingImages || resolvingReferences, workspaceId: selectedWorkspace()?.id, activeId: state.activeId }),
   request,
   canExport: () => !!state.conversations.find((entry) => entry.id === state.activeId) && !conversationRunning(state.activeId),
-  actions: { newConversation, chooseWorkspace: openWorkspace, exportConversation, settings: openSettings },
+  actions: { newConversation, chooseWorkspace: openWorkspace, exportConversation, settings: openSettings, checkUpdates: async () => { openSettings(); await settingsUpdates?.check(); } },
   error: (message) => { localError = message; render(); },
 });
 
@@ -1678,7 +1682,7 @@ for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
     if (dialog.id === 'preview-dialog' && !dialog.open) clearFilePreview();
     acknowledgeViewedCompletion();
     if (dialog.id === 'queue-edit-dialog') queueEditTarget = null;
-    if (dialog.id === 'settings-dialog') { connectionProbe?.abort(); connectionProbe = null; const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; }
+    if (dialog.id === 'settings-dialog') { settingsUpdates?.dispose(); settingsUpdates = undefined; connectionProbe?.abort(); connectionProbe = null; const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; }
     if (dialog.id === 'connections-dialog') { mcpRequest++; const key = document.getElementById('mcp-token') as HTMLInputElement | null; if (key) key.value = ''; const env = document.getElementById('mcp-env') as HTMLTextAreaElement | null; if (env) env.value = ''; }
     if (dialog.id === 'resources-dialog') resourcesRequest++;
   });

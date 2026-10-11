@@ -12,7 +12,7 @@
     "preview": "node --experimental-strip-types scripts/dev.ts --preview",
     "build": "npm run build:ui && mygo build -skip-build-command -skip-dmg -skip-notarize",
     "build:mac": "npm run build:ui && mygo build -skip-build-command -platform darwin/arm64 -skip-dmg -skip-notarize",
-    "check": "npm run build:ui && node --experimental-strip-types --test frontend/tests/*.test.mjs && GOWORK=off CGO_ENABLED=0 go test ./... && GOWORK=off CGO_ENABLED=0 go vet ./...",
+    "check": "npm run build:ui && node --experimental-strip-types --test frontend/tests/*.test.mjs scripts/*.test.mjs && GOWORK=off CGO_ENABLED=0 go test ./... && GOWORK=off CGO_ENABLED=0 go vet ./...",
     "release:preview": "node --experimental-strip-types scripts/package-release.ts",
     "release:signed": "node --experimental-strip-types scripts/package-release.ts --signed",
     "generate:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen",

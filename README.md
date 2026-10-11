@@ -295,11 +295,11 @@ See [testing and native smoke checks](docs/TESTING.md) for verification and a sh
 
 ## Current boundaries
 
-This is an experimental local desktop product. It has no computer-control tools, plugin marketplace, scheduled jobs, enterprise account system or automatic updates yet. Recovery requires user review and cannot roll back or deduplicate external effects.
+This is an experimental local desktop product. It has no computer-control tools, plugin marketplace, scheduled jobs, enterprise account system yet. Recovery requires user review and cannot roll back or deduplicate external effects.
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 
-Pith Desk supports only macOS on Apple Silicon (ARM64). Intel Mac, Linux and Windows are outside the supported scope. Native application testing and release packages target Mac ARM64. CI also checks Linux compilation without testing its desktop runtime or publishing Linux packages. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Preview downloads use manual replacement of the app bundle; no automatic updater is available. See [release packaging and signing](docs/RELEASING.md).
+Pith Desk supports only macOS on Apple Silicon (ARM64). Intel Mac, Linux and Windows are outside the supported scope. Native application testing and release packages target Mac ARM64. CI also checks Linux compilation without testing its desktop runtime or publishing Linux packages. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Release apps offer **Settings → Updates → Update and restart**, with confirmation when tasks are running. Older previews need one manual replacement to gain the updater. Updates require a writable app location. See [release packaging and signing](docs/RELEASING.md).
 
 The interface draws on the workspace-and-conversation layout of DeepSeek Harness, but uses its own host and Pith SDK integration. It does not load Harness plugins or copy its application runtime.
 

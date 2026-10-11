@@ -15,6 +15,17 @@ import (
 )
 
 type EmptyInput struct{}
+type UpdateInput struct {
+	Action string `json:"action"`
+}
+type UpdateStatus struct {
+	Version          string  `json:"version"`
+	Enabled          bool    `json:"enabled"`
+	Phase            string  `json:"phase"`
+	AvailableVersion string  `json:"availableVersion"`
+	Progress         float64 `json:"progress"`
+	Message          string  `json:"message"`
+}
 type IDInput struct {
 	ID string `json:"id"`
 }
@@ -163,6 +174,8 @@ func get[Q, O any](path string) Endpoint {
 }
 
 var Endpoints = []Endpoint{
+	get[EmptyInput, UpdateStatus]("/api/update"),
+	post[UpdateInput, OKResponse]("/api/update"),
 	get[EmptyInput, desk.State]("/api/state"),
 	get[IDInput, []desk.HistoryNode]("/api/history"),
 	get[IDInput, desk.CostReport]("/api/costs"),

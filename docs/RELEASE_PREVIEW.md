@@ -1,6 +1,17 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.16:
+New in rc.17:
+
+- Check for updates in Settings or the application menu. **Update and restart**
+  downloads a verified update, installs it and restarts immediately. Running
+  tasks, including pending approvals, require one confirmation. Text drafts and
+  conversations survive restart. Older previews need one manual replacement to
+  gain this feature; updates require a writable application location.
+- Conversation files open from a count button in the top-right title bar. The
+  button is hidden when there are no files. The conversation area's focus outline
+  is removed while buttons and inputs retain their keyboard focus indicators.
+
+Previous changes (rc.16):
 
 - Click draft attachments, sent images or generated-file images to enlarge
   them. The viewer offers Fit, Original size and zoom controls; Escape returns

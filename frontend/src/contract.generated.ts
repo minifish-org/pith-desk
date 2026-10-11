@@ -574,6 +574,19 @@ export interface TextInput {
 
 export type ThinkingLevelMap = Record<string, string | null> | null;
 
+export interface UpdateInput {
+  action: string;
+}
+
+export interface UpdateStatus {
+  version: string;
+  enabled: boolean;
+  phase: string;
+  availableVersion: string;
+  progress: number;
+  message: string;
+}
+
 export interface Usage {
   input: number;
   output: number;
@@ -618,6 +631,7 @@ export interface WorkspaceResponse {
 }
 
 export interface ReadContracts {
+  "/api/update": { input: EmptyInput; output: UpdateStatus };
   "/api/state": { input: EmptyInput; output: State };
   "/api/history": { input: IDInput; output: (HistoryNode)[] | null };
   "/api/costs": { input: IDInput; output: CostReport };
@@ -632,6 +646,7 @@ export interface ReadContracts {
 }
 
 export interface MutationContracts {
+  "/api/update": { input: UpdateInput; output: OKResponse };
   "/api/config": { input: ConfigInput; output: OKResponse };
   "/api/appearance": { input: AppearanceInput; output: OKResponse };
   "/api/workspaces": { input: PathInput; output: WorkspaceResponse };
@@ -691,5 +706,5 @@ export interface StreamContracts {
   "/api/events": State;
 }
 
-export const readPaths = ["/api/state", "/api/history", "/api/costs", "/api/resource-content", "/api/custom-connection", "/api/models", "/api/resources", "/api/artifacts", "/api/artifact-preview", "/api/draft", "/api/mcp"] as const;
-export const mutationPaths = ["/api/config", "/api/appearance", "/api/workspaces", "/api/conversations", "/api/open", "/api/read", "/api/send", "/api/abort", "/api/approval", "/api/permissions", "/api/pick-workspace", "/api/workspace-references", "/api/copy-text", "/api/draft", "/api/custom-connection", "/api/remove-model-connection", "/api/resource", "/api/branch", "/api/compact", "/api/oauth/start", "/api/oauth/answer", "/api/oauth/cancel", "/api/oauth/logout", "/api/provider-config", "/api/test-provider-connection", "/api/model-selection", "/api/test-connection", "/api/continue", "/api/diagnostics", "/api/export", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/oauth/start", "/api/mcp/oauth/logout", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/native-menu-state"] as const;
+export const readPaths = ["/api/update", "/api/state", "/api/history", "/api/costs", "/api/resource-content", "/api/custom-connection", "/api/models", "/api/resources", "/api/artifacts", "/api/artifact-preview", "/api/draft", "/api/mcp"] as const;
+export const mutationPaths = ["/api/update", "/api/config", "/api/appearance", "/api/workspaces", "/api/conversations", "/api/open", "/api/read", "/api/send", "/api/abort", "/api/approval", "/api/permissions", "/api/pick-workspace", "/api/workspace-references", "/api/copy-text", "/api/draft", "/api/custom-connection", "/api/remove-model-connection", "/api/resource", "/api/branch", "/api/compact", "/api/oauth/start", "/api/oauth/answer", "/api/oauth/cancel", "/api/oauth/logout", "/api/provider-config", "/api/test-provider-connection", "/api/model-selection", "/api/test-connection", "/api/continue", "/api/diagnostics", "/api/export", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/oauth/start", "/api/mcp/oauth/logout", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/native-menu-state"] as const;

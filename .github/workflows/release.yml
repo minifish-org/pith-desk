@@ -7,6 +7,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: pith-desk-release
+  cancel-in-progress: false
+
 jobs:
   mac:
     runs-on: macos-latest
@@ -14,6 +18,7 @@ jobs:
       CGO_ENABLED: '0'
       GOWORK: 'off'
       GOMAXPROCS: '4'
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
@@ -37,6 +42,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          PITH_DESK_UPDATE_PRIVATE_KEY: ${{ secrets.PITH_DESK_UPDATE_PRIVATE_KEY }}
         run: |
           if [ -z "$MAC_CERTIFICATE_P12$MAC_CERTIFICATE_PASSWORD$PITH_DESK_SIGNING_IDENTITY$APPLE_ID$APPLE_TEAM_ID$APPLE_APP_PASSWORD" ]; then
             npm run release:preview
@@ -69,7 +75,11 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           if ls build/releases/pith-desk-*-macos-arm64-preview.zip >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" build/releases/pith-desk-*-macos-arm64* --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon preview)" --notes-file docs/RELEASE_PREVIEW.md
+            gh release create "$RELEASE_TAG" build/releases/pith-desk-*-macos-arm64* build/releases/pith-desk-*-darwin-arm64.tar.gz build/releases/update-darwin-arm64.json --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon preview)" --notes-file docs/RELEASE_PREVIEW.md
           else
-            gh release create "$RELEASE_TAG" build/releases/pith-desk-*-macos-arm64* --verify-tag --generate-notes
+            gh release create "$RELEASE_TAG" build/releases/pith-desk-*-macos-arm64* build/releases/pith-desk-*-darwin-arm64.tar.gz build/releases/update-darwin-arm64.json --verify-tag --generate-notes
           fi
+      - name: Publish update feed after release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node --experimental-strip-types scripts/publish-update.ts
