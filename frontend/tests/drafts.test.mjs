@@ -135,3 +135,16 @@ test('image drafts survive switches and restart, and submission preserves newer 
   assert.deepEqual(db.records.get('conversation:a').images, [newer]);
   assert.equal(db.records.get('conversation:b').text, 'other');
 });
+
+test('creating a conversation moves the latest complete workspace draft before clearing the source', async () => {
+  const db = storage(), drafts = db.drafts(), source = { workspaceId: 'w' }, target = { id: 'new' };
+  const image = { id: 'a', type: 'image', data: 'aA==', mimeType: 'image/png', name: 'a.png', size: 1 };
+  await drafts.load(source);
+  drafts.update(source, 'latest text', [image]);
+  const moved = await drafts.transfer(source, target);
+  assert.equal(moved.text, 'latest text');
+  assert.deepEqual(moved.images, [image]);
+  assert.equal((await drafts.load(source)).text, '');
+  assert.equal(db.saves[0].input.id, 'new');
+  assert.equal(db.saves[1].input.workspaceId, 'w');
+});

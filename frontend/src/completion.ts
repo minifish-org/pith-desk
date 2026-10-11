@@ -1,5 +1,5 @@
 import type { Conversation } from './contract.generated';
-import type { State } from './main';
+import type { State } from './app-state';
 import type { ApiRequest } from './api';
 type CompletionState = Pick<State, 'activeId' | 'conversations' | 'workspaces' | 'runs'>;
 interface Notice { id: string; runID: string; title: string; workspace: string }

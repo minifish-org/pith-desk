@@ -291,7 +291,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	case "/api/conversations":
 		var in wire.WorkspaceInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
-			_, err = s.service.CreateConversation(in.WorkspaceID)
+			var conversation desk.Conversation
+			conversation, err = s.service.CreateConversation(in.WorkspaceID)
+			if err == nil {
+				wire.WriteJSON(w, r.Method, r.URL.Path, wire.ConversationResponse{Conversation: conversation})
+				return
+			}
 		}
 	case "/api/open":
 		var in wire.IDInput

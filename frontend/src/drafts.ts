@@ -84,7 +84,19 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
     const ids = new Set(submittedImages.map((image) => image.id));
     update(scope, draft.text === submittedText ? '' : draft.text, (draft.images || []).filter((image) => !ids.has(image.id)));
   }
-  return { load, update, flush, flushAll, prune, clearIfUnchanged };
+  async function transfer(source: DraftScope, target: DraftScope): Promise<Draft> {
+    await load(target);
+    const from = await load(source), to = await load(target);
+    if (!to.text && !to.images?.length) {
+      update(target, from.text, from.images || []);
+      // Persist the destination before clearing the workspace landing draft.
+      await flush(target);
+      clearIfUnchanged(source, from.text, from.images || []);
+      await flush(source);
+    }
+    return load(target);
+  }
+  return { load, update, flush, flushAll, prune, clearIfUnchanged, transfer };
 }
 
 function sameImages(a: DraftImage[] = [], b: DraftImage[] = []): boolean {

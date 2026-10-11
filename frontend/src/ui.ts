@@ -28,3 +28,12 @@ const paths: Record<string, string> = {
 };
 export const icon = (name: string, className = '') => `<svg class="icon ${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? paths.chat}</svg>`;
 export const escape = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+
+export function dialogHeading(title: string, id: string, dialogId: string, eyebrow = ''): string {
+  return `<div class="modal-heading"><div>${eyebrow ? `<span class="eyebrow">${escape(eyebrow)}</span>` : ''}<h2 id="${id}">${escape(title)}</h2></div><button type="button" class="quiet-icon" data-close="${dialogId}" aria-label="Close ${escape(title.toLowerCase())}">${icon('close')}</button></div>`;
+}
+
+export function showDialogError(owner: HTMLElement, message: string): void {
+  const error = owner.querySelector<HTMLElement>('[data-dialog-error], .form-error[role="alert"]');
+  if (error) { error.textContent = message; error.scrollIntoView({ block: 'nearest' }); }
+}

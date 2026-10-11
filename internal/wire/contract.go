@@ -144,6 +144,10 @@ type PathResponse struct {
 type NativeResponse struct {
 	Native bool `json:"native"`
 }
+type ConversationResponse struct {
+	Conversation desk.Conversation `json:"conversation"`
+}
+
 type WorkspaceResponse struct {
 	OK        bool           `json:"ok"`
 	Workspace desk.Workspace `json:"workspace"`
@@ -195,7 +199,7 @@ var Endpoints = []Endpoint{
 	post[desk.ConfigInput, OKResponse]("/api/config"),
 	post[AppearanceInput, OKResponse]("/api/appearance"),
 	post[PathInput, WorkspaceResponse]("/api/workspaces"),
-	post[WorkspaceInput, OKResponse]("/api/conversations"),
+	post[WorkspaceInput, ConversationResponse]("/api/conversations"),
 	post[IDInput, OKResponse]("/api/open"),
 	post[ReadInput, OKResponse]("/api/read"),
 	post[SendInput, OKResponse]("/api/send"),

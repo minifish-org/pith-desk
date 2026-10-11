@@ -1,6 +1,24 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.18:
+New in rc.19:
+
+- Streaming follows the latest reply after image attachments decode, while
+  scrolling back preserves your reading position. Historical text selection,
+  code scrolling, tool folds and keyboard focus survive new output.
+- Text and image drafts stay together when switching conversations and restarting.
+  Creating the first conversation carries its complete draft; rejected sends keep
+  it editable. Successful operations stay successful if the following refresh fails.
+- Workspace resource dialogs keep the workspace they opened for, even when a
+  completion notification switches the active conversation.
+- Replies stream through Pith's normalized text events across provider protocols.
+  Reasoning, tool arguments and compaction summaries stay outside the visible reply.
+- Dialogs share accessible headings, close icons and form sizing. Resource, MCP
+  and model connection removal use the same cancel-first confirmation. Loading
+  and connection-testing controls keep their state during live updates.
+- MCP connections use simpler Enable/Disable controls and clearer runtime status.
+- Browser regression tests run in Chromium and WebKit in CI.
+
+Previous changes (rc.18):
 
 - Settings uses consistent text line height, spacing between explanations and
   controls, section dividers and button sizes. Update version and status appear

@@ -90,6 +90,10 @@ export interface Conversation {
   unread?: boolean;
 }
 
+export interface ConversationResponse {
+  conversation: Conversation;
+}
+
 export interface CostReport {
   total: number;
   runTotal: number;
@@ -661,7 +665,7 @@ export interface MutationContracts {
   "/api/config": { input: ConfigInput; output: OKResponse };
   "/api/appearance": { input: AppearanceInput; output: OKResponse };
   "/api/workspaces": { input: PathInput; output: WorkspaceResponse };
-  "/api/conversations": { input: WorkspaceInput; output: OKResponse };
+  "/api/conversations": { input: WorkspaceInput; output: ConversationResponse };
   "/api/open": { input: IDInput; output: OKResponse };
   "/api/read": { input: ReadInput; output: OKResponse };
   "/api/send": { input: SendInput; output: OKResponse };

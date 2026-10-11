@@ -104,6 +104,9 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	}
 	waitNativeDropCondition(t, win, `document.querySelector('#composer-input')?.readOnly === false && document.querySelector('#workspace-label')?.textContent !== 'No workspace'`)
 	nativeDropEval(t, win, `const input = document.querySelector('#composer-input'); input.value = 'First draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	nativeDropEval(t, win, `const canvas=document.createElement('canvas'); canvas.width=10; canvas.height=10; const bytes=Uint8Array.from(atob(canvas.toDataURL().split(',')[1]), c=>c.charCodeAt(0)); const transfer=new DataTransfer(); transfer.items.add(new File([bytes], 'draft.png', {type:'image/png'})); const picker=document.querySelector('#image-picker'); picker.files=transfer.files; picker.dispatchEvent(new Event('change', {bubbles:true})); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelectorAll('.draft-image').length === 1`)
+
 	if err := service.OpenConversation(second.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +115,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	if err := service.OpenConversation(first.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#composer-input').value === 'First draft 中文'`)
+	waitNativeDropCondition(t, win, `document.querySelector('#composer-input').value === 'First draft 中文' && document.querySelectorAll('.draft-image').length === 1`)
 	waitSavedDraft(t, service, first.ID, "First draft 中文")
 	waitSavedDraft(t, service, second.ID, "Second draft")
 	// Recreate the host on a different random origin to verify profile storage.
@@ -132,8 +135,8 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		t.Fatal(err)
 	}
 	newOrigin, _ := json.Marshal(server.URL)
-	waitNativeDropCondition(t, win, `location.origin === `+string(newOrigin)+` && document.querySelector('#composer-input')?.value === 'First draft 中文' && !document.querySelector('#composer-input').readOnly`)
-	nativeDropEval(t, win, `document.querySelector('#composer-form').requestSubmit(); return true;`)
+	waitNativeDropCondition(t, win, `location.origin === `+string(newOrigin)+` && document.querySelector('#composer-input')?.value === 'First draft 中文' && !document.querySelector('#composer-input').readOnly && document.querySelectorAll('.draft-image').length === 1`)
+	nativeDropEval(t, win, `document.querySelector('[data-remove-image]').click(); document.querySelector('#composer-form').requestSubmit(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.approval-diff .diff-add') !== null`)
 	saveUsabilityScreenshot(t, win, "approval-diff.png")
 	waitSavedDraft(t, service, first.ID, "")
@@ -225,7 +228,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitSavedDraft(t, service, first.ID, strings.Repeat("中", desk.MaxDraftBytes/3)+"ab")
-	t.Log("drafts survived conversation switches, immediate reload and a new host origin; native exit saved the last keystrokes; send cleared only its draft; real write/edit approvals rendered SDK diffs; PNG, Markdown and UTF-8 text previews loaded; HTML and Markdown scripts remained inert")
+	t.Log("text and image drafts survived conversation switches, immediate reload and a new host origin; native exit saved the last keystrokes; send cleared only its draft; real write/edit approvals rendered SDK diffs; PNG, Markdown and UTF-8 text previews loaded; HTML and Markdown scripts remained inert")
 }
 
 func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {

@@ -1,9 +1,12 @@
-import type { State, ProviderChoice } from './main';
+import type { State, ProviderChoice } from './app-state';
+import { dialogHeading, escape, showDialogError } from './ui';
+import type { Confirmation } from './confirmation';
 
 type Resource = { name: string; path: string; description?: string; content?: string };
 import type { ModelsJsonModel as ModelDefinition, CustomConnectionInput as CustomConnection } from './contract.generated';
 import type { ApiRequest, ApiMutate, MutationPath, MutationInput } from './api';
 type API = {
+  confirm: (options: Confirmation) => void;
   state: () => State;
   busy: () => boolean;
   request: ApiRequest;
@@ -17,30 +20,26 @@ type API = {
   refreshMCP: () => Promise<void>;
 };
 
-const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 
 // These are host controls around SDK APIs, not another agent runtime.
 export function createSDKUI(api: API) {
-  document.body.insertAdjacentHTML('beforeend', '<dialog id="sdk-dialog" class="modal feature-modal"><div id="sdk-content"></div></dialog><dialog id="oauth-dialog" class="modal"><div id="oauth-content"></div></dialog>');
+  document.body.insertAdjacentHTML('beforeend', '<dialog id="sdk-dialog" class="modal feature-modal" aria-labelledby="sdk-title"><div id="sdk-content"></div></dialog><dialog id="oauth-dialog" class="modal" aria-labelledby="oauth-title"><div id="oauth-content"></div></dialog>');
   let generation = 0;
   let loginSignature = '';
   let dismissedLogin = '';
-  const heading = (title: string, id = 'sdk-dialog') => `<div class="modal-heading"><h2>${escape(title)}</h2><button class="quiet-icon" type="button" data-close="${id}" aria-label="Close">×</button></div>`;
+  const heading = (title: string, id = 'sdk-dialog') => dialogHeading(title, id === 'sdk-dialog' ? 'sdk-title' : 'oauth-title', id, id === 'sdk-dialog' ? 'PITH RESOURCES & CONNECTIONS' : 'PROVIDER ACCOUNT');
   const open = (title: string, body: string) => {
     generation++;
     $('sdk-content').onclick = null;
-    $('sdk-content').innerHTML = heading(title) + body + '<p id="sdk-error" class="form-error" role="alert"></p>';
+    $('sdk-content').innerHTML = heading(title) + body + '<p id="sdk-error" data-dialog-error class="form-error" role="alert"></p>';
     if (!$<HTMLDialogElement>('sdk-dialog').open) $<HTMLDialogElement>('sdk-dialog').showModal();
     return generation;
   };
-  const fail = (message: string) => {
-    const error = document.getElementById('sdk-error') || document.getElementById('settings-error') || document.getElementById('mcp-form-error');
-    if (error) { error.textContent = message; error.scrollIntoView({ block: 'nearest' }); }
-  };
-  const act = async <P extends MutationPath>(path: P, payload: MutationInput<P>) => {
+  const fail = (message: string, owner: HTMLElement = $('sdk-content')) => showDialogError(owner, message);
+  const act = async <P extends MutationPath>(path: P, payload: MutationInput<P>, owner: HTMLElement = $('sdk-content')) => {
     if (await api.mutate(path, payload)) return true;
-    fail(api.error());
+    fail(api.error(), owner);
     return false;
   };
 
@@ -82,16 +81,18 @@ export function createSDKUI(api: API) {
     const content = path ? (await api.request('/api/resource-content', { query: { workspaceId: workspace.id, path } })).content : kind === 'skill' ? '---\nname: my-skill\ndescription: Describe when to use this skill.\n---\n\nWrite the instructions here.\n' : kind === 'template' ? '---\ndescription: Describe this prompt.\n---\n\nHelp me with $@.\n' : '# Project instructions\n\n';
     if (seq !== generation) return;
     const editable = !api.workspaceBusy(workspace.id) && (!path || path.startsWith(workspace.path.replace(/\/$/, '') + '/'));
-    open(editable ? (path ? 'Edit workspace resource' : `Create ${kind}`) : 'Workspace resource', `<p class="file-path">${escape(path || workspace.path)}</p>${!editable ? `<p>${api.workspaceBusy(workspace.id) ? 'Stop this workspace’s task before editing resources.' : 'Inherited instructions are read-only here. Add workspace instructions to specialize them.'}</p>` : ''}<form id="resource-form">${!path && kind !== 'instructions' ? '<label class="field-label">Name<input id="resource-name" required pattern="[A-Za-z0-9]([A-Za-z0-9_]|-)*" placeholder="my-resource" /></label>' : ''}<label class="field-label" for="resource-body">Markdown</label><textarea id="resource-body" class="resource-editor" ${!editable ? 'readonly' : ''}>${escape(content)}</textarea><div class="modal-footer">${path && editable ? '<button type="button" id="delete-resource" class="secondary-button destructive-button">Delete resource</button>' : ''}<button type="button" class="secondary-button" data-close="sdk-dialog">Close</button>${editable ? '<button type="submit" class="primary-button">Save</button>' : ''}</div></form>`);
+    open(editable ? (path ? 'Edit workspace resource' : `Create ${kind}`) : 'Workspace resource', `<p class="file-path">${escape(path || workspace.path)}</p>${!editable ? `<p>${api.workspaceBusy(workspace.id) ? 'Stop this workspace’s task before editing resources.' : 'Inherited instructions are read-only here. Add workspace instructions to specialize them.'}</p>` : ''}<form id="resource-form">${!path && kind !== 'instructions' ? '<label class="field-label">Name<input id="resource-name" required pattern="[A-Za-z0-9]([A-Za-z0-9_]|-)*" placeholder="my-resource" /></label>' : ''}<label class="field-label" for="resource-body">Markdown</label><textarea id="resource-body" class="resource-editor" ${!editable ? 'readonly' : ''}>${escape(content)}</textarea><div class="modal-footer">${path && editable ? '<button type="button" id="delete-resource" class="secondary-button destructive-button">Delete resource</button>' : ''}<button type="button" class="secondary-button" data-close="sdk-dialog">${editable ? 'Cancel' : 'Close'}</button>${editable ? `<button type="submit" class="primary-button" data-idle-action data-idle-workspace="${escape(workspace.id)}">Save</button>` : ''}</div></form>`);
     const save = async (remove = false) => {
       const name = ($('resource-name') as HTMLInputElement | null)?.value || '';
       let content = $<HTMLTextAreaElement>('resource-body').value;
       if (!path && kind === 'skill') content = content.replace(/^name: my-skill$/m, `name: ${name}`);
-      if (await act('/api/resource', { workspaceId: workspace.id, kind, path: path || '', name, content, remove })) { $<HTMLDialogElement>('sdk-dialog').close(); await api.refreshResources(); }
+      if (api.workspaceBusy(workspace.id) || api.busy()) return false;
+      if (await act('/api/resource', { workspaceId: workspace.id, kind, path: path || '', name, content, remove })) { $<HTMLDialogElement>('sdk-dialog').close(); await api.refreshResources(); return true; }
+      return false;
     };
     $('resource-form').onsubmit = (e) => { e.preventDefault(); void save(); };
     const remove = document.getElementById('delete-resource');
-    if (remove) remove.onclick = () => { remove.textContent = 'Confirm delete'; remove.onclick = () => void save(true); };
+    if (remove) remove.onclick = () => api.confirm({ title: 'Delete resource?', action: 'Delete resource', description: `Permanently delete <strong>${escape(path)}</strong> from this workspace?`, hint: 'The Markdown file will be removed from your computer.', scope: { workspaceId: workspace.id }, unavailable: () => api.busy() || api.workspaceBusy(workspace.id), run: () => save(true), error: api.error });
   }
 
   async function history() {
@@ -136,17 +137,16 @@ export function createSDKUI(api: API) {
           if (await api.mutate('/api/branch', { id: api.state().activeId, nodeId: target.dataset.node! })) api.draft('');
           break;
         case 'compact': if (await act('/api/compact', { id: api.state().activeId })) $<HTMLDialogElement>('sdk-dialog').close(); break;
-        case 'mcp-login': dismissedLogin = ''; await act('/api/mcp/oauth/start', { name: target.dataset.id! }); break;
-        case 'mcp-logout': if (await act('/api/mcp/oauth/logout', { name: target.dataset.id! })) await api.refreshMCP(); break;
-        case 'login': dismissedLogin = ''; await act('/api/oauth/start', { provider: target.dataset.id! }); break;
-        case 'logout': if (await act('/api/oauth/logout', { provider: target.dataset.id! })) api.refreshProviderAuth(target.dataset.id!); break;
-        case 'cancel-login': await act('/api/oauth/cancel', {}); break;
+        case 'mcp-login': dismissedLogin = ''; await act('/api/mcp/oauth/start', { name: target.dataset.id! }, target.closest('dialog')!); break;
+        case 'mcp-logout': if (await act('/api/mcp/oauth/logout', { name: target.dataset.id! }, target.closest('dialog')!)) await api.refreshMCP(); break;
+        case 'login': dismissedLogin = ''; await act('/api/oauth/start', { provider: target.dataset.id! }, target.closest('dialog')!); break;
+        case 'logout': if (await act('/api/oauth/logout', { provider: target.dataset.id! }, target.closest('dialog')!)) api.refreshProviderAuth(target.dataset.id!); break;
+        case 'cancel-login': await act('/api/oauth/cancel', {}, target.closest('dialog')!); break;
         case 'remove-connection':
-          if (target.dataset.confirm !== 'yes') { target.dataset.confirm = 'yes'; target.textContent = 'Confirm remove'; }
-          else if (await act('/api/remove-model-connection', { id: target.dataset.id! })) api.settings();
+          api.confirm({ title: 'Remove model connection?', action: 'Remove connection', description: `Remove <strong>${escape(target.dataset.id)}</strong> and its saved credentials?`, hint: 'Existing conversations and workspace files stay available.', scope: { global: true }, unavailable: () => api.busy() || api.state().runs.length > 0, error: api.error, run: async () => { if (!await api.mutate('/api/remove-model-connection', { id: target.dataset.id! })) return false; api.settings(); return true; } });
           break;
       }
-    } catch (error) { fail(String(error)); }
+    } catch (error) { fail(String(error), $<HTMLDialogElement>('sdk-dialog').open ? $('sdk-content') : target.closest('dialog') || document.body); }
   });
   $<HTMLDialogElement>('oauth-dialog').addEventListener('close', () => { dismissedLogin = api.state().login?.id || ''; if (api.state().login && !['complete', 'error'].includes(api.state().login!.phase)) void api.mutate('/api/oauth/cancel', {}); });
   $<HTMLDialogElement>('sdk-dialog').addEventListener('close', () => { generation++; $('sdk-content').innerHTML = ''; });

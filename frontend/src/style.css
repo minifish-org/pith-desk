@@ -654,7 +654,16 @@ mark.find-current { background: var(--accent); color: white; }
 .completion-content .text-button { padding: 0; text-decoration: none; }
 .completion-dismiss { width: 22px; height: 22px; flex: 0 0 22px; }
 @media (max-width: 700px) { .completion-notices { right: 16px; top: 76px; } }
-.workspace-busy { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }
+.workspace-busy { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 12px; color: var(--muted-tonal); }
+
+/* Shared form controls for every dialog; compact timeline actions stay small. */
+:root { --control-height: 40px; --form-font-size: 13px; --field-gap: 9px; }
+.modal .field-label, .modal .custom-model label { font-size: var(--form-font-size); line-height: 20px; }
+.modal input:not([type="checkbox"]), .modal select { min-height: var(--control-height); height: var(--control-height); padding: 9px 12px; font-size: var(--form-font-size); line-height: 20px; }
+.modal label > input:not([type="checkbox"]), .modal label > select { margin-top: var(--field-gap); }
+.modal .primary-button, .modal .secondary-button, .modal .danger-button { min-height: var(--control-height); padding: 9px 14px; font-size: var(--form-font-size); line-height: 20px; }
+.modal .modal-description, .modal .field-hint, .modal .form-error { font-size: var(--form-font-size); line-height: 20px; }
+.modal .modal-footer { margin-top: 20px; padding-top: 20px; gap: 8px; }
 
 /* Settings uses one spacing rhythm for fields, explanations and actions. */
 #settings-content .settings-section { display: grid; gap: 12px; align-items: start; margin: 20px 0 0; padding: 20px 0 0; border: 0; border-top: 1px solid var(--border); color: var(--text); }

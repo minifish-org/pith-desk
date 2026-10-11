@@ -17,6 +17,8 @@ After installing development dependencies:
 
 ```sh
 GOWORK=off npm run check
+npx playwright install chromium webkit
+npm run test:ui
 GOWORK=off npm run release:preview
 ```
 
@@ -85,7 +87,7 @@ supported scope.
 
 Settings → Updates and the macOS application menu's **Check for Updates…**
 check the preview feed. **Update and restart** verifies and installs the signed
-full app archive, saves text drafts, and restarts immediately. Running tasks in
+full app archive, saves text and image drafts, and restarts immediately. Running tasks in
 any workspace, including pending approvals, require one confirmation. Cancel or
 installation failure keeps the app running. New task admission is paused during
 installation; existing tasks continue until shutdown. Data and workspace files

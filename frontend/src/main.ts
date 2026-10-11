@@ -1,5 +1,7 @@
 import './style.css';
-import { escape, icon } from './ui';
+import { escape, icon, dialogHeading } from './ui';
+import type { State } from './app-state';
+import { createConfirmation } from './confirmation';
 import { createMessageView } from './messages-view';
 import { createDrafts, draftKey } from './drafts';
 import { createMutations } from './mutations';
@@ -19,15 +21,6 @@ import { createAPI, parseStream, type MutationPath, type MutationInput, type Mut
 import type { State as WireState, Workspace, Conversation, QueuedMessage, Artifact, ResourceInventory as WorkspaceResources, MCPServerView as MCPConnection, ImageContent, RunSummary, Message, RuntimeStatus, ModelCatalog, PermissionMode, AppearanceMode, ProviderChoice, DraftScope, DraftImage as WireDraftImage } from './contract.generated';
 export type { ProviderChoice } from './contract.generated';
 
-// The Go snapshot normalizes these collections; retain a defensive boundary
-// for an interrupted connection while using the generated wire State type.
-export type State = Omit<WireState, 'workspaces' | 'conversations' | 'messages' | 'queuedMessages' | 'runs'> & {
-  workspaces: Workspace[];
-  conversations: Conversation[];
-  messages: NonNullable<WireState['messages']>;
-  queuedMessages: QueuedMessage[];
-  runs: NonNullable<WireState['runs']>;
-};
 type ImageInput = ImageContent & { type: 'image' };
 interface DraftImage extends ImageInput { id: string; name: string; size: number; url: string }
 
@@ -188,8 +181,8 @@ $('app').innerHTML = `
   <section id="completion-notices" class="completion-notices" aria-label="Completed tasks" aria-live="polite"></section>
   <span id="copy-status" class="sr-only" role="status" aria-live="polite"></span>
   <dialog id="model-dialog" class="modal model-modal" aria-labelledby="model-title"><div id="model-content"></div></dialog>
-  <dialog id="settings-dialog" class="modal"><div id="settings-content"></div></dialog>
-  <dialog id="workspace-dialog" class="modal"><div id="workspace-content"></div></dialog>
+  <dialog id="settings-dialog" class="modal" aria-labelledby="settings-title"><div id="settings-content"></div></dialog>
+  <dialog id="workspace-dialog" class="modal" aria-labelledby="workspace-title"><div id="workspace-content"></div></dialog>
   <dialog id="permissions-dialog" class="modal permission-modal" aria-labelledby="full-access-title"><div id="permissions-content"></div></dialog>
   <dialog id="delete-dialog" class="modal" aria-labelledby="delete-title"><div id="delete-content"></div></dialog>
   <dialog id="rename-dialog" class="modal" aria-labelledby="rename-title"><div id="rename-content"></div></dialog>
@@ -216,9 +209,10 @@ const updateCompletions = (initialized: boolean) => completionUI.observe(initial
 const acknowledgeViewedCompletion = () => completionUI.acknowledgeViewed();
 const dismissCompletion = (runID: string) => completionUI.dismiss(runID);
 const mutations = createMutations({ request, refresh, busy: () => requestBusy, setBusy: (value) => { requestBusy = value; }, error: (message) => { localError = message; }, render });
+const confirmRemoval = createConfirmation($<HTMLDialogElement>('delete-dialog'));
 const messageView = createMessageView($('messages'));
 const sdkUI = createSDKUI({
-  state: () => state, request, mutate, error: () => localError,
+  confirm: confirmRemoval, state: () => state, request, mutate, error: () => localError,
   busy: () => requestBusy || draftLoading || !snapshotLoaded,
   workspaceBusy: (id) => !!workspaceRun(id), settings: openSettings,
   refreshProviderAuth: (provider) => refreshSettingsAuth?.(provider),
@@ -503,29 +497,28 @@ function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
   const description = kind === 'workspace'
     ? `Remove <strong>${escape(name)}</strong> from Pith Desk and permanently delete its <strong>${count} ${count === 1 ? 'conversation' : 'conversations'}</strong>, including history, image attachments and run records?`
     : `Permanently delete <strong>${escape(name)}</strong>, including its history, image attachments and run records?`;
-  $('delete-content').innerHTML = `${dialogHeading(`${action}?`, 'delete-title', 'delete-dialog', 'PERMANENT REMOVAL')}<p class="modal-description">${description}</p><p class="field-hint">The folder and its files stay on your computer, including files created by Pith. Deleted conversation data cannot be recovered from Pith Desk.</p><form id="delete-form"><div id="delete-error" class="form-error" role="alert"></div><div class="modal-footer"><button id="cancel-delete" type="button" class="secondary-button" data-close="delete-dialog">Cancel</button><button type="submit" class="danger-button" data-idle-action ${kind === 'workspace' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(id)}">${action}</button></div></form>`;
-  showDialog('delete-dialog');
-  $('cancel-delete').focus();
-  $('delete-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (busy() || requestBusy) return;
-    const activeWorkspace = selectedWorkspace()?.id;
-    const activeID = state.activeId;
-    const ok = await mutate(kind === 'workspace' ? '/api/remove-workspace' : '/api/delete-conversation', { id, ...(kind === 'workspace' ? { conversationCount: count } : {}) });
-    if (!ok) { $('delete-error').textContent = localError; return; }
-    $<HTMLDialogElement>('delete-dialog').close();
-    if (kind === 'workspace') {
-      expandedWorkspaces.delete(id);
-      if (selectedWorkspaceId === id) selectedWorkspaceId = '';
-      if (resourcesWorkspaceId === id) { resources = null; resourcesWorkspaceId = ''; resourcesRequest++; $<HTMLDialogElement>('resources-dialog').close(); }
-    }
-    if (activeID !== state.activeId || activeWorkspace !== selectedWorkspace()?.id) {
-      clearHistoryImages();
-      loadComposerDraft();
-      resizeComposer();
-    }
-    render();
-  });
+  confirmRemoval({ title: `${action}?`, action, description,
+    hint: 'The folder and its files stay on your computer, including files created by Pith. Deleted conversation data cannot be recovered from Pith Desk.',
+    scope: kind === 'workspace' ? { workspaceId: id } : { conversationId: id },
+    unavailable: () => busy() || requestBusy, error: () => localError,
+    run: async () => {
+      const activeWorkspace = selectedWorkspace()?.id;
+      const activeID = state.activeId;
+      const ok = await mutate(kind === 'workspace' ? '/api/remove-workspace' : '/api/delete-conversation', { id, ...(kind === 'workspace' ? { conversationCount: count } : {}) });
+      if (!ok) return false;
+      if (kind === 'workspace') {
+        expandedWorkspaces.delete(id);
+        if (selectedWorkspaceId === id) selectedWorkspaceId = '';
+        if (resourcesWorkspaceId === id) { resources = null; resourcesWorkspaceId = ''; resourcesRequest++; $<HTMLDialogElement>('resources-dialog').close(); }
+      }
+      if (activeID !== state.activeId || activeWorkspace !== selectedWorkspace()?.id) {
+        clearHistoryImages();
+        loadComposerDraft();
+        resizeComposer();
+      }
+      render();
+      return true;
+  } });
 }
 
 function renderQueue(): void {
@@ -720,19 +713,24 @@ async function send(): Promise<void> {
   if (!selectedWorkspace()) { openWorkspace(); return; }
   rememberDraft();
   void drafts.flush(sourceScope).catch(() => {});
-  if (!state.activeId) {
-    if (!await mutate('/api/conversations', { workspaceId: selectedWorkspace()!.id })) return;
-    // Creating the first conversation changes the composer scope. Carry the
-    // initial text into it before sending so a rejected send remains editable.
-    await composerDraftReady;
-    if (!state.activeId) return;
-    if (composerScope.id === state.activeId && input.value === '') {
-      input.value = draft;
-      draftImages = await restoreDraftImages(submittedImages, () => composerScope.id === state.activeId);
-      rememberDraft();
-    }
+  let id = state.activeId;
+  if (!id) {
+    if (!await mutate('/api/conversations', { workspaceId: selectedWorkspace()!.id }, (response) => { id = response.conversation.id; })) return;
+    try {
+      const carried = await drafts.transfer(sourceScope, { id });
+      const remaining = await drafts.load(sourceScope);
+      if (draftKey(composerScope) === draftKey(sourceScope) && !remaining.text && !remaining.images?.length) {
+        input.value = '';
+        clearDraftImages();
+      }
+      await composerDraftReady;
+      if (composerScope.id === id && !input.value && !draftImages.length) {
+        input.value = carried.text;
+        draftImages = await restoreDraftImages(carried.images || [], () => composerScope.id === id);
+        rememberDraft();
+      }
+    } catch (error) { localError = `Draft could not be moved: ${error instanceof Error ? error.message : String(error)}`; render(); return; }
   }
-  const id = state.activeId;
   if (await mutate('/api/send', { id, text, images }, () => {
     drafts.clearIfUnchanged(sourceScope, draft, submittedImages);
     if (sourceScope.id !== id) drafts.clearIfUnchanged({ id }, draft, submittedImages);
@@ -770,10 +768,6 @@ async function queueMessage(text: string, draft: string, images: ImageInput[], s
   } catch (error) {
     localError = `${error instanceof Error ? error.message : String(error)} The message was not resent. Check pending messages before trying again.`;
   } finally { requestBusy = false; render(); }
-}
-
-function dialogHeading(title: string, id: string, dialogId: string, eyebrow: string): string {
-  return `<div class="modal-heading"><div><span class="eyebrow">${escape(eyebrow)}</span><h2 id="${id}">${escape(title)}</h2></div><button class="quiet-icon" data-close="${dialogId}" aria-label="Close ${escape(title.toLowerCase())}">${icon('close')}</button></div>`;
 }
 
 function showDialog(id: string): void {
@@ -964,7 +958,7 @@ function renderResources(): void {
 }
 
 function openConnections(): void {
-  $('connections-content').innerHTML = `${dialogHeading('Connections', 'connections-title', 'connections-dialog', 'EXTERNAL TOOLS')}<p class="modal-description">Add an MCP server to give Pith access to its tools. Enabled connections connect automatically when a task starts. Disable a connection to stop using it in tasks. External tools require approval unless this conversation has full access.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-mcp">Refresh</button></div><div id="mcp-list"><p class="feature-hint">Loading connections…</p></div><div id="mcp-error" class="form-error" role="alert"></div><section class="connection-editor"><div class="section-heading"><span id="mcp-form-title">Add connection</span><button type="button" class="text-button" data-action="new-mcp">New connection</button></div><form id="mcp-form"><label class="field-label" for="mcp-name">Name</label><input id="mcp-name" name="name" required autocomplete="off" placeholder="my-tools" /><label class="field-label" for="mcp-type">Connection type</label><select id="mcp-type" name="type" class="feature-select"><option value="http">HTTP</option><option value="stdio">Local command (stdio)</option></select><div id="mcp-http-fields"><label class="field-label" for="mcp-url">Server URL</label><input id="mcp-url" name="url" type="url" placeholder="https://example.com/mcp" autocomplete="off" /><label class="checkbox-field"><input id="mcp-oauth" type="checkbox" />Sign in with OAuth</label><details class="provider-advanced"><summary>OAuth settings (optional)</summary><label class="field-label">Registered client ID<input id="mcp-oauth-client" /></label><label class="field-label">Scopes<input id="mcp-oauth-scope" /></label><p class="field-hint">Uses the server’s OAuth discovery and PKCE. The temporary callback listens on 127.0.0.1:54819.</p></details><label class="field-label" for="mcp-token">Bearer token (optional)</label><input id="mcp-token" name="bearerToken" type="password" autocomplete="new-password" placeholder="Optional token" /><label class="checkbox-field" id="mcp-clear-token-row" hidden><input id="mcp-clear-token" type="checkbox" />Remove saved bearer token</label><p class="field-hint">Saved tokens are never returned to this page. Leave this field blank to keep an existing token.</p></div><div id="mcp-stdio-fields" hidden><label class="field-label" for="mcp-command">Installed executable</label><input id="mcp-command" name="command" placeholder="/path/to/mcp-server" autocomplete="off" /><label class="field-label" for="mcp-args">Arguments (JSON array)</label><textarea id="mcp-args" name="args" rows="3" spellcheck="false">[]</textarea><p class="field-hint">The executable and any runtime it needs must already be installed on your computer. Pith Desk does not bundle external runtimes or a marketplace.</p><div class="secret-label"><label class="field-label" for="mcp-env">Environment overrides (JSON object, optional)</label><button class="text-button" type="button" id="mcp-env-visibility" data-action="toggle-env" aria-controls="mcp-env" aria-pressed="false">Show</button></div><textarea id="mcp-env" class="secret-field" name="env" rows="3" spellcheck="false" autocomplete="off" aria-describedby="mcp-env-hint" placeholder='{"API_KEY":"…"}'></textarea><p id="mcp-env-hint" class="field-hint">Values stay private. Leave blank to keep saved overrides. Add a JSON object of string keys and values to set or replace individual overrides.</p><p id="mcp-env-keys" class="field-hint" hidden></p><label class="checkbox-field" id="mcp-clear-env-row" hidden><input id="mcp-clear-env" type="checkbox" />Clear saved environment overrides</label></div><label class="checkbox-field"><input id="mcp-enabled" name="enabled" type="checkbox" checked />Enable this connection</label><div id="mcp-form-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="connections-dialog">Close</button><button class="primary-button" type="submit" data-idle-action data-global-idle>Save connection</button></div></form></section>`;
+  $('connections-content').innerHTML = `${dialogHeading('Connections', 'connections-title', 'connections-dialog', 'EXTERNAL TOOLS')}<p class="modal-description">Add an MCP server to give Pith access to its tools. Enabled connections connect automatically when a task starts. Disable a connection to stop using it in tasks. External tools require approval unless this conversation has full access.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-mcp">Refresh</button></div><div id="mcp-list"><p class="feature-hint">Loading connections…</p></div><div id="mcp-error" data-dialog-error class="form-error" role="alert"></div><section class="connection-editor"><div class="section-heading"><span id="mcp-form-title">Add connection</span><button type="button" class="text-button" data-action="new-mcp">New connection</button></div><form id="mcp-form"><label class="field-label" for="mcp-name">Name</label><input id="mcp-name" name="name" required autocomplete="off" placeholder="my-tools" /><label class="field-label" for="mcp-type">Connection type</label><select id="mcp-type" name="type" class="feature-select"><option value="http">HTTP</option><option value="stdio">Local command (stdio)</option></select><div id="mcp-http-fields"><label class="field-label" for="mcp-url">Server URL</label><input id="mcp-url" name="url" type="url" placeholder="https://example.com/mcp" autocomplete="off" /><label class="checkbox-field"><input id="mcp-oauth" type="checkbox" />Sign in with OAuth</label><details class="provider-advanced"><summary>OAuth settings (optional)</summary><label class="field-label">Registered client ID<input id="mcp-oauth-client" /></label><label class="field-label">Scopes<input id="mcp-oauth-scope" /></label><p class="field-hint">Uses the server’s OAuth discovery and PKCE. The temporary callback listens on 127.0.0.1:54819.</p></details><label class="field-label" for="mcp-token">Bearer token (optional)</label><input id="mcp-token" name="bearerToken" type="password" autocomplete="new-password" placeholder="Optional token" /><label class="checkbox-field" id="mcp-clear-token-row" hidden><input id="mcp-clear-token" type="checkbox" />Remove saved bearer token</label><p class="field-hint">Saved tokens are never returned to this page. Leave this field blank to keep an existing token.</p></div><div id="mcp-stdio-fields" hidden><label class="field-label" for="mcp-command">Installed executable</label><input id="mcp-command" name="command" placeholder="/path/to/mcp-server" autocomplete="off" /><label class="field-label" for="mcp-args">Arguments (JSON array)</label><textarea id="mcp-args" name="args" rows="3" spellcheck="false">[]</textarea><p class="field-hint">The executable and any runtime it needs must already be installed on your computer. Pith Desk does not bundle external runtimes or a marketplace.</p><div class="secret-label"><label class="field-label" for="mcp-env">Environment overrides (JSON object, optional)</label><button class="text-button" type="button" id="mcp-env-visibility" data-action="toggle-env" aria-controls="mcp-env" aria-pressed="false">Show</button></div><textarea id="mcp-env" class="secret-field" name="env" rows="3" spellcheck="false" autocomplete="off" aria-describedby="mcp-env-hint" placeholder='{"API_KEY":"…"}'></textarea><p id="mcp-env-hint" class="field-hint">Values stay private. Leave blank to keep saved overrides. Add a JSON object of string keys and values to set or replace individual overrides.</p><p id="mcp-env-keys" class="field-hint" hidden></p><label class="checkbox-field" id="mcp-clear-env-row" hidden><input id="mcp-clear-env" type="checkbox" />Clear saved environment overrides</label></div><label class="checkbox-field"><input id="mcp-enabled" name="enabled" type="checkbox" checked />Enable this connection</label><div id="mcp-form-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="connections-dialog">Close</button><button class="primary-button" type="submit" data-idle-action data-global-idle>Save connection</button></div></form></section>`;
   showDialog('connections-dialog');
   $<HTMLSelectElement>('mcp-type').addEventListener('change', renderMCPType);
   $('mcp-form').addEventListener('submit', (event) => { event.preventDefault(); void saveMCP(); });
@@ -1158,7 +1152,7 @@ function openSettings(): void {
   connectionProbe?.abort();
   connectionProbe = null;
   $('settings-content').innerHTML = `
-    <div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button type="button" class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>
+    ${dialogHeading('Settings', 'settings-title', 'settings-dialog', 'MAKE IT YOURS')}
     <section class="settings-section appearance-settings" aria-labelledby="appearance-title">
       <h3 id="appearance-title">Appearance</h3>
       <p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p>
@@ -1204,7 +1198,7 @@ function openSettings(): void {
         <div class="settings-actions"><button type="button" class="secondary-button" id="test-connection" data-control-pending="true" disabled data-global-idle data-idle-action>Test connection</button></div>
         <div id="connection-test-result" role="status" aria-live="polite"></div>
       </section>
-      <div id="settings-error" class="form-error" role="alert"></div>
+      <div id="settings-error" data-dialog-error class="form-error" role="alert"></div>
       <section class="settings-section diagnostics-setting">
         <p class="field-hint">Version, usage and failure category only; no conversation, file contents, paths or credentials.</p>
         <div class="settings-actions"><button type="button" class="secondary-button" data-action="diagnostics">Save diagnostics</button></div>
@@ -1338,7 +1332,7 @@ function openSettings(): void {
 
 function openWorkspace(): void {
   closeSidebar();
-  $('workspace-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">A PLACE TO WORK</span><h2>Workspaces</h2></div><button class="quiet-icon" data-close="workspace-dialog" aria-label="Close workspaces">${icon('close')}</button></div><p class="modal-description">Choose a local folder. Conversations belong to a workspace,<br>so Pith knows where to read and create files.</p><div class="modal-workspaces">${state.workspaces.map((entry) => `<button class="modal-workspace" data-modal-workspace="${escape(entry.id)}">${icon('folder')}<span><strong>${escape(entry.name)}</strong><small>${escape(entry.path)}</small></span>${icon('chevron')}</button>`).join('')}</div><div class="workspace-add"><button class="picker-button" id="pick-folder" type="button">${icon('folder')}Choose a folder…</button><div class="path-divider"><span>or enter a folder path</span></div><form id="workspace-form"><label class="sr-only" for="workspace-path">Absolute folder path</label><input id="workspace-path" name="path" placeholder="/Users/you/Documents/my-work" required autocomplete="off" spellcheck="false" /><p class="field-hint">Use an existing folder on this computer. Pith will work inside it.</p><div id="workspace-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="workspace-dialog">Cancel</button><button class="primary-button" id="add-workspace" type="submit">Add workspace</button></div></form></div>`;
+  $('workspace-content').innerHTML = `${dialogHeading('Workspaces', 'workspace-title', 'workspace-dialog', 'A PLACE TO WORK')}<p class="modal-description">Choose a local folder. Conversations belong to a workspace, so Pith knows where to read and create files.</p><div class="modal-workspaces">${state.workspaces.map((entry) => `<button class="modal-workspace" data-modal-workspace="${escape(entry.id)}">${icon('folder')}<span><strong>${escape(entry.name)}</strong><small>${escape(entry.path)}</small></span>${icon('chevron')}</button>`).join('')}</div><div class="workspace-add"><button class="picker-button" id="pick-folder" type="button">${icon('folder')}Choose a folder…</button><div class="path-divider"><span>or enter a folder path</span></div><form id="workspace-form"><label class="sr-only" for="workspace-path">Absolute folder path</label><input id="workspace-path" name="path" placeholder="/Users/you/Documents/my-work" required autocomplete="off" spellcheck="false" /><p class="field-hint">Use an existing folder on this computer. Pith will work inside it.</p><div id="workspace-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="workspace-dialog">Cancel</button><button class="primary-button" id="add-workspace" type="submit">Add workspace</button></div></form></div>`;
   $<HTMLDialogElement>('workspace-dialog').showModal();
   $('workspace-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1557,9 +1551,14 @@ document.addEventListener('click', async (event) => {
     const entry = mcpConnections.find((item) => item.name === (target.dataset.mcpToggle || target.dataset.mcpRemove));
     if (!entry) return;
     $('mcp-error').textContent = '';
-    const ok = target.dataset.mcpRemove ? await mutate('/api/mcp/remove', { name: entry.name }) : await mutate('/api/mcp/save', { name: entry.name, type: entry.type, oauth: entry.oauth, url: entry.url, command: entry.command, args: entry.args || [], enabled: !entry.enabled });
-    if (ok) { await loadMCP(); if (target.dataset.mcpRemove && $<HTMLInputElement>('mcp-name').value === entry.name) editMCP(); }
-    else $('mcp-error').textContent = localError;
+    const save = async () => {
+      const ok = target.dataset.mcpRemove ? await mutate('/api/mcp/remove', { name: entry.name }) : await mutate('/api/mcp/save', { name: entry.name, type: entry.type, oauth: entry.oauth, url: entry.url, command: entry.command, args: entry.args || [], enabled: !entry.enabled });
+      if (ok) { await loadMCP(); if (target.dataset.mcpRemove && $<HTMLInputElement>('mcp-name').value === entry.name) editMCP(); }
+      else $('mcp-error').textContent = localError;
+      return ok;
+    };
+    if (target.dataset.mcpRemove) confirmRemoval({ title: 'Delete connection?', action: 'Delete connection', description: `Remove <strong>${escape(entry.name)}</strong> and its saved credentials from Pith Desk?`, hint: 'Workspace files and existing conversations stay on your computer.', scope: { global: true }, unavailable: () => requestBusy || anyRunning(), run: save, error: () => localError });
+    else await save();
     return;
   }
   if (target.dataset.prompt) { if (draftLoading) return; input.value = target.dataset.prompt; rememberDraft(); resizeComposer(); render(); input.focus(); return; }

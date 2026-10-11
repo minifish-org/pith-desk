@@ -74,4 +74,3 @@ export async function verifyScroll(page) {
   });
   return results;
 }
-

@@ -1,4 +1,4 @@
-import type { State } from './main';
+import type { State } from './app-state';
 
 import type { CostSummary, CostReport } from './contract.generated';
 import type { ApiRequest } from './api';
