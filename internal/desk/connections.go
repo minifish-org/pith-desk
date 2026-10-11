@@ -15,7 +15,7 @@ import (
 // coordination. Its preview runtime is separate from each task's transports.
 // The shared application mutex retains the existing synchronization order.
 type Connections struct {
-	applicationState
+	connectionState
 	config           savedConfig
 	dataDir          string
 	mu               *sync.Mutex
@@ -60,7 +60,7 @@ func (c *Connections) stream(ctx context.Context, config savedConfig) (agenttype
 }
 
 // Settings and login are projected from their connection owner.
-type applicationState struct {
+type connectionState struct {
 	Settings Settings
 	Login    *LoginStatus
 }
@@ -76,4 +76,34 @@ func (c *Connections) refreshSettings() {
 		hasConnections = hasConnections || connectionReady(connection)
 	}
 	c.Settings = Settings{HasConnections: hasConnections, Provider: c.config.Provider, ModelName: name, ThinkingLevel: c.config.ThinkingLevel, ThinkingLevels: thinkingLevels(model), BaseURL: c.config.BaseURL, Model: c.config.Model, HasAPIKey: connectionReady(c.config.Connections[c.config.Provider]), Appearance: c.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
+}
+
+func (c *Connections) beginProbe(cancel context.CancelFunc, done chan struct{}) {
+	c.probeCancel, c.probeDone = cancel, done
+}
+func (c *Connections) endProbe() { c.probeCancel, c.probeDone = nil, nil }
+
+// These are state transitions only. Callers retain the original commit point,
+// shared mutex, notifications and close-outside-the-lock resource ordering.
+func (c *Connections) commitMCPConfigs(configs []savedMCP) *codingagent.MCPRuntime {
+	old := c.takeMCPPreview()
+	c.mcpConfigs = configs
+	c.mcpTokens = map[string]*mcpTokenProvider{}
+	return old
+}
+func (c *Connections) beginMCPPreview(cancel context.CancelFunc) *codingagent.MCPRuntime {
+	c.mcpConnectCancel, c.mcpConnecting = cancel, true
+	return c.takeMCPPreview()
+}
+func (c *Connections) endMCPPreview()                                { c.mcpConnectCancel, c.mcpConnecting = nil, false }
+func (c *Connections) setMCPPreview(runtime *codingagent.MCPRuntime) { c.mcpRuntime = runtime }
+func (c *Connections) takeMCPPreview() *codingagent.MCPRuntime {
+	runtime := c.mcpRuntime
+	c.mcpRuntime = nil
+	return runtime
+}
+func (c *Connections) discardMCPPreview(runtime *codingagent.MCPRuntime) {
+	if c.mcpRuntime == runtime {
+		c.mcpRuntime = nil
+	}
 }

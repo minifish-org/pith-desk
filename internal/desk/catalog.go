@@ -5,6 +5,12 @@ import (
 	"github.com/minifish-org/pith-desk/internal/localstore"
 )
 
+type catalogState struct {
+	Workspaces    []Workspace    `json:"workspaces"`
+	Conversations []Conversation `json:"conversations"`
+	ActiveID      string         `json:"activeId"`
+}
+
 // Catalog is the single owner of index state. Service.mu serializes its use;
 // sessions retain authority over message bodies, branches and title history.
 type Catalog struct {

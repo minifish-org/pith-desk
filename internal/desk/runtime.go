@@ -6,21 +6,6 @@ import (
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 )
 
-type QueueMode string
-
-const (
-	QueueSteer    = "steer"
-	QueueFollowUp = "follow-up"
-)
-
-type QueuedMessage struct {
-	ID         string                 `json:"id"`
-	Text       string                 `json:"text"`
-	Mode       QueueMode              `json:"mode"`
-	Images     []aitypes.ImageContent `json:"-"`
-	ImageCount int                    `json:"imageCount,omitempty"`
-}
-
 // QueueMessage belongs to the current run only. Pith chooses the next safe
 // steering boundary or the point at which it would otherwise finish.
 func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageContent) error {
@@ -29,7 +14,7 @@ func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageCon
 	if s.restarting {
 		return errors.New("Pith Desk is updating; try again after restart")
 	}
-	r := s.tasks.runs[id]
+	r := s.tasks.lookup(id)
 	if id == "" || r == nil {
 		return errors.New("Conversation not found")
 	}
@@ -42,7 +27,7 @@ func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageCon
 func (s *Service) MutateQueuedMessage(id, messageID, action, text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r := s.tasks.runs[id]
+	r := s.tasks.lookup(id)
 	if id == "" || r == nil {
 		return errors.New("Conversation not found")
 	}

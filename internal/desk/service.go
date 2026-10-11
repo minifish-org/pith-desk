@@ -5,7 +5,6 @@ package desk
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,132 +18,6 @@ import (
 	"github.com/minifish-org/pith-desk/internal/workspacefs"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 )
-
-type Settings struct {
-	Provider         string         `json:"provider"`
-	ModelName        string         `json:"modelName"`
-	ThinkingLevel    string         `json:"thinkingLevel"`
-	ThinkingLevels   []string       `json:"thinkingLevels"`
-	BaseURL          string         `json:"baseUrl"`
-	Model            string         `json:"model"`
-	HasConnections   bool           `json:"hasConnections"`
-	HasAPIKey        bool           `json:"hasApiKey"`
-	Appearance       AppearanceMode `json:"appearance"`
-	SupportsImages   bool           `json:"supportsImages"`
-	ImageUploadLimit int            `json:"imageUploadLimit"`
-}
-
-// An empty APIKey preserves only the same provider/endpoint key.
-// ClearAPIKey explicitly removes that provider’s saved key.
-type ConfigInput struct {
-	Provider      string `json:"provider"`
-	ThinkingLevel string `json:"thinkingLevel"`
-	BaseURL       string `json:"baseUrl"`
-	Model         string `json:"model"`
-	APIKey        string `json:"apiKey,omitempty"`
-	ClearAPIKey   bool   `json:"clearApiKey,omitempty"`
-}
-
-type Workspace struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Path string `json:"path"`
-}
-
-type Conversation struct {
-	ID             string         `json:"id"`
-	Title          string         `json:"title"`
-	WorkspaceID    string         `json:"workspaceId"`
-	UpdatedAt      string         `json:"updatedAt"`
-	PermissionMode PermissionMode `json:"permissionMode"`
-	CompletedRunID string         `json:"completedRunId,omitempty"`
-	Unread         bool           `json:"unread,omitempty"`
-}
-
-type PermissionMode string
-
-const (
-	PermissionAsk            PermissionMode = "ask"
-	PermissionWorkspaceWrite PermissionMode = "workspace-write"
-	PermissionFullAccess     PermissionMode = "full-access"
-)
-
-func validPermissionMode(mode PermissionMode) bool {
-	return mode == PermissionAsk || mode == PermissionWorkspaceWrite || mode == PermissionFullAccess
-}
-
-func normalizedPermissionMode(mode PermissionMode) PermissionMode {
-	if !validPermissionMode(mode) {
-		return PermissionAsk
-	}
-	return mode
-}
-
-func (mode PermissionMode) allows(tool string) bool {
-	if mode == PermissionFullAccess {
-		return tool == "write_file" || tool == "edit_file" || tool == "run_command"
-	}
-	return mode == PermissionWorkspaceWrite && (tool == "write_file" || tool == "edit_file")
-}
-
-type Message struct {
-	ID           string          `json:"id"`
-	Role         string          `json:"role"`
-	Text         string          `json:"text"`
-	ToolName     string          `json:"toolName,omitempty"`
-	ToolCallID   string          `json:"toolCallId,omitempty"`
-	Status       string          `json:"status,omitempty"`
-	Images       []MessageImage  `json:"images,omitempty"`
-	BranchNodeID string          `json:"branchNodeId,omitempty"`
-	Command      *CommandDetails `json:"command,omitempty"`
-}
-
-type Approval struct {
-	ID         string           `json:"id"`
-	ToolName   string           `json:"toolName"`
-	Args       json.RawMessage  `json:"args"`
-	Warning    string           `json:"warning,omitempty"`
-	Preview    *ApprovalPreview `json:"preview,omitempty"`
-	fileReview *approvalFileReview
-}
-
-type State struct {
-	Login         *LoginStatus   `json:"login,omitempty"`
-	Settings      Settings       `json:"settings"`
-	Workspaces    []Workspace    `json:"workspaces"`
-	Conversations []Conversation `json:"conversations"`
-	ActiveID      string         `json:"activeId"`
-	Runs          []RunSummary   `json:"runs"`
-	ConversationState
-}
-
-// ConversationState belongs to one conversation, independent of UI selection.
-type ConversationState struct {
-	Messages        []Message       `json:"messages"`
-	QueuedMessages  []QueuedMessage `json:"queuedMessages"`
-	Running         bool            `json:"running"`
-	PendingApproval *Approval       `json:"pendingApproval,omitempty"`
-	Error           string          `json:"error,omitempty"`
-	Runtime         RuntimeStatus   `json:"runtime"`
-	Failure         *Failure        `json:"failure,omitempty"`
-}
-
-type savedConfig struct {
-	AuthPath      string                     `json:"-"`
-	Provider      string                     `json:"provider"`
-	ThinkingLevel string                     `json:"thinkingLevel"`
-	Connections   map[string]savedConnection `json:"connections,omitempty"`
-	BaseURL       string                     `json:"baseUrl"`
-	Model         string                     `json:"model"`
-	APIKey        string                     `json:"apiKey,omitempty"`
-	Appearance    AppearanceMode             `json:"appearance"`
-}
-
-type catalogState struct {
-	Workspaces    []Workspace    `json:"workspaces"`
-	Conversations []Conversation `json:"conversations"`
-	ActiveID      string         `json:"activeId"`
-}
 
 type Service struct {
 	journals    TaskJournal
@@ -193,7 +66,7 @@ func New(dataDir string) (*Service, error) {
 	if err := os.Chmod(abs, 0700); err != nil {
 		return nil, err
 	}
-	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), tasks: TaskSupervisor{runs: map[string]*RunExecution{}},
+	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), tasks: newTaskSupervisor(),
 		dataLock: dataLock, closeDone: make(chan struct{}),
 		catalog: Catalog{path: filepath.Join(abs, "catalog.json"), catalogState: catalogState{Workspaces: []Workspace{}, Conversations: []Conversation{}}}}
 	s.connections = newConnections(abs, &s.mu)
@@ -446,7 +319,7 @@ func (s *Service) Abort() {
 // AbortConversation targets the submitted conversation even after UI navigation.
 func (s *Service) AbortConversation(id string) error {
 	s.mu.Lock()
-	r := s.tasks.runs[id]
+	r := s.tasks.lookup(id)
 	if r == nil || !r.Running {
 		s.mu.Unlock()
 		return errors.New("This conversation has no running task")
@@ -494,13 +367,7 @@ func (s *Service) SetPermissionMode(id string, mode PermissionMode) error {
 func (s *Service) DecideApprovalWithScope(id string, allow, alwaysAllow bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var r *RunExecution
-	for _, candidate := range s.tasks.runs {
-		if candidate.PendingApproval != nil && candidate.PendingApproval.ID == id {
-			r = candidate
-			break
-		}
-	}
+	r := s.tasks.pendingApproval(id)
 	// Standalone guarded-tool tests also use the blank conversation runtime.
 	if r == nil && s.active.PendingApproval != nil && s.active.PendingApproval.ID == id {
 		r = s.active
@@ -576,7 +443,7 @@ func (s *Service) loadMessagesLocked(id string) error {
 	if s.conversationIndexLocked(id) < 0 {
 		return errors.New("Conversation not found")
 	}
-	if r := s.tasks.runs[id]; r != nil && r.Running {
+	if r := s.tasks.lookup(id); r != nil && r.Running {
 		s.selectRuntimeLocked(r)
 		return nil
 	}
@@ -584,7 +451,7 @@ func (s *Service) loadMessagesLocked(id string) error {
 	if err != nil {
 		return err
 	}
-	previous := s.tasks.runs[id]
+	previous := s.tasks.lookup(id)
 	r := s.newRuntimeLocked(id)
 	if manager != nil {
 		defer manager.Close()

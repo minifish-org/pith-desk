@@ -4,13 +4,6 @@ import (
 	"errors"
 )
 
-type RunSummary struct {
-	ConversationID string `json:"conversationId"`
-	WorkspaceID    string `json:"workspaceId"`
-	Phase          string `json:"phase"`
-	NeedsApproval  bool   `json:"needsApproval"`
-}
-
 func (s *Service) newRuntimeLocked(id string) *RunExecution {
 	r := &RunExecution{dependencies: s.executionDependencies(), id: id,
 		ConversationState: &ConversationState{Messages: []Message{}, QueuedMessages: []QueuedMessage{}},

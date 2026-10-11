@@ -84,3 +84,14 @@ func closeTasks(runs []closingTask) {
 		<-r.done
 	}
 }
+
+func newTaskSupervisor() TaskSupervisor                  { return TaskSupervisor{runs: map[string]*RunExecution{}} }
+func (t *TaskSupervisor) lookup(id string) *RunExecution { return t.runs[id] }
+func (t *TaskSupervisor) pendingApproval(id string) *RunExecution {
+	for _, r := range t.runs {
+		if r.PendingApproval != nil && r.PendingApproval.ID == id {
+			return r
+		}
+	}
+	return nil
+}

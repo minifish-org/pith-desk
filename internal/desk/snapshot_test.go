@@ -18,7 +18,7 @@ func snapshotFixtureService() *Service {
 	s := &Service{
 		connections: Connections{
 			config: savedConfig{APIKey: "fixture-private-api-key", AuthPath: "/fixture/private/auth.json"},
-			applicationState: applicationState{
+			connectionState: connectionState{
 				Settings: Settings{
 					Provider: "fixture-provider", ModelName: "Fixture Model", Model: "fixture-model",
 					ThinkingLevel: "medium", ThinkingLevels: []string{"off", "medium"},
@@ -94,7 +94,7 @@ func TestSnapshotNestedIsolation(t *testing.T) {
 			want := oracle.Snapshot()
 			returned := s.Snapshot()
 			tc.mutate(&returned)
-			if !reflect.DeepEqual(s.connections.applicationState, oracle.connections.applicationState) || !reflect.DeepEqual(s.catalog.catalogState, oracle.catalog.catalogState) || !reflect.DeepEqual(s.active.ConversationState, oracle.active.ConversationState) {
+			if !reflect.DeepEqual(s.connections.connectionState, oracle.connections.connectionState) || !reflect.DeepEqual(s.catalog.catalogState, oracle.catalog.catalogState) || !reflect.DeepEqual(s.active.ConversationState, oracle.active.ConversationState) {
 				t.Fatal("mutating the returned snapshot changed its owner")
 			}
 			if got := s.Snapshot(); !reflect.DeepEqual(got, want) {
@@ -111,7 +111,7 @@ func TestSnapshotNestedIsolation(t *testing.T) {
 				s.tasks.runs["chat-a"].Runtime.Phase = "changed"
 			} else {
 				tc.mutate(&live)
-				s.connections.applicationState = applicationState{Settings: live.Settings, Login: live.Login}
+				s.connections.connectionState = connectionState{Settings: live.Settings, Login: live.Login}
 				s.catalog.replace(catalogState{Workspaces: live.Workspaces, Conversations: live.Conversations, ActiveID: live.ActiveID})
 				*s.active.ConversationState = live.ConversationState
 			}
@@ -195,7 +195,7 @@ func TestSnapshotFixedJSON(t *testing.T) {
 			s := snapshotFixtureService()
 			switch name {
 			case "empty":
-				s = &Service{connections: Connections{applicationState: applicationState{Settings: Settings{Appearance: AppearanceSystem, ImageUploadLimit: MaxImageUploadBytes}}}, active: &RunExecution{ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}}
+				s = &Service{connections: Connections{connectionState: connectionState{Settings: Settings{Appearance: AppearanceSystem, ImageUploadLimit: MaxImageUploadBytes}}}, active: &RunExecution{ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}}
 			case "active":
 				s.connections.Login, s.active.Failure, s.active.Error = nil, nil, ""
 			case "idle":

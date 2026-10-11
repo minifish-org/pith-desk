@@ -81,7 +81,7 @@ func (s *Service) Costs(id string) (CostReport, error) {
 func (s *Service) costsLocked(id string, includeRun bool) (CostReport, error) {
 	runID := ""
 	if includeRun {
-		if r := s.tasks.runs[id]; r != nil {
+		if r := s.tasks.lookup(id); r != nil {
 			runID = r.Runtime.RunID
 		} else {
 			var receipt runReceipt
@@ -126,7 +126,7 @@ func (s *Service) recordCost(id, runID, purpose string, model *aitypes.Model, co
 	record := RequestCost{ID: newID(), RunID: runID, Time: timestamp(), Provider: string(model.Provider), ProviderName: config.Connections[config.Provider].Name, Model: model.Id, ModelName: model.Name, Purpose: purpose, Status: string(response.StopReason), Usage: usage, Price: model.Cost, Source: source, Known: known}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r := s.tasks.runs[id]
+	r := s.tasks.lookup(id)
 	if r != nil && runID == r.Runtime.RunID && r.Runtime.Timing.StartedAt != "" {
 		// Usage remains useful even when this endpoint has no known price.
 		if usage.Output >= 0 && !math.IsNaN(usage.Output) && !math.IsInf(usage.Output, 0) {

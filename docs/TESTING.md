@@ -136,6 +136,31 @@ update fix does not change the existing MCP removal failure semantics. Pending
 backup cleanup errors report partial success and can retry during startup; these
 checks establish process recovery, not power-loss durability or a global transaction.
 
+## Durable task lifecycle
+
+TaskSupervisor retains workspace occupancy through settlement and resource
+cleanup. RunExecution owns each SDK session, queue, approval and MCP transport;
+callbacks use that execution's identity rather than the selected conversation.
+TaskJournal uses the pinned SDK's existing fsynced storage and entry formats.
+
+`task_commit_test.go` exercises admission, SDK BeforeCommit queue mutations,
+delivery markers, reviewed continuation and settlement failures. A known
+pre-admission StorageRejected leaves the journal usable; an uncertain storage
+error requires closing and reopening it. Continue admits its restored queue
+and new task in one transaction. SDK settlement errors become visible after
+cleanup, without publishing a successful completion. Blocked settlement and
+Close tests verify occupancy, cancel-all-before-wait and the data directory lock.
+
+`task_crash_test.go` kills real isolated child processes after admission, a file
+tool side effect, queue receipt and before settlement. It verifies recovery
+without automatic model requests, explicit reviewed continuation and independent
+conversation identities. SIGKILL recovery does not establish power-loss
+durability or exactly-once external actions.
+
+```sh
+GOWORK=off CGO_ENABLED=0 go test ./internal/desk -run 'TestTaskAdmission|TestQueueJournal|TestUncertainQueue|TestDeliveredMarker|TestContinueQueue|TestSettlement|TestTaskSIGKILL' -count=1
+```
+
 ## Drafts, approval diffs and file previews (2026-10-10)
 
 Tests verify independent conversation/workspace text drafts, mode-0600 storage,

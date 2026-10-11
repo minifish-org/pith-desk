@@ -140,12 +140,12 @@ func (s *Service) TestConnection(ctx context.Context, input ConfigInput) (Connec
 
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	s.connections.probeCancel, s.connections.probeDone = cancel, done
+	s.connections.beginProbe(cancel, done)
 	s.mu.Unlock()
 	defer func() {
 		cancel()
 		s.mu.Lock()
-		s.connections.probeCancel, s.connections.probeDone = nil, nil
+		s.connections.endProbe()
 		s.mu.Unlock()
 		close(done)
 	}()

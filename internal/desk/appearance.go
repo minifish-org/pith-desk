@@ -40,8 +40,7 @@ func (s *Service) SetAppearance(mode AppearanceMode) error {
 	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
 		return err
 	}
-	s.connections.config = next
-	s.refreshSettingsLocked()
+	s.connections.commitConfig(next)
 	s.changedLocked()
 	return nil
 }

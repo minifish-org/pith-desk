@@ -2,7 +2,6 @@ package desk
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -173,9 +172,7 @@ func (s *Service) SaveMCP(input MCPInput) error {
 	// Config is the commit point; an old OAuth backup is never a credential
 	// source for the new config, even if backup cleanup needs a restart.
 	cleanupErr := pending.finish(true)
-	old := s.connections.mcpRuntime
-	s.connections.mcpConfigs, s.connections.mcpRuntime = configs, nil
-	s.connections.mcpTokens = map[string]*mcpTokenProvider{}
+	old := s.connections.commitMCPConfigs(configs)
 	s.changedLocked()
 	s.mu.Unlock()
 	closeMCPRuntime(old)
@@ -216,9 +213,7 @@ func (s *Service) RemoveMCP(name string) error {
 		s.mu.Unlock()
 		return err
 	}
-	old := s.connections.mcpRuntime
-	s.connections.mcpConfigs, s.connections.mcpRuntime = configs, nil
-	s.connections.mcpTokens = map[string]*mcpTokenProvider{}
+	old := s.connections.commitMCPConfigs(configs)
 	s.changedLocked()
 	s.mu.Unlock()
 	closeMCPRuntime(old)
@@ -294,16 +289,14 @@ func (s *Service) ConnectMCP(ctx context.Context) error {
 		return nil
 	}
 	connectCtx, cancel := context.WithCancel(ctx)
-	s.connections.mcpConnectCancel, s.connections.mcpConnecting = cancel, true
-	old := s.connections.mcpRuntime
-	s.connections.mcpRuntime = nil
+	old := s.connections.beginMCPPreview(cancel)
 	s.changedLocked()
 	s.mu.Unlock()
 	defer cancel()
 	closeMCPRuntime(old)
 	runtime, diagnostics := s.loadMCPRuntime(connectCtx, configs)
 	s.mu.Lock()
-	s.connections.mcpConnectCancel, s.connections.mcpConnecting = nil, false
+	s.connections.endMCPPreview()
 	if s.closed || connectCtx.Err() != nil {
 		s.changedLocked()
 		s.mu.Unlock()
@@ -313,7 +306,7 @@ func (s *Service) ConnectMCP(ctx context.Context) error {
 		}
 		return errors.New("Pith Desk has closed")
 	}
-	s.connections.mcpRuntime = runtime
+	s.connections.setMCPPreview(runtime)
 	var messages []string
 	for _, diagnostic := range diagnostics {
 		messages = append(messages, s.redactMCPLocked(diagnostic.Error()))
@@ -366,8 +359,7 @@ func (s *Service) DisconnectMCP() error {
 		s.mu.Unlock()
 		return err
 	}
-	runtime := s.connections.mcpRuntime
-	s.connections.mcpRuntime = nil
+	runtime := s.connections.takeMCPPreview()
 	s.changedLocked()
 	s.mu.Unlock()
 	closeMCPRuntime(runtime)
@@ -378,8 +370,7 @@ func (s *Service) closeMCP() {
 	_ = s.acquireMCP(context.Background())
 	defer s.releaseMCP()
 	s.mu.Lock()
-	runtime := s.connections.mcpRuntime
-	s.connections.mcpRuntime = nil
+	runtime := s.connections.takeMCPPreview()
 	s.mu.Unlock()
 	closeMCPRuntime(runtime)
 }
@@ -412,94 +403,6 @@ func (s *Service) mcpDefinitionsFor(owner *RunExecution) []codingagent.ToolDefin
 	return mcpToolDefinitions(s.executionDependencies(), owner)
 }
 
-func mcpToolDefinitions(s executionDependencies, owner *RunExecution) []codingagent.ToolDefinition {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	runtime := s.connections.mcpRuntime
-	if owner != nil && owner.Running {
-		runtime = owner.mcpRuntime
-	}
-	if runtime == nil {
-		return nil
-	}
-	definitions := runtime.ToolDefinitions()
-	for i := range definitions {
-		execute := definitions[i].Execute
-		definitions[i].Execute = func(ctx context.Context, args json.RawMessage) (codingagent.ToolResult, error) {
-			finished, watcherFinished := make(chan struct{}), make(chan struct{})
-			go func() {
-				defer close(watcherFinished)
-				select {
-				case <-ctx.Done():
-					s.mu.Lock()
-					if owner != nil && owner.mcpRuntime == runtime {
-						owner.mcpRuntime = nil
-					}
-					if s.connections.mcpRuntime == runtime {
-						s.connections.mcpRuntime = nil
-					}
-					s.changedLocked()
-					s.mu.Unlock()
-					closeMCPRuntime(runtime)
-				case <-finished:
-				}
-			}()
-			result, err := execute(ctx, args)
-			close(finished)
-			<-watcherFinished
-			if err != nil {
-				s.mu.Lock()
-				message := s.redactMCP(err.Error())
-				s.mu.Unlock()
-				return result, errors.New(message)
-			}
-			return result, nil
-		}
-	}
-	return definitions
-}
-
 func (s *Service) loadMCPRuntime(ctx context.Context, configs []codingagent.MCPServerConfig) (*codingagent.MCPRuntime, []codingagent.MCPDiagnostic) {
 	return s.connections.loadMCPRuntime(ctx, configs, s.files)
-}
-
-func (r *RunExecution) connectMCP(ctx context.Context) error {
-	s := r.dependencies
-	s.mu.Lock()
-	var configs []codingagent.MCPServerConfig
-	for _, config := range s.connections.mcpConfigs {
-		if config.Enabled {
-			configs = append(configs, config.sdkConfig())
-		}
-	}
-	s.mu.Unlock()
-	if len(configs) == 0 {
-		return nil
-	}
-	runtime, diagnostics := s.connections.loadMCPRuntime(ctx, configs, *s.files)
-	s.mu.Lock()
-	if *s.closed || ctx.Err() != nil {
-		s.mu.Unlock()
-		closeMCPRuntime(runtime)
-		return context.Canceled
-	}
-	r.mcpRuntime = runtime
-	var messages []string
-	for _, diagnostic := range diagnostics {
-		messages = append(messages, s.redactMCP(diagnostic.Error()))
-	}
-	s.mu.Unlock()
-	if len(messages) > 0 {
-		return fmt.Errorf("MCP connection: %s", strings.Join(messages, "; "))
-	}
-	return nil
-}
-
-func (r *RunExecution) closeMCP() {
-	s := r.dependencies
-	s.mu.Lock()
-	runtime := r.mcpRuntime
-	r.mcpRuntime = nil
-	s.mu.Unlock()
-	closeMCPRuntime(runtime)
 }
