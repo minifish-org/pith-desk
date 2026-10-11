@@ -140,7 +140,7 @@ func (s *Service) validCompletionNotificationLocked(target CompletionNotificatio
 	if index < 0 {
 		return false
 	}
-	entry := s.state.Conversations[index]
+	entry := s.catalog.Conversations[index]
 	_, exists := s.workspaceLocked(target.WorkspaceID)
 	return exists && entry.WorkspaceID == target.WorkspaceID && entry.CompletedRunID == target.RunID
 }

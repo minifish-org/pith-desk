@@ -168,7 +168,7 @@ func (s *Service) ContinueTask(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.active
-	if id != s.state.ActiveID || s.active.Failure == nil || !s.active.Failure.CanContinue {
+	if id != s.catalog.ActiveID || s.active.Failure == nil || !s.active.Failure.CanContinue {
 		return errors.New("Open an interrupted conversation and review it before continuing")
 	}
 	pending := append([]QueuedMessage(nil), s.active.QueuedMessages...)
@@ -306,7 +306,7 @@ func (s *Service) Diagnostics() (string, error) {
 		ConversationCount  int           `json:"conversationCount"`
 		EnabledConnections int           `json:"enabledConnections"`
 		Cost               string        `json:"cost"`
-	}{Version: Version, PithVersion: pithVersion, OS: runtime.GOOS, Architecture: runtime.GOARCH, GoVersion: runtime.Version(), CreatedAt: timestamp(), Running: s.active.Running, Runtime: s.active.Runtime, WorkspaceCount: len(s.state.Workspaces), ConversationCount: len(s.state.Conversations), Cost: "See request ledger: SDK token usage priced with a recorded catalog or user price snapshot, in USD. Estimates are not provider bills."}
+	}{Version: Version, PithVersion: pithVersion, OS: runtime.GOOS, Architecture: runtime.GOARCH, GoVersion: runtime.Version(), CreatedAt: timestamp(), Running: s.active.Running, Runtime: s.active.Runtime, WorkspaceCount: len(s.catalog.Workspaces), ConversationCount: len(s.catalog.Conversations), Cost: "See request ledger: SDK token usage priced with a recorded catalog or user price snapshot, in USD. Estimates are not provider bills."}
 	if s.active.Failure != nil {
 		diagnostic.FailureKind = s.active.Failure.Kind
 	}

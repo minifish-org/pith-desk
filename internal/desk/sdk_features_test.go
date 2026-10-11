@@ -280,7 +280,7 @@ func TestDeferredMCPDiscoveryAndCodemodeShareExternalApproval(t *testing.T) {
 	if err := s.ConnectMCP(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	policy, err := newFilePolicy(s.state.Workspaces[0].Path, s.dataDir)
+	policy, err := newFilePolicy(s.catalog.Workspaces[0].Path, s.dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}

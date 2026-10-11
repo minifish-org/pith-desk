@@ -19,7 +19,7 @@ func (s *Service) OpenConversationFile(id, path string) (string, io.ReadCloser, 
 	if index < 0 {
 		return "", nil, errors.New("Conversation not found")
 	}
-	workspace, ok := s.workspaceLocked(s.state.Conversations[index].WorkspaceID)
+	workspace, ok := s.workspaceLocked(s.catalog.Conversations[index].WorkspaceID)
 	if !ok {
 		return "", nil, errors.New("Workspace not found")
 	}

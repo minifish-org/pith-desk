@@ -481,7 +481,7 @@ func TestPersistenceDeletionIntentUsesCommittedCatalog(t *testing.T) {
 			s.Close()
 			installPersistenceFixture(t, dir, "pending-deletions.json", "pending-deletions.json", "")
 			if committed {
-				if err := writeJSON(filepath.Join(dir, "catalog.json"), catalogState{Workspaces: s.state.Workspaces, Conversations: []Conversation{}}); err != nil {
+				if err := writeJSON(filepath.Join(dir, "catalog.json"), catalogState{Workspaces: s.catalog.Workspaces, Conversations: []Conversation{}}); err != nil {
 					t.Fatal(err)
 				}
 			}

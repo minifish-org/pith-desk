@@ -64,7 +64,7 @@ func (s *Service) selectRuntimeLocked(r *conversationRuntime) {
 		s.runtimes[r.id] = r
 	}
 	s.active = r
-	s.state.ActiveID = r.id
+	s.catalog.selectConversation(r.id)
 }
 
 func (s *Service) anyRunningLocked() bool {

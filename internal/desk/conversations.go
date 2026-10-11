@@ -1,47 +1,12 @@
 package desk
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/minifish-org/pith-desk/internal/workspacefs"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
-
-// A Pith session_info record is the authority for the display name. The catalog
-// is only an index, including for older conversations with no session yet.
-func latestSessionTitle(manager *codingagent.SessionManager, fallback string) string {
-	if manager != nil {
-		entries := manager.Entries()
-		for i := len(entries) - 1; i >= 0; i-- {
-			if entries[i].Type != "session_info" {
-				continue
-			}
-			var info struct {
-				Name string `json:"name"`
-			}
-			if json.Unmarshal(entries[i].Payload, &info) == nil && strings.TrimSpace(info.Name) != "" {
-				return info.Name
-			}
-		}
-	}
-	return fallback
-}
-
-func ensureSessionTitle(manager *codingagent.SessionManager, fallback string) error {
-	if manager == nil || strings.TrimSpace(fallback) == "" {
-		return nil
-	}
-	if latestSessionTitle(manager, "") != "" {
-		return nil
-	}
-	_, err := manager.AppendSessionInfo(fallback)
-	return err
-}
 
 // Reconcile every cached name, including inactive conversations. The
 // session record wins after a catalog write failure; no transcript is rewritten
@@ -49,8 +14,8 @@ func ensureSessionTitle(manager *codingagent.SessionManager, fallback string) er
 func (s *Service) reconcileSessionTitlesLocked() error {
 	var failures []error
 	changed := false
-	for i := range s.state.Conversations {
-		conversation := &s.state.Conversations[i]
+	for i := range s.catalog.Conversations {
+		conversation := &s.catalog.Conversations[i]
 		manager, err := s.readConversationSessionLocked(conversation.ID)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("Read conversation %q: %w", conversation.Title, err))
@@ -62,7 +27,7 @@ func (s *Service) reconcileSessionTitlesLocked() error {
 		title := latestSessionTitle(manager, conversation.Title)
 		_ = manager.Close()
 		if title != conversation.Title {
-			conversation.Title = title
+			s.catalog.rememberTitle(i, title)
 			changed = true
 		}
 	}
@@ -88,11 +53,11 @@ func (s *Service) RenameConversation(id, title string) error {
 	if title == "" {
 		return errors.New("Enter a conversation name")
 	}
-	workspace, ok := s.workspaceLocked(s.state.Conversations[index].WorkspaceID)
+	workspace, ok := s.workspaceLocked(s.catalog.Conversations[index].WorkspaceID)
 	if !ok {
 		return errors.New("Workspace not found")
 	}
-	manager, err := openDeskSession(s.sessionFile(id), id, workspace.Path)
+	manager, err := s.sessionAdapter().open(id, workspace.Path)
 	if err != nil {
 		return err
 	}
@@ -100,8 +65,8 @@ func (s *Service) RenameConversation(id, title string) error {
 	if _, err := manager.AppendSessionInfo(title); err != nil {
 		return err
 	}
-	s.state.Conversations[index].Title = latestSessionTitle(manager, title)
-	s.state.Conversations[index].UpdatedAt = timestamp()
+	s.catalog.rememberTitle(index, latestSessionTitle(manager, title))
+	s.catalog.touch(index, timestamp())
 	s.changedLocked()
 	if err := s.persistCatalogLocked(); err != nil {
 		return fmt.Errorf("Conversation name was saved, but its index could not be updated: %w", err)
@@ -119,7 +84,7 @@ func (s *Service) ExportConversation(id string) (string, error) {
 	if index < 0 {
 		return "", errors.New("Conversation not found")
 	}
-	conversation := s.state.Conversations[index]
+	conversation := s.catalog.Conversations[index]
 	manager, err := s.readConversationSessionLocked(id)
 	if err != nil {
 		return "", err
@@ -166,74 +131,10 @@ func (s *Service) ExportConversation(id string) (string, error) {
 	return markdown.String(), nil
 }
 
-// Reading an older empty conversation must not create a new persisted session.
+// Catalog existence is checked by the application; the adapter owns SDK IO.
 func (s *Service) readConversationSessionLocked(id string) (*codingagent.SessionManager, error) {
 	if s.conversationIndexLocked(id) < 0 {
 		return nil, errors.New("Conversation not found")
 	}
-	info, err := os.Stat(s.sessionFile(id))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errors.New("Conversation session is not a regular file")
-	}
-	if info.Size() == 0 {
-		return nil, nil
-	}
-	return codingagent.OpenSession(s.sessionFile(id))
-}
-
-// The pinned SDK has no public Cwd option on OpenSession. Seed only a missing
-// or historical zero-byte session with its exported header type, then let Pith
-// own all parsing and subsequent records. Existing transcripts stay untouched.
-func openDeskSession(file, id, cwd string) (*codingagent.SessionManager, error) {
-	info, err := os.Stat(file)
-	if err == nil && info.Size() > 0 {
-		return codingagent.OpenSession(file)
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	if err == nil && !info.Mode().IsRegular() {
-		return nil, errors.New("Conversation session is not a regular file")
-	}
-	canonical, err := workspacefs.Directory(cwd)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
-		return nil, err
-	}
-	version := codingagent.CurrentSessionVersion
-	header, err := json.Marshal(codingagent.SessionHeader{Type: "session", Version: &version, ID: id, Timestamp: timestamp(), Cwd: canonical})
-	if err != nil {
-		return nil, err
-	}
-	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	if info != nil {
-		flags = os.O_WRONLY | os.O_TRUNC
-	}
-	output, err := os.OpenFile(file, flags, 0600)
-	if errors.Is(err, os.ErrExist) {
-		return codingagent.OpenSession(file)
-	}
-	if err != nil {
-		return nil, err
-	}
-	_, writeErr := output.Write(append(header, '\n'))
-	if writeErr == nil {
-		writeErr = output.Sync()
-	}
-	closeErr := output.Close()
-	if writeErr != nil {
-		return nil, writeErr
-	}
-	if closeErr != nil {
-		return nil, closeErr
-	}
-	return codingagent.OpenSession(file)
+	return s.sessionAdapter().read(id)
 }

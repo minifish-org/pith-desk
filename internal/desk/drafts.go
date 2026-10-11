@@ -81,10 +81,10 @@ func (s *Service) SaveDraft(in DraftInput) (Draft, error) {
 
 func (s *Service) cleanupDraftsLocked() error {
 	valid := map[string]bool{}
-	for _, conversation := range s.state.Conversations {
+	for _, conversation := range s.catalog.Conversations {
 		valid[conversation.ID+".json"] = true
 	}
-	for _, workspace := range s.state.Workspaces {
+	for _, workspace := range s.catalog.Workspaces {
 		valid["workspace-"+workspace.ID+".json"] = true
 	}
 	return s.draftStore().prune(valid)

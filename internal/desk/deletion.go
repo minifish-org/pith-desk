@@ -37,7 +37,7 @@ func (s *Service) RemoveWorkspace(id string, conversationCount int) error {
 		return errors.New("Workspace not found")
 	}
 	ids := []string{}
-	for _, conversation := range s.state.Conversations {
+	for _, conversation := range s.catalog.Conversations {
 		if conversation.WorkspaceID == id {
 			ids = append(ids, conversation.ID)
 		}
@@ -95,20 +95,7 @@ func (s *Service) deleteDataLocked(workspaceID string, ids []string) error {
 	for _, id := range ids {
 		removed[id] = true
 	}
-	next := catalogState{Workspaces: []Workspace{}, Conversations: []Conversation{}, ActiveID: s.state.ActiveID}
-	for _, workspace := range s.state.Workspaces {
-		if workspace.ID != workspaceID {
-			next.Workspaces = append(next.Workspaces, workspace)
-		}
-	}
-	for _, conversation := range s.state.Conversations {
-		if !removed[conversation.ID] {
-			next.Conversations = append(next.Conversations, conversation)
-		}
-	}
-	if removed[next.ActiveID] {
-		next.ActiveID = ""
-	}
+	next := s.catalog.without(workspaceID, removed)
 	// Persist intent before changing the catalog. On restart, only IDs absent
 	// from the committed catalog are deleted; an uncommitted request is canceled.
 	if err := s.files.WriteJSON(filepath.Join(s.dataDir, deletionFile), ids); err != nil {
@@ -117,8 +104,8 @@ func (s *Service) deleteDataLocked(workspaceID string, ids []string) error {
 	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "catalog.json"), next); err != nil {
 		return errors.Join(err, root.Remove(deletionFile))
 	}
-	activeRemoved := s.state.ActiveID != next.ActiveID
-	s.state.Workspaces, s.state.Conversations, s.state.ActiveID = next.Workspaces, next.Conversations, next.ActiveID
+	activeRemoved := s.catalog.ActiveID != next.ActiveID
+	s.catalog.replace(next)
 	for _, id := range ids {
 		delete(s.runtimes, id)
 	}

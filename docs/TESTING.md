@@ -63,6 +63,22 @@ reading position, image drafts, original mutation targets and real Host
 reconnect/restart. Both opt-in `TestUsabilityNative` scenarios passed with the
 rebuilt embedded UI. These changes retain existing UI and permission flows.
 
+## Catalog and Session boundaries (2026-10-12)
+
+Catalog is the single index owner for workspaces, conversations, selection,
+permissions and completion/read markers. SessionAdapter owns SDK session IO,
+message/history projection and branch validation. Service retains the existing
+lock and coordinates cross-file operations. A committed session title remains
+visible if its catalog update fails; deletion still writes intent before catalog
+commit and cleans only IDs absent from the committed index. User workspace files
+are retained. No formats, permissions or partial-success semantics changed.
+
+The existing fixed persistence/snapshot samples and title, branch, deletion,
+permission, completion and notification regressions exercise these boundaries.
+The comprehensive check, uncached internal race suite and actual Host transport
+browser scenarios are run for this extraction; final native checks remain in
+the integration batch.
+
 ## Persistence compatibility and file failures (2026-10-12)
 
 Literal fixtures in `internal/desk/testdata/persistence` cover settings and its

@@ -108,7 +108,7 @@ func TestReadPersistenceFailureKeepsUnread(t *testing.T) {
 	s, _, dataDir := configuredService(t, "http://127.0.0.1:1")
 	defer s.Close()
 	s.mu.Lock()
-	id := s.state.ActiveID
+	id := s.catalog.ActiveID
 	err := s.completeConversationLocked(id, "completed-run")
 	s.mu.Unlock()
 	if err != nil {

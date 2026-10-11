@@ -72,7 +72,7 @@ func (s *Service) PreviewArtifact(id, path string) (ArtifactPreview, error) {
 		return ArtifactPreview{}, errors.New("Preview a file produced by this conversation inside its workspace")
 	}
 	index := s.conversationIndexLocked(id)
-	workspace, _ := s.workspaceLocked(s.state.Conversations[index].WorkspaceID)
+	workspace, _ := s.workspaceLocked(s.catalog.Conversations[index].WorkspaceID)
 	policy, err := newFilePolicy(workspace.Path, s.dataDir)
 	if err != nil {
 		return ArtifactPreview{}, err

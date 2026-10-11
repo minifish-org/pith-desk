@@ -41,7 +41,7 @@ func completeNotificationFixture(t *testing.T, s *Service, id, runID string) Con
 	if err := s.completeConversationLocked(id, runID); err != nil {
 		t.Fatal(err)
 	}
-	return s.state.Conversations[s.conversationIndexLocked(id)]
+	return s.catalog.Conversations[s.conversationIndexLocked(id)]
 }
 
 func TestCompletionNotificationSurvivesRestartAndSelectsCorrectWorkspace(t *testing.T) {

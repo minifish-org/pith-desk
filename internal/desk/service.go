@@ -159,7 +159,8 @@ type Service struct {
 	dataDir          string
 	files            localstore.Store
 	config           savedConfig
-	state            State
+	state            applicationState
+	catalog          Catalog
 	closed           bool
 	restarting       bool
 	changes          chan struct{}
@@ -210,8 +211,8 @@ func New(dataDir string) (*Service, error) {
 	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), runtimes: map[string]*conversationRuntime{},
 		mcpGate: make(chan struct{}, 1), modelAuthGate: make(chan struct{}, 1), mcpTokens: map[string]*mcpTokenProvider{},
 		dataLock: dataLock, closeDone: make(chan struct{}),
-		config: savedConfig{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", Appearance: AppearanceSystem},
-		state:  State{Workspaces: []Workspace{}, Conversations: []Conversation{}}}
+		config:  savedConfig{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", Appearance: AppearanceSystem},
+		catalog: Catalog{path: filepath.Join(abs, "catalog.json"), catalogState: catalogState{Workspaces: []Workspace{}, Conversations: []Conversation{}}}}
 	s.selectRuntimeLocked(s.newRuntimeLocked(""))
 	if err := s.files.ReadJSON(filepath.Join(abs, "settings.json"), &s.config); err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
@@ -222,20 +223,11 @@ func New(dataDir string) (*Service, error) {
 	if err := s.files.ReadJSON(filepath.Join(abs, "mcp.json"), &s.mcpConfigs); err != nil {
 		return nil, fmt.Errorf("load MCP settings: %w", err)
 	}
-	var saved catalogState
-	if err := s.files.ReadJSON(filepath.Join(abs, "catalog.json"), &saved); err != nil {
+	saved, err := s.catalog.restore(s.files)
+	if err != nil {
 		return nil, fmt.Errorf("load conversations: %w", err)
 	}
-	if saved.Workspaces != nil {
-		s.state.Workspaces = saved.Workspaces
-	}
-	if saved.Conversations != nil {
-		s.state.Conversations = saved.Conversations
-		for i := range s.state.Conversations {
-			s.state.Conversations[i].PermissionMode = normalizedPermissionMode(s.state.Conversations[i].PermissionMode)
-		}
-	}
-	s.state.ActiveID = saved.ActiveID
+
 	if err := s.cleanupDeletionsLocked(); err != nil {
 		return nil, fmt.Errorf("finish deleting local conversation data: %w", err)
 	}
@@ -269,7 +261,7 @@ func (s *Service) Snapshot() State {
 	}
 	return (SnapshotBuilder{}).build(snapshotSources{
 		settings: s.state.Settings, login: s.state.Login,
-		workspaces: s.state.Workspaces, conversations: s.state.Conversations, activeID: s.state.ActiveID,
+		workspaces: s.catalog.Workspaces, conversations: s.catalog.Conversations, activeID: s.catalog.ActiveID,
 		selected: *s.active.ConversationState, runStarted: s.active.runStarted, tasks: tasks,
 	}, time.Now())
 }
@@ -299,7 +291,7 @@ func (s *Service) saveConfigLocked(next savedConfig) error {
 		previous := *s.active.Failure
 		s.active.Failure.CanContinue = true
 		s.active.Failure.Advice = "Model settings changed. Test the connection, then review the conversation before continuing."
-		if err := s.files.WriteJSON(s.receiptFile(s.state.ActiveID), runReceipt{Runtime: s.active.Runtime, Failure: s.active.Failure}); err != nil {
+		if err := s.files.WriteJSON(s.receiptFile(s.catalog.ActiveID), runReceipt{Runtime: s.active.Runtime, Failure: s.active.Failure}); err != nil {
 			s.active.Failure = &previous
 			s.changedLocked()
 			return fmt.Errorf("settings saved, but task status could not be updated: %w", err)
@@ -324,15 +316,13 @@ func (s *Service) AddWorkspace(path string) (Workspace, error) {
 	if workspacefs.Within(path, s.dataDir) || workspacefs.Within(s.dataDir, path) {
 		return Workspace{}, errors.New("Choose a folder separate from Pith Desk's private application data")
 	}
-	for _, existing := range s.state.Workspaces {
+	for _, existing := range s.catalog.Workspaces {
 		if existing.Path == path {
 			return existing, nil
 		}
 	}
 	workspace := Workspace{ID: newID(), Name: filepath.Base(path), Path: path}
-	s.state.Workspaces = append(s.state.Workspaces, workspace)
-	if err := s.persistCatalogLocked(); err != nil {
-		s.state.Workspaces = s.state.Workspaces[:len(s.state.Workspaces)-1]
+	if err := s.catalog.addWorkspace(workspace, s.files); err != nil {
 		return Workspace{}, err
 	}
 	s.changedLocked()
@@ -349,12 +339,7 @@ func (s *Service) CreateConversation(workspaceID string) (Conversation, error) {
 		return Conversation{}, errors.New("Select a workspace first")
 	}
 	conversation := Conversation{ID: newID(), Title: "New conversation", WorkspaceID: workspaceID, UpdatedAt: timestamp(), PermissionMode: PermissionAsk}
-	oldActive := s.state.ActiveID
-	s.state.Conversations = append(s.state.Conversations, conversation)
-	s.state.ActiveID = conversation.ID
-	if err := s.persistCatalogLocked(); err != nil {
-		s.state.Conversations = s.state.Conversations[:len(s.state.Conversations)-1]
-		s.state.ActiveID = oldActive
+	if err := s.catalog.createConversation(conversation, s.files); err != nil {
 		return Conversation{}, err
 	}
 	s.selectRuntimeLocked(s.newRuntimeLocked(conversation.ID))
@@ -375,14 +360,14 @@ func (s *Service) OpenConversation(id string) error {
 // openConversationLocked shares navigation with validated notification targets.
 // The caller holds s.mu and has checked that the service is available.
 func (s *Service) openConversationLocked(id string) error {
-	old := s.state.ActiveID
+	old := s.catalog.ActiveID
 	previous := s.active
 	if err := s.loadMessagesLocked(id); err != nil {
 		return err
 	}
 	if err := s.persistCatalogLocked(); err != nil {
 		s.selectRuntimeLocked(previous)
-		s.state.ActiveID = old
+		s.catalog.selectConversation(old)
 		return err
 	}
 	s.active.Error = ""
@@ -399,7 +384,7 @@ func (s *Service) Send(text string, images ...aitypes.ImageContent) error {
 func (s *Service) SendConversation(id, text string, images ...aitypes.ImageContent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if id == "" || id != s.state.ActiveID {
+	if id == "" || id != s.catalog.ActiveID {
 		return errors.New("The conversation changed; review your message before sending")
 	}
 	return s.sendLocked(text, images...)
@@ -425,7 +410,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	if index < 0 {
 		return errors.New("Create a conversation first")
 	}
-	conversation := s.state.Conversations[index]
+	conversation := s.catalog.Conversations[index]
 	workspace, ok := s.workspaceLocked(conversation.WorkspaceID)
 	if !ok {
 		return errors.New("The conversation's workspace is missing")
@@ -449,6 +434,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	if err != nil {
 		return err
 	}
+	next := conversation
 	if conversation.Title == "New conversation" && !compact {
 		title := []rune(strings.Split(text, "\n")[0])
 		if len(title) == 0 {
@@ -457,11 +443,10 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 		if len(title) > 80 {
 			title = append(title[:77], '.', '.', '.')
 		}
-		s.state.Conversations[index].Title = string(title)
+		next.Title = string(title)
 	}
-	s.state.Conversations[index].UpdatedAt = timestamp()
-	if err := s.persistCatalogLocked(); err != nil {
-		s.state.Conversations[index] = conversation
+	next.UpdatedAt = timestamp()
+	if err := s.catalog.update(index, next, s.files); err != nil {
 		return err
 	}
 	previousRuntime, previousFailure := r.Runtime, r.Failure
@@ -551,7 +536,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 
 func (s *Service) Abort() {
 	s.mu.Lock()
-	id := s.state.ActiveID
+	id := s.catalog.ActiveID
 	s.mu.Unlock()
 	_ = s.AbortConversation(id)
 }
@@ -595,7 +580,7 @@ func (s *Service) SetPermissionMode(id string, mode PermissionMode) error {
 	if s.closed {
 		return errors.New("Pith Desk has closed")
 	}
-	if id != s.state.ActiveID || s.conversationIndexLocked(id) < 0 {
+	if id != s.catalog.ActiveID || s.conversationIndexLocked(id) < 0 {
 		return errors.New("Change permissions for the active conversation only")
 	}
 	if !validPermissionMode(mode) {
@@ -655,23 +640,13 @@ func (s *Service) DecideApprovalWithScope(id string, allow, alwaysAllow bool) er
 }
 
 func (s *Service) persistPermissionModeLocked(id string, mode PermissionMode) error {
-	index := s.conversationIndexLocked(id)
-	if index < 0 {
-		return errors.New("Conversation not found")
-	}
-	previous := s.state.Conversations[index].PermissionMode
-	s.state.Conversations[index].PermissionMode = mode
-	if err := s.persistCatalogLocked(); err != nil {
-		s.state.Conversations[index].PermissionMode = previous
-		return err
-	}
-	return nil
+	return s.catalog.setPermission(id, mode, s.files)
 }
 
 func (r *conversationRuntime) permissionModeLocked() PermissionMode {
 	s := r.service
 	if index := s.conversationIndexLocked(r.id); index >= 0 {
-		return normalizedPermissionMode(s.state.Conversations[index].PermissionMode)
+		return normalizedPermissionMode(s.catalog.Conversations[index].PermissionMode)
 	}
 	return PermissionAsk
 }
@@ -789,7 +764,7 @@ func (r *conversationRuntime) run(ctx context.Context, id string, workspace Work
 			r.Error = redact(runErr.Error(), config.APIKey)
 		}
 		if index := s.conversationIndexLocked(id); index >= 0 {
-			s.state.Conversations[index].UpdatedAt = timestamp()
+			s.catalog.touch(index, timestamp())
 		}
 		if err := s.persistCatalogLocked(); err != nil {
 			r.Error = err.Error()
@@ -800,16 +775,16 @@ func (r *conversationRuntime) run(ctx context.Context, id string, workspace Work
 	if runErr = ctx.Err(); runErr != nil {
 		return
 	}
-	manager, runErr = openDeskSession(s.sessionFile(id), id, workspace.Path)
+	manager, runErr = s.sessionAdapter().open(id, workspace.Path)
 	if runErr != nil {
 		return
 	}
 	s.mu.Lock()
 	index := s.conversationIndexLocked(id)
 	if index >= 0 {
-		runErr = ensureSessionTitle(manager, s.state.Conversations[index].Title)
+		runErr = ensureSessionTitle(manager, s.catalog.Conversations[index].Title)
 		if runErr == nil {
-			s.state.Conversations[index].Title = latestSessionTitle(manager, s.state.Conversations[index].Title)
+			s.catalog.rememberTitle(index, latestSessionTitle(manager, s.catalog.Conversations[index].Title))
 		}
 	}
 	s.mu.Unlock()
@@ -984,70 +959,6 @@ func (r *conversationRuntime) observe(event codingagent.SessionEvent, manager *c
 	s.changedLocked()
 }
 
-func messagesFrom(manager *codingagent.SessionManager) []Message {
-	messages := []Message{}
-	commands := map[string]*CommandDetails{}
-	// Context is the complete active branch. BuildContextEntries is the model's
-	// compacted view and would hide older messages from the user's history.
-	for _, entry := range manager.Context() {
-		if entry.Type != "message" {
-			continue
-		}
-		var message agenttypes.AgentMessage
-		if json.Unmarshal(entry.Payload, &message) != nil || message.Message == nil {
-			continue
-		}
-		msg := message.Message
-		out := Message{ID: entry.ID, Role: msg.Role}
-		switch {
-		case msg.User != nil:
-			out.Text = msg.User.Content.Text + blockText(msg.User.Content.Blocks)
-			out.Images = messageImages(msg.User.Content.Blocks)
-			out.BranchNodeID = entry.ID
-		case msg.Assistant != nil:
-			out.Text = blockText(msg.Assistant.Content)
-			out.BranchNodeID = entry.ID
-			for _, block := range msg.Assistant.Content {
-				if block.IsToolCall() {
-					out.BranchNodeID = ""
-					if command := commandDetailsForCall(block.ToolCall.Name, block.ToolCall.Arguments, manager.GetCwd()); command != nil {
-						commands[block.ToolCall.Id] = command
-					}
-				}
-			}
-			if msg.Assistant.StopReason == aitypes.StopReasonError || msg.Assistant.StopReason == aitypes.StopReasonAborted {
-				out.Status = "error"
-			}
-		case msg.ToolResult != nil:
-			out.Role, out.ToolName = "tool", msg.ToolResult.ToolName
-			out.ToolCallID = msg.ToolResult.ToolCallId
-			out.Text, out.Status = blockText(msg.ToolResult.Content), "done"
-			out.Images = messageImages(msg.ToolResult.Content)
-			if out.ToolName == "run_command" {
-				out.Command = cloneCommandDetails(commands[out.ToolCallID])
-				applyCommandResult(out.Command, msg.ToolResult.Details)
-			}
-			if msg.ToolResult.IsError {
-				out.Status = "error"
-			}
-		}
-		if out.Text != "" || len(out.Images) > 0 || out.Role == "tool" {
-			messages = append(messages, out)
-		}
-	}
-	return messages
-}
-
-func blockText(blocks []aitypes.ContentBlock) string {
-	var text strings.Builder
-	for _, block := range blocks {
-		if block.Text != nil {
-			text.WriteString(block.Text.Text)
-		}
-	}
-	return text.String()
-}
-
 func (s *Service) loadMessagesLocked(id string) error {
 	if s.conversationIndexLocked(id) < 0 {
 		return errors.New("Conversation not found")
@@ -1075,14 +986,14 @@ func (s *Service) loadMessagesLocked(id string) error {
 		return err
 	}
 	if index := s.conversationIndexLocked(id); index >= 0 {
-		s.state.Conversations[index].Title = latestSessionTitle(manager, s.state.Conversations[index].Title)
+		s.catalog.rememberTitle(index, latestSessionTitle(manager, s.catalog.Conversations[index].Title))
 	}
 	s.selectRuntimeLocked(r)
 	return nil
 }
 
 func (s *Service) sessionFile(id string) string {
-	return filepath.Join(s.dataDir, "sessions", id+".jsonl")
+	return s.sessionAdapter().file(id)
 }
 
 func (s *Service) idleLocked() error {
@@ -1108,23 +1019,9 @@ func (s *Service) availableLocked() error {
 	return nil
 }
 
-func (s *Service) workspaceLocked(id string) (Workspace, bool) {
-	for _, workspace := range s.state.Workspaces {
-		if workspace.ID == id {
-			return workspace, true
-		}
-	}
-	return Workspace{}, false
-}
+func (s *Service) workspaceLocked(id string) (Workspace, bool) { return s.catalog.workspace(id) }
 
-func (s *Service) conversationIndexLocked(id string) int {
-	for i := range s.state.Conversations {
-		if s.state.Conversations[i].ID == id {
-			return i
-		}
-	}
-	return -1
-}
+func (s *Service) conversationIndexLocked(id string) int { return s.catalog.conversationIndex(id) }
 
 func (s *Service) refreshSettingsLocked() {
 	model, _ := resolveConfiguredModel(s.config)
@@ -1139,11 +1036,7 @@ func (s *Service) refreshSettingsLocked() {
 	s.state.Settings = Settings{HasConnections: hasConnections, Provider: s.config.Provider, ModelName: name, ThinkingLevel: s.config.ThinkingLevel, ThinkingLevels: thinkingLevels(model), BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: connectionReady(s.config.Connections[s.config.Provider]), Appearance: s.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
 }
 
-func (s *Service) persistCatalogLocked() error {
-	return s.files.WriteJSON(filepath.Join(s.dataDir, "catalog.json"), catalogState{
-		Workspaces: s.state.Workspaces, Conversations: s.state.Conversations, ActiveID: s.state.ActiveID,
-	})
-}
+func (s *Service) persistCatalogLocked() error { return s.catalog.persist(s.files) }
 
 func (s *Service) changedLocked() {
 	select {

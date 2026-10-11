@@ -48,8 +48,8 @@ func (s *Service) resourcesLocked(workspaceID string) (ResourceInventory, error)
 		return ResourceInventory{}, err
 	}
 	mode := PermissionAsk
-	if index := s.conversationIndexLocked(s.state.ActiveID); index >= 0 && s.state.Conversations[index].WorkspaceID == workspaceID {
-		mode = normalizedPermissionMode(s.state.Conversations[index].PermissionMode)
+	if index := s.conversationIndexLocked(s.catalog.ActiveID); index >= 0 && s.catalog.Conversations[index].WorkspaceID == workspaceID {
+		mode = normalizedPermissionMode(s.catalog.Conversations[index].PermissionMode)
 	}
 	loaded, err := codingagent.LoadResources(codingagent.ResourceOptions{Cwd: workspace.Path, SystemPrompt: deskPrompt(mode)})
 	if err != nil {

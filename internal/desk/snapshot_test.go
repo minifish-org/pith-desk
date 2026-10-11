@@ -17,13 +17,16 @@ func snapshotFixtureService() *Service {
 	exitCode := 0
 	s := &Service{
 		config: savedConfig{APIKey: "fixture-private-api-key", AuthPath: "/fixture/private/auth.json"},
-		state: State{
+		state: applicationState{
 			Settings: Settings{
 				Provider: "fixture-provider", ModelName: "Fixture Model", Model: "fixture-model",
 				ThinkingLevel: "medium", ThinkingLevels: []string{"off", "medium"},
 				BaseURL: "http://127.0.0.1:12345/v1", HasConnections: true, HasAPIKey: true,
 				Appearance: AppearanceSystem, SupportsImages: true, ImageUploadLimit: MaxImageUploadBytes,
 			},
+			Login: &LoginStatus{ID: "login-fixture", Provider: "fixture-provider", Phase: "prompt", Message: "Choose an account", URL: "https://example.invalid/login", Code: "FIXTURE-CODE", Prompt: "Account", PromptType: "select", Options: []LoginOption{{ID: "account-a", Label: "Fixture account"}}},
+		},
+		catalog: Catalog{catalogState: catalogState{
 			Workspaces: []Workspace{{ID: "workspace-a", Name: "Fixture A", Path: "/fixture/workspace-a"}, {ID: "workspace-b", Name: "Fixture B", Path: "/fixture/workspace-b"}},
 			Conversations: []Conversation{
 				{ID: "chat-a", Title: "审查文件", WorkspaceID: "workspace-a", UpdatedAt: "2026-10-11T00:00:00Z", PermissionMode: PermissionAsk, CompletedRunID: "run-previous", Unread: true},
@@ -31,11 +34,10 @@ func snapshotFixtureService() *Service {
 				{ID: "chat-idle", Title: "Idle", WorkspaceID: "workspace-b", UpdatedAt: "2026-10-11T00:00:00Z", PermissionMode: PermissionFullAccess},
 			},
 			ActiveID: "chat-a",
-			Login:    &LoginStatus{ID: "login-fixture", Provider: "fixture-provider", Phase: "prompt", Message: "Choose an account", URL: "https://example.invalid/login", Code: "FIXTURE-CODE", Prompt: "Account", PromptType: "select", Options: []LoginOption{{ID: "account-a", Label: "Fixture account"}}},
-		},
+		}},
 		runtimes: map[string]*conversationRuntime{},
 	}
-	s.active = &conversationRuntime{service: s, id: "chat-a", workspace: s.state.Workspaces[0], ConversationState: &ConversationState{
+	s.active = &conversationRuntime{service: s, id: "chat-a", workspace: s.catalog.Workspaces[0], ConversationState: &ConversationState{
 		Messages: []Message{
 			{ID: "message-user", Role: "user", Text: "检查图片", BranchNodeID: "node-user", Images: []MessageImage{{Index: 0, MimeType: "image/png"}}},
 			{ID: "message-tool", Role: "tool", Text: "done", ToolName: "run_command", ToolCallID: "call-command", Status: "done", Command: &CommandDetails{Text: "pwd", Cwd: "/fixture/workspace-a", ExitCode: &exitCode}},
@@ -54,7 +56,7 @@ func snapshotFixtureService() *Service {
 		},
 	}}
 	s.runtimes["chat-a"] = s.active
-	s.runtimes["chat-b"] = &conversationRuntime{service: s, id: "chat-b", workspace: s.state.Workspaces[1], ConversationState: &ConversationState{Running: true, Runtime: RuntimeStatus{Phase: "working"}}}
+	s.runtimes["chat-b"] = &conversationRuntime{service: s, id: "chat-b", workspace: s.catalog.Workspaces[1], ConversationState: &ConversationState{Running: true, Runtime: RuntimeStatus{Phase: "working"}}}
 	s.runtimes["chat-idle"] = &conversationRuntime{service: s, id: "chat-idle", ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}
 	return s
 }
@@ -90,7 +92,7 @@ func TestSnapshotNestedIsolation(t *testing.T) {
 			want := oracle.Snapshot()
 			returned := s.Snapshot()
 			tc.mutate(&returned)
-			if !reflect.DeepEqual(s.state, oracle.state) || !reflect.DeepEqual(s.active.ConversationState, oracle.active.ConversationState) {
+			if !reflect.DeepEqual(s.state, oracle.state) || !reflect.DeepEqual(s.catalog.catalogState, oracle.catalog.catalogState) || !reflect.DeepEqual(s.active.ConversationState, oracle.active.ConversationState) {
 				t.Fatal("mutating the returned snapshot changed its owner")
 			}
 			if got := s.Snapshot(); !reflect.DeepEqual(got, want) {
@@ -100,14 +102,15 @@ func TestSnapshotNestedIsolation(t *testing.T) {
 			frozen := s.Snapshot()
 			s.mu.Lock()
 			// Apply the same mutation to the owners, including scalar fields.
-			live := s.state
+			live := State{Settings: s.state.Settings, Login: s.state.Login, Workspaces: s.catalog.Workspaces, Conversations: s.catalog.Conversations, ActiveID: s.catalog.ActiveID}
 			live.ConversationState = *s.active.ConversationState
 			live.Runs = nil
 			if tc.name == "runs" {
 				s.runtimes["chat-a"].Runtime.Phase = "changed"
 			} else {
 				tc.mutate(&live)
-				s.state = live
+				s.state = applicationState{Settings: live.Settings, Login: live.Login}
+				s.catalog.replace(catalogState{Workspaces: live.Workspaces, Conversations: live.Conversations, ActiveID: live.ActiveID})
 				*s.active.ConversationState = live.ConversationState
 			}
 			s.mu.Unlock()
@@ -190,7 +193,7 @@ func TestSnapshotFixedJSON(t *testing.T) {
 			s := snapshotFixtureService()
 			switch name {
 			case "empty":
-				s = &Service{state: State{Settings: Settings{Appearance: AppearanceSystem, ImageUploadLimit: MaxImageUploadBytes}}, active: &conversationRuntime{ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}}
+				s = &Service{state: applicationState{Settings: Settings{Appearance: AppearanceSystem, ImageUploadLimit: MaxImageUploadBytes}}, active: &conversationRuntime{ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}}
 			case "active":
 				s.state.Login, s.active.Failure, s.active.Error = nil, nil, ""
 			case "idle":
