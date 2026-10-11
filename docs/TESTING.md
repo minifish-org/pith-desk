@@ -158,6 +158,13 @@ and new task in one transaction. SDK settlement errors become visible after
 cleanup, without publishing a successful completion. Blocked settlement and
 Close tests verify occupancy, cancel-all-before-wait and the data directory lock.
 
+`task_recovery_test.go` exercises Continue in the same process after uncertain
+delivery-marker failures, both before and after the marker reaches storage.
+The execution reloads confirmed pending input only after the old harness closes;
+failed recovery blocks admission until it can be read. Tests preserve text,
+image bytes and queue order, retain the reviewed instruction and canonical
+history, and verify that an already completed external MCP call is not replayed.
+
 `task_crash_test.go` kills real isolated child processes after admission, a file
 tool side effect, queue receipt and before settlement. It verifies recovery
 without automatic model requests, explicit reviewed continuation and independent
@@ -165,7 +172,7 @@ conversation identities. SIGKILL recovery does not establish power-loss
 durability or exactly-once external actions.
 
 ```sh
-GOWORK=off CGO_ENABLED=0 go test ./internal/desk -run 'TestTaskAdmission|TestQueueJournal|TestUncertainQueue|TestDeliveredMarker|TestContinueQueue|TestSettlement|TestTaskSIGKILL' -count=1
+GOWORK=off CGO_ENABLED=0 go test ./internal/desk -run 'TestInProcessContinue|TestTaskAdmission|TestQueueJournal|TestUncertainQueue|TestDeliveredMarker|TestContinueQueue|TestSettlement|TestTaskSIGKILL' -count=1
 ```
 
 ## Drafts, approval diffs and file previews (2026-10-10)

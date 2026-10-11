@@ -201,7 +201,6 @@ func queuePayload(message QueuedMessage) (json.RawMessage, error) {
 
 func (r *RunExecution) recoverDurableLocked(id string) error {
 	s := r.dependencies
-	r.recoveredJournal = 0
 	path := s.journals.dir(id)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -213,7 +212,7 @@ func (r *RunExecution) recoverDurableLocked(id string) error {
 	defer storage.Close(context.Background())
 	interrupted := false
 	var conversationID durable.ConversationID
-	r.recoveredInput = nil
+	var recoveredInput *durableInput
 	var cursor durable.Cursor
 	for {
 		page, err := storage.ScanTasks(context.Background(), durable.TaskQuery{}, 256, cursor)
@@ -226,7 +225,7 @@ func (r *RunExecution) recoverDurableLocked(id string) error {
 				conversationID = task.ConversationID
 				var input durableInput
 				if json.Unmarshal(task.Input, &input) == nil {
-					r.recoveredInput = &input
+					recoveredInput = &input
 				}
 			}
 		}
@@ -236,11 +235,9 @@ func (r *RunExecution) recoverDurableLocked(id string) error {
 		cursor = page.Next
 	}
 	if !interrupted {
+		r.recoveredJournal, r.recoveredInput = 0, nil
 		return nil
 	}
-	r.recoveredJournal = conversationID
-	r.Runtime.Phase = "interrupted"
-	r.Failure = &Failure{Kind: "interrupted", Message: "A durable task was interrupted.", Advice: "Review and continue from the saved transcript. Uncertain commands and external actions are not replayed automatically.", CanContinue: true}
 	entries := []durable.EntryRecord{}
 	cursor = nil
 	for {
@@ -290,13 +287,31 @@ func (r *RunExecution) recoverDurableLocked(id string) error {
 			order = nil
 		}
 	}
-	r.QueuedMessages = nil
+	var messages []QueuedMessage
 	for _, key := range order {
 		if message, ok := pending[key]; ok {
-			r.QueuedMessages = append(r.QueuedMessages, message)
+			messages = append(messages, message)
 		}
 	}
+	// Publish only after every SDK scan succeeds, so a retry cannot observe a
+	// partially recovered queue or lose the admitted request's attachments.
+	r.recoveredJournal, r.recoveredInput = conversationID, recoveredInput
+	r.QueuedMessages = messages
+	r.Runtime.Phase = "interrupted"
+	r.Failure = &Failure{Kind: "interrupted", Message: "A durable task was interrupted.", Advice: "Review and continue from the saved transcript. Uncertain commands and external actions are not replayed automatically.", CanContinue: true}
 	return nil
+}
+
+// Live journal errors retain their public failure classification. Only the
+// recovered input moves from durable state back to its owning execution.
+func (r *RunExecution) recoverFailedJournalLocked() error {
+	phase, failure := r.Runtime.Phase, r.Failure
+	err := r.recoverDurableLocked(r.id)
+	r.Runtime.Phase, r.Failure = phase, failure
+	if err == nil {
+		r.journalRecoveryNeeded = false
+	}
+	return err
 }
 
 // A per-service factory exposes the application's journal commit windows while

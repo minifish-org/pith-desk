@@ -36,6 +36,10 @@ type RunExecution struct {
 	queueDispatched  map[string]bool
 	externalTools    map[string]bool
 	mcpRuntime       *codingagent.MCPRuntime
+
+	// An uncertain journal must be reopened before Continue can replace its
+	// queue. Keep this obligation when recovery itself fails in this process.
+	journalRecoveryNeeded bool
 }
 
 func (r *RunExecution) run(ctx context.Context, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool) {
@@ -305,6 +309,12 @@ func (r *RunExecution) startDurable(journal *deskDurable, settled func(error)) {
 			r.Error = "Durable task: " + s.redactMCP(redact(runErr.Error(), s.connections.config.APIKey))
 			r.Runtime.Phase = "error"
 			r.Failure = classifyFailure(runErr, "settlement")
+			r.journalRecoveryNeeded = true
+			// Close joined the old execution and closed its poisoned storage.
+			// Read confirmed input through a fresh SDK store; never Resume it.
+			if err := r.recoverFailedJournalLocked(); err != nil {
+				r.Error += "; pending input could not be recovered: " + err.Error()
+			}
 			r.Runtime.UpdatedAt = timestamp()
 			if err := s.files.WriteJSON(s.receiptFile(r.id), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
 				r.Error += "; run status could not be saved: " + err.Error()
@@ -376,6 +386,7 @@ func (r *RunExecution) admitAndStartLocked(workspace Workspace, config savedConf
 		return err
 	}
 	r.QueuedMessages = append(r.QueuedMessages, pending...)
+	r.journalRecoveryNeeded = false
 	r.durable = journal
 	r.runCancel = func() { _, _ = journal.harness.AbortTask(context.Background(), journal.task) }
 	r.startDurable(journal, settled)

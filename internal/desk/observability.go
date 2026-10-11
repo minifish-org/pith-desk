@@ -99,6 +99,11 @@ func (s *Service) ContinueTask(id string) error {
 	if id != s.catalog.ActiveID || s.active.Failure == nil || !s.active.Failure.CanContinue {
 		return errors.New("Open an interrupted conversation and review it before continuing")
 	}
+	if r.journalRecoveryNeeded {
+		if err := r.recoverFailedJournalLocked(); err != nil {
+			return fmt.Errorf("Recover pending task input before continuing: %w", err)
+		}
+	}
 	pending := append([]QueuedMessage(nil), s.active.QueuedMessages...)
 	instruction := "Review the previous conversation and inspect the current workspace before continuing the unfinished task. Successful actions may already have taken effect. Do not repeat completed writes, commands, or external actions. If an external action has an uncertain result, ask me to confirm it before proceeding."
 	var images []aitypes.ImageContent
