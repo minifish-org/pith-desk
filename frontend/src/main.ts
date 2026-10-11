@@ -1,30 +1,28 @@
-import './style.css';
-import { escape, icon, dialogHeading } from './ui';
-import type { State } from './app-state';
-import { createApp, readAppBootstrap } from './app';
+import { createApp,readAppBootstrap } from './app';
 import { installAppLifecycle } from './app-lifecycle';
-import { createConfirmation } from './confirmation';
-import { createMessageView } from './messages-view';
-import { createDrafts, draftKey } from './drafts';
-import { createMutations } from './mutations';
-import { controlDisabled, setControlPending } from './controls';
-import { renderMarkdown } from './previews';
-import { mountPagedPreview } from './paged-preview';
-import { createSDKUI } from './sdk-features';
-import { createCostUI, formatCost, type CostSummary } from './costs';
+import type { State } from './app-state';
 import { createCompletionUI } from './completion';
-import { installWorkspaceFileDrop } from './workspace-files';
+import { createComposer } from './composer';
+import { createConfirmation } from './confirmation';
+import { controlDisabled } from './controls';
+import { createConversationsUI } from './conversations';
+import { createCostUI } from './costs';
+import type { UIActivity } from './feature-api';
+import { createFilesUI } from './files';
+import { installImageViewer } from './image-viewer';
+import { createMessagesUI } from './messages';
+import { createMutations } from './mutations';
 import { installNativeMenu } from './native-menu';
-import { mountUpdates } from './updates';
-import { installConversationReader } from './conversation-reader';
-import { imagePreviewBlob, installImageViewer } from './image-viewer';
+import { createSDKUI } from './sdk-features';
+import { createSettingsUI } from './settings';
+import './style.css';
+import { createTaskControls } from './task-controls';
+import { escape,icon } from './ui';
+import { installWorkspaceFileDrop } from './workspace-files';
 
-import type { MutationPath, MutationInput, MutationResponse } from './api';
-import type { Workspace, Conversation, QueuedMessage, Artifact, ResourceInventory as WorkspaceResources, MCPServerView as MCPConnection, ImageContent, RunSummary, Message, RuntimeStatus, ModelCatalog, PermissionMode, AppearanceMode, ProviderChoice, DraftScope, DraftImage as WireDraftImage } from './contract.generated';
+import type { MutationInput,MutationPath,MutationResponse } from './api';
+import type { AppearanceMode,Conversation,PermissionMode,RunSummary } from './contract.generated';
 export type { ProviderChoice } from './contract.generated';
-
-type ImageInput = ImageContent & { type: 'image' };
-interface DraftImage extends ImageInput { id: string; name: string; size: number; url: string }
 
 function anyRunning(): boolean { return app.state.runs.length > 0; }
 function conversationRunning(id: string | null): boolean { return app.state.runs.some((run) => run.conversationId === id); }
@@ -54,57 +52,14 @@ applyAppearance(initialAppearance);
 const app = createApp({
   token, origin: window.location.href, appearance: initialAppearance,
   onSnapshot: snapshotChanged,
-  onConnection: (status) => { if (status === 'connected' && !app.loaded) localError = ''; render(); },
-  onError: (message) => { localError = message; render(); },
+  onConnection: (status) => { if (status === 'connected' && !app.loaded) activity.error = ''; render(); },
+  onError: (message) => { activity.error = message; render(); },
 });
 const { request, download, refresh } = app;
-let selectedWorkspaceId = '';
-let requestBusy = false;
-let resolvingReferences = false;
+const activity: UIActivity = { busy: false, error: '' };
 let nativeMenu: ReturnType<typeof installNativeMenu> | undefined;
-let settingsUpdates: ReturnType<typeof mountUpdates> | undefined;
-let connectionProbe: AbortController | null = null;
-let refreshSettingsAuth: ((provider: string) => void) | null = null;
-let localError = '';
-let messagesSignature = '';
-let renderedActiveId: string | null = null;
-const conversationFolds = new Map<string, Map<string, boolean>>();
-let approvalSignature = '';
-let disposed = false;
-let fullAccessTargetId: string | null = null;
-let historySearch = '';
-const expandedWorkspaces = new Set<string>();
-let historySignature = '';
-let historyFilterSignature = '';
-let historyActiveId: string | null | undefined;
-let menuConversationId: string | null = null;
-let menuWorkspaceId: string | null = null;
-let artifacts: Artifact[] = [];
-let artifactsError = '';
-let artifactsLoading = false;
-let artifactsRequest = 0;
-let artifactsSignature = '';
-let artifactsOpen = false;
-let queueSignature = '';
-let queueEditTarget: { conversationId: string; messageId: string } | null = null;
-let resources: WorkspaceResources | null = null;
-let resourcesWorkspaceId = '';
-let resourcesRequest = 0;
-let mcpConnections: MCPConnection[] = [];
-let mcpRequest = 0;
-let mcpEditorGeneration = 0;
-let draftImages: DraftImage[] = [];
-let readingImages = false;
-let draftGeneration = 0;
-const historyImages = new Map<string, Promise<string>>();
-let imageGeneration = 0;
-let composerScope: DraftScope = {};
-let draftLoading = false;
-let composerDraftReady: Promise<void> = Promise.resolve();
-let draftLoadGeneration = 0;
-let previewRequest = 0;
-let previewImageURL = '';
 
+let disposed = false;
 
 const logo = '<span class="logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
 
@@ -184,77 +139,42 @@ $('app').innerHTML = `
 `;
 
 const input = $<HTMLTextAreaElement>('composer-input');
-const drafts = createDrafts(request, (message) => { if (!disposed) { localError = message; render(); } });
-const chatScroll = $('chat-scroll');
-const reader = installConversationReader(chatScroll, $('messages'), $('conversation-find'), $<HTMLButtonElement>('back-to-latest'));
 const imageViewer = installImageViewer($<HTMLDialogElement>('image-dialog'));
 const costUI = createCostUI({ state: () => app.state, request });
-const completionUI = createCompletionUI({ state: () => app.state, request, confirmRead: app.confirmRead, renderHistory, escape, icon });
+const completionUI = createCompletionUI({ state: () => app.state, request, confirmRead: app.confirmRead, renderHistory: () => conversations.renderHistory(), escape, icon });
 const historyStatus = (entry: Conversation) => completionUI.historyStatus(entry);
 const updateCompletions = (initialized: boolean) => completionUI.observe(initialized);
 const acknowledgeViewedCompletion = () => completionUI.acknowledgeViewed();
 const dismissCompletion = (runID: string) => completionUI.dismiss(runID);
-const mutations = createMutations({ request, refresh, busy: () => requestBusy, setBusy: (value) => { requestBusy = value; }, error: (message) => { localError = message; }, render });
+const mutations = createMutations({ request, refresh, busy: () => activity.busy, setBusy: (value) => { activity.busy = value; }, error: (message) => { activity.error = message; }, render });
 const confirmRemoval = createConfirmation($<HTMLDialogElement>('delete-dialog'));
-const messageView = createMessageView($('messages'));
 const sdkUI = createSDKUI({
-  confirm: confirmRemoval, state: () => app.state, request, mutate, error: () => localError,
-  busy: () => requestBusy || draftLoading || !app.loaded,
-  workspaceBusy: (id) => !!workspaceRun(id), settings: openSettings,
-  refreshProviderAuth: (provider) => refreshSettingsAuth?.(provider),
+  confirm: confirmRemoval, state: () => app.state, request, mutate, error: () => activity.error,
+  busy: () => activity.busy || composer.draftLoading || !app.loaded,
+  workspaceBusy: (id) => !!workspaceRun(id), settings: () => settings.openSettings(),
+  refreshProviderAuth: (provider) => settings.refreshProviderAuth(provider),
   draft: (text) => { input.value = text + input.value; rememberDraft(); resizeComposer(); input.focus(); render(); },
-  refreshResources: loadResources, refreshMCP: loadMCP,
+  refreshResources: () => files.loadResources(), refreshMCP: () => settings.loadMCP(),
 });
 
-function selectedWorkspace(): Workspace | undefined {
-  const conversation = app.state.conversations.find((entry) => entry.id === app.state.activeId);
-  return app.state.workspaces.find((entry) => entry.id === (conversation?.workspaceId || selectedWorkspaceId)) ?? app.state.workspaces[0];
-}
-
-function activePermissionMode(): PermissionMode {
-  const mode = app.state.conversations.find((entry) => entry.id === app.state.activeId)?.permissionMode;
-  return mode === 'workspace-write' || mode === 'full-access' ? mode : 'ask';
-}
-
-function rememberDraft(): void {
-  if (!draftLoading) drafts.update(composerScope, input.value, draftImages.map(({ url, ...image }) => image));
-}
-
-function loadComposerDraft(): void {
-  const scope: DraftScope = app.state.activeId ? { id: app.state.activeId } : { workspaceId: selectedWorkspace()?.id || '' };
-  if (draftKey(scope) === draftKey(composerScope)) return;
-  const oldScope = composerScope;
-  const exists = oldScope.id ? app.state.conversations.some((entry) => entry.id === oldScope.id) : app.state.workspaces.some((entry) => entry.id === oldScope.workspaceId);
-  if (exists) { rememberDraft(); void drafts.flush(oldScope).catch(() => {}); }
-  clearDraftImages();
-  composerScope = scope;
-  const generation = ++draftLoadGeneration;
-  input.value = '';
-  draftLoading = !!draftKey(scope);
-  input.readOnly = draftLoading;
-  drafts.prune(app.state.conversations.map((entry) => entry.id), app.state.workspaces.map((entry) => entry.id));
-  if (!draftLoading) return;
-  composerDraftReady = drafts.load(scope).then(async (draft) => {
-    if (disposed || generation !== draftLoadGeneration) return;
-    const images = await restoreDraftImages(draft.images || [], () => !disposed && generation === draftLoadGeneration);
-    if (disposed || generation !== draftLoadGeneration) { images.forEach((image) => URL.revokeObjectURL(image.url)); return; }
-    input.value = draft.text;
-    draftImages = images;
-  }).catch((error) => {
-    if (generation === draftLoadGeneration) localError = `Draft could not be restored: ${error instanceof Error ? error.message : String(error)}`;
-  }).finally(() => {
-    if (disposed || generation !== draftLoadGeneration) return;
-    draftLoading = false;
-    input.readOnly = false;
-    resizeComposer();
-    render();
-  });
-}
+const messages = createMessagesUI({ view: app, download, logo, disposed: () => disposed });
+const tasks = createTaskControls({ view: app, activity, request, download, mutate, render, selectedWorkspace: () => conversations.selectedWorkspace(), renderCosts: () => costUI.render() });
+const { clearHistoryImages } = messages;
+const { activePermissionMode, renderRuntime, exportDiagnostics, renderApproval, renderPermissions, confirmFullAccess } = tasks;
+const composer = createComposer({ view: app, activity, input, request, mutate, refresh, render, selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), openSettings: () => settings.openSettings(), showDialog, followLatest: () => messages.followLatest(), disposed: () => disposed });
+const files = createFilesUI({ view: app, activity, request, download, render, selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), conversationRunning, showDialog, nativeClipboard, resourceActions: (...args) => sdkUI.resourceActions(...args) });
+const settings = createSettingsUI({ view: app, activity, request, mutate, render, closeSidebar, showDialog, anyRunning, appearanceMode, applyAppearance, providerActions: (provider) => sdkUI.providerActions(provider) });
+const conversations = createConversationsUI({ view: app, activity, input, request, download, mutate, render, closeSidebar, showDialog, workspaceRun, conversationRunning, historyStatus, confirmRemoval, removeWorkspaceResources: (id) => files.removeWorkspace(id), clearHistoryImages, loadComposerDraft: () => composer.loadComposerDraft(), resizeComposer: () => composer.resizeComposer() });
+const { rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, resizeComposer } = composer;
+const { downloadConversationFile, copyText, copyWithFeedback, setArtifactsOpen, renderArtifacts, clearFilePreview, openArtifactPreview, loadArtifacts, openResources, loadResources } = files;
+const { renderAppearance, openConnections, loadMCP, editMCP, thinkingLabel, openModelPicker, openSettings } = settings;
+const { selectedWorkspace, renderHistory, closeConversationMenu, openConversationMenu, openWorkspaceMenu, openDeletion, newConversation, openRename, exportConversation, openWorkspace } = conversations;
+const drafts = composer.drafts;
 
 function render(): void {
   renderAppearance();
   const workspace = selectedWorkspace();
-  if (workspace) selectedWorkspaceId = workspace.id;
+  if (workspace) conversations.selectedWorkspaceId = workspace.id;
   const activeConversation = app.state.conversations.find((entry) => entry.id === app.state.activeId);
   $('workspace-label').textContent = workspace?.name ?? 'No workspace';
   $('conversation-label').textContent = activeConversation?.title || 'New conversation';
@@ -264,33 +184,15 @@ function render(): void {
   const levels = app.state.settings.thinkingLevels || ['off'];
   effort.innerHTML = levels.map((level) => `<option value="${escape(level)}">${escape(thinkingLabel(level))}</option>`).join('');
   effort.value = app.state.settings.thinkingLevel || 'off';
-  effort.disabled = anyRunning() || requestBusy || levels.length < 2;
+  effort.disabled = anyRunning() || activity.busy || levels.length < 2;
   effort.parentElement!.hidden = levels.length < 2;
   renderPermissions();
   renderHistory();
-  const menuConversation = app.state.conversations.find((entry) => entry.id === menuConversationId);
-  const menuWorkspace = app.state.workspaces.find((entry) => entry.id === menuWorkspaceId);
-  if ((!menuConversation && !menuWorkspace) || requestBusy) closeConversationMenu();
+  const menuConversation = app.state.conversations.find((entry) => entry.id === conversations.menuConversationId);
+  const menuWorkspace = app.state.workspaces.find((entry) => entry.id === conversations.menuWorkspaceId);
+  if ((!menuConversation && !menuWorkspace) || activity.busy) closeConversationMenu();
 
-  const hasMessages = app.state.messages.length > 0;
-  const signature = JSON.stringify([app.state.activeId, app.state.messages, app.state.running, app.state.pendingApproval?.id]);
-  if (signature !== messagesSignature) {
-    const changedConversation = renderedActiveId !== app.state.activeId;
-    reader.beforeRender(app.state.activeId || '');
-    $('welcome').hidden = hasMessages;
-    $('messages').hidden = !hasMessages;
-    const currentFolds = new Map(Array.from($('messages').querySelectorAll<HTMLDetailsElement>('[data-tool-fold]'), (element) => [element.dataset.toolFold!, element.open] as const));
-    if (renderedActiveId) conversationFolds.set(renderedActiveId, currentFolds);
-    const folds = changedConversation ? conversationFolds.get(app.state.activeId || '') || new Map<string, boolean>() : currentFolds;
-    messageView.update(app.state.activeId || '', app.state.messages, app.state.running && !app.state.pendingApproval, folds);
-    messagesSignature = signature;
-    renderedActiveId = app.state.activeId;
-    loadHistoryImages();
-    reader.afterRender();
-    reader.prune(app.state.conversations.map((entry) => entry.id));
-    for (const id of conversationFolds.keys()) if (!app.state.conversations.some((entry) => entry.id === id)) conversationFolds.delete(id);
-  }
-  if (!hasMessages) renderWelcome(workspace);
+  messages.renderMessages(workspace);
 
   renderApproval();
   renderArtifacts();
@@ -305,11 +207,11 @@ function render(): void {
     busyNotice.dataset.conversation = blocked.conversationId;
     busyNotice.innerHTML = `<span>A task is running in this workspace or an overlapping folder.</span><button class="text-button" type="button" data-conversation="${escape(blocked.conversationId)}">Open running conversation</button>`;
   }
-  const error = localError || app.state.error || '';
-  $('inline-error').hidden = !error || (!localError && !!app.state.failure);
+  const error = activity.error || app.state.error || '';
+  $('inline-error').hidden = !error || (!activity.error && !!app.state.failure);
   $('inline-error').textContent = error;
   $('connection-status').hidden = app.connection !== 'reconnecting';
-  const hasDraft = !!input.value.trim() || draftImages.length > 0;
+  const hasDraft = !!input.value.trim() || composer.draftImages.length > 0;
   const stopping = app.state.running && !hasDraft;
   const sendButton = $<HTMLButtonElement>('send-button');
   const buttonType = stopping ? 'button' : 'submit';
@@ -317,7 +219,7 @@ function render(): void {
   sendButton.type = buttonType;
   sendButton.classList.toggle('is-stop', stopping);
   if (stopping) sendButton.dataset.action = 'stop'; else delete sendButton.dataset.action;
-  sendButton.disabled = stopping ? requestBusy : !app.loaded || requestBusy || draftLoading || readingImages || resolvingReferences || !hasDraft || (!!draftImages.length && !app.state.settings.supportsImages) || !workspace || !app.state.settings.hasApiKey || (!app.state.running && !!workspaceRun(workspace?.id));
+  sendButton.disabled = stopping ? activity.busy : !app.loaded || activity.busy || composer.draftLoading || composer.readingImages || composer.resolvingReferences || !hasDraft || (!!composer.draftImages.length && !app.state.settings.supportsImages) || !workspace || !app.state.settings.hasApiKey || (!app.state.running && !!workspaceRun(workspace?.id));
   const buttonLabel = stopping ? 'Stop agent' : app.state.running ? 'Queue message' : 'Send message';
   sendButton.setAttribute('aria-label', buttonLabel);
   sendButton.title = buttonLabel;
@@ -325,333 +227,21 @@ function render(): void {
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-idle-action]')) {
     const conversationId = button.dataset.idleConversation;
     const workspaceId = button.dataset.idleWorkspace;
-    button.disabled = controlDisabled(button, requestBusy || (button.hasAttribute('data-global-idle') ? anyRunning() : conversationId ? conversationRunning(conversationId) : workspaceId ? !!workspaceRun(workspaceId) : app.state.running));
+    button.disabled = controlDisabled(button, activity.busy || (button.hasAttribute('data-global-idle') ? anyRunning() : conversationId ? conversationRunning(conversationId) : workspaceId ? !!workspaceRun(workspaceId) : app.state.running));
   }
-  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-global-idle]')) button.disabled = controlDisabled(button, requestBusy || anyRunning());
-  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = controlDisabled(button, requestBusy || anyRunning());
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-global-idle]')) button.disabled = controlDisabled(button, activity.busy || anyRunning());
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = controlDisabled(button, activity.busy || anyRunning());
   for (const link of document.querySelectorAll<HTMLAnchorElement>('a[data-download-conversation]')) {
-    link.setAttribute('aria-disabled', String(requestBusy || conversationRunning(link.dataset.downloadConversation!)));
+    link.setAttribute('aria-disabled', String(activity.busy || conversationRunning(link.dataset.downloadConversation!)));
   }
   nativeMenu?.update();
-}
-
-const activeRunPhases = new Set(['starting', 'working', 'tool', 'retrying', 'compacting']);
-
-function taskElapsedMs(status: RuntimeStatus): number {
-  const timing = status.timing;
-  if (!timing?.startedAt) return 0;
-  // Anchor to the host's monotonic duration; app downtime never becomes run time.
-  const live = app.state.running && activeRunPhases.has(status.phase) && !timing.partial;
-  return Math.max(0, timing.elapsedMs + (live ? performance.now() - app.receivedAt : 0));
-}
-
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${seconds % 60}s`;
-}
-
-function renderRuntimeTiming(): void {
-  const status = app.state.runtime;
-  if (!status?.model) return;
-  const phases: Record<string, string> = { starting: 'Starting', working: 'Working', tool: 'Using a tool', retrying: 'Retrying model request', compacting: 'Summarizing context', complete: 'Finished', stopped: 'Stopped', interrupted: 'Interrupted', error: 'Needs attention' };
-  const timing = status.timing;
-  const elapsed = taskElapsedMs(status);
-  const duration = timing?.startedAt ? `${timing.partial ? '≥' : ''}${formatDuration(elapsed)}` : 'Not recorded';
-  const speed = timing?.startedAt && !timing.partial && timing.outputTokens > 0 && elapsed > 0
-    ? new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(timing.outputTokens * 1000 / elapsed) : '—';
-  const tokens = new Intl.NumberFormat().format(Math.round(status.usage.total || 0));
-  $('run-status-summary').textContent = `${app.state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'} · ${status.model} · ${tokens} tokens · ${formatCost(status.cost)}${timing?.startedAt ? ` · ${duration} · ${speed} output tokens/s` : ''}`;
-  const durationValue = document.getElementById('runtime-duration');
-  const speedValue = document.getElementById('runtime-speed');
-  if (durationValue) durationValue.textContent = duration;
-  if (speedValue) speedValue.textContent = speed;
-}
-
-function renderRuntime(): void {
-  const status = app.state.runtime;
-  $('run-status').hidden = !status?.model;
-  if (status?.model) {
-    const n = (value: number) => new Intl.NumberFormat().format(Math.round(value || 0));
-    $('runtime-values').innerHTML = `<dl>${status.provider ? `<dt>Provider</dt><dd>${escape(status.provider)}</dd>` : ''}${status.thinkingLevel ? `<dt>Thinking effort</dt><dd>${escape(status.thinkingLevel)}</dd>` : ''}<dt>Latest task duration</dt><dd id="runtime-duration"></dd><dt>Avg. output tokens/s</dt><dd id="runtime-speed"></dd><dt>Session input / output</dt><dd>${n(status.usage.input)} / ${n(status.usage.output)}</dd><dt>Cache read / write</dt><dd>${n(status.usage.cacheRead)} / ${n(status.usage.cacheWrite)}</dd><dt>Estimated conversation context</dt><dd>~${n(status.contextTokens)} / ${n(status.contextWindow)} tokens</dd><dt>Context summaries</dt><dd>${n(status.compactions)}</dd><dt>Tool failures recorded</dt><dd>${n(status.toolFailures)}</dd><dt>Recorded cost (USD)</dt><dd>${escape(formatCost(status.cost))}</dd><dt>Latest task (USD)</dt><dd>${escape(formatCost(status.cost, true))}</dd><dt>Execution</dt><dd>Codemode enabled · durable local task journal</dd></dl><p>Duration and average speed cover the latest task, including tools and waits. Speed uses reported output tokens, including reasoning, retries and summaries; input, cache and earlier tasks are excluded. An interrupted checkpoint shows only a lower bound for duration. Session token figures come from Pith records. Context excludes system instructions and tool schemas. Costs estimate recorded requests; unknown prices and older unrecorded requests are excluded. This is not a provider bill.</p>`;
-    renderRuntimeTiming();
-  }
-  costUI.render();
-  const failure = app.state.failure;
-  $('task-failure').hidden = !failure || app.state.running;
-  $('task-failure').innerHTML = failure && !app.state.running ? `<strong>${escape(failure.message)}</strong><p>${escape(failure.advice)}</p><div>${failure.canContinue ? '<button class="secondary-button" type="button" data-action="continue" data-idle-action data-idle-workspace="${escape(selectedWorkspace()?.id)}">Review and continue</button>' : '<button class="secondary-button" type="button" data-action="settings">Check model settings</button>'}<button class="secondary-button" type="button" data-action="diagnostics">Save diagnostics</button></div>` : '';
-}
-
-async function exportDiagnostics(): Promise<void> {
-  if (requestBusy) return;
-  requestBusy = true;
-  render();
-  try {
-    const result = await request('/api/diagnostics', {});
-    if (!result.native) {
-      const url = URL.createObjectURL(await download('/api/diagnostics'));
-      const link = document.createElement('a'); link.href = url; link.download = 'pith-desk-diagnostics.json'; link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-  } catch (error) { localError = error instanceof Error ? error.message : String(error); }
-  finally { requestBusy = false; render(); }
-}
-
-function renderHistory(): void {
-  if (historyActiveId !== app.state.activeId) {
-    const active = app.state.conversations.find((entry) => entry.id === app.state.activeId);
-    if (active) expandedWorkspaces.add(active.workspaceId);
-    historyActiveId = app.state.activeId;
-  }
-  const search = historySearch.trim().toLocaleLowerCase();
-  const conversations = app.state.conversations.filter((entry) => (entry.title || 'Untitled conversation').toLocaleLowerCase().includes(search)).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  const filterSignature = search;
-  if (filterSignature !== historyFilterSignature) {
-    if (search) for (const entry of conversations) expandedWorkspaces.add(entry.workspaceId);
-    historyFilterSignature = filterSignature;
-  }
-  const signature = JSON.stringify([app.state.workspaces, app.state.conversations, app.state.activeId, selectedWorkspace()?.id, historySearch, [...expandedWorkspaces], app.state.runs, requestBusy]);
-  if (signature === historySignature) return;
-  historySignature = signature;
-  const disabled = requestBusy ? 'disabled' : '';
-  $('history-list').innerHTML = app.state.workspaces.map((workspace) => {
-    const children = conversations.filter((entry) => entry.workspaceId === workspace.id);
-    if (search && !children.length) return '';
-    const expanded = expandedWorkspaces.has(workspace.id);
-    const selected = workspace.id === selectedWorkspace()?.id;
-    return `<section class="workspace-group" aria-label="${escape(workspace.name)}"><div class="workspace-heading ${selected ? 'selected' : ''}"><button class="workspace-toggle" data-toggle-workspace="${escape(workspace.id)}" aria-expanded="${expanded}" aria-controls="workspace-children-${escape(workspace.id)}" title="${escape(workspace.path)}">${icon('chevron', 'workspace-chevron')}${icon('folder')}<span>${escape(workspace.name)}</span></button><button id="workspace-actions-${escape(workspace.id)}" class="quiet-icon workspace-more" data-workspace-menu="${escape(workspace.id)}" aria-label="Actions for workspace ${escape(workspace.name)}" aria-haspopup="menu" aria-expanded="${workspace.id === menuWorkspaceId}" ${disabled}>${icon('more')}</button><button class="quiet-icon workspace-new" data-new-workspace="${escape(workspace.id)}" aria-label="New conversation in ${escape(workspace.name)}" title="New conversation" ${disabled}>${icon('compose')}</button></div><div class="workspace-children" id="workspace-children-${escape(workspace.id)}" ${expanded ? '' : 'hidden'}>${children.map((entry) => `<div class="history-row ${entry.id === app.state.activeId ? 'active' : ''}"><button class="history-item" data-conversation="${escape(entry.id)}" ${entry.id === app.state.activeId ? 'aria-current="page"' : ''} title="${escape(entry.title || 'Untitled conversation')}" ${disabled}><span>${escape(entry.title || 'Untitled conversation')}</span>${historyStatus(entry)}</button><button id="conversation-actions-${escape(entry.id)}" class="quiet-icon history-more" data-conversation-menu="${escape(entry.id)}" aria-label="Actions for ${escape(entry.title || 'Untitled conversation')}" aria-haspopup="menu" aria-expanded="${entry.id === menuConversationId}" ${disabled}>${icon('more')}</button></div>`).join('') || `<p class="workspace-empty">No conversations yet</p>`}</div></section>`;
-  }).join('') + (!app.state.workspaces.length ? `<button class="workspace-item empty-workspace" data-action="workspace">${icon('folder')}<span>Add a workspace</span></button>` : search && !conversations.length ? '<p class="history-empty">No matching conversations.</p>' : '');
-}
-
-function closeConversationMenu(restoreFocus = false): void {
-  const triggerID = menuConversationId ? `conversation-actions-${menuConversationId}` : menuWorkspaceId ? `workspace-actions-${menuWorkspaceId}` : '';
-  menuConversationId = null;
-  menuWorkspaceId = null;
-  $('conversation-menu').hidden = true;
-  if (triggerID) {
-    const trigger = document.getElementById(triggerID);
-    trigger?.setAttribute('aria-expanded', 'false');
-    if (restoreFocus) trigger?.focus();
-  }
-}
-
-function openConversationMenu(id: string, trigger: HTMLElement): void {
-  if (requestBusy) return;
-  const conversation = app.state.conversations.find((entry) => entry.id === id);
-  if (!conversation) return;
-  const alreadyOpen = menuConversationId === id;
-  closeConversationMenu();
-  if (alreadyOpen) return;
-  menuConversationId = id;
-  trigger.setAttribute('aria-expanded', 'true');
-  const menu = $('conversation-menu');
-  menu.setAttribute('aria-label', 'Conversation actions');
-  const idleAction = `data-idle-action data-idle-conversation="${escape(id)}" ${conversationRunning(id) ? 'disabled' : ''}`;
-  menu.innerHTML = `<button role="menuitem" data-action="rename" ${idleAction}>Rename</button>${id === app.state.activeId && !conversationRunning(id) ? '<button role="menuitem" data-sdk="history" data-action="close-conversation-menu">Conversation branches</button>' : ''}<button role="menuitem" data-action="export" ${idleAction}>Export Markdown</button><button role="menuitem" class="destructive-menu-item" data-action="delete-conversation" ${idleAction}>Delete conversation</button>`;
-  positionContextMenu(trigger);
-}
-
-function openWorkspaceMenu(id: string, trigger: HTMLElement): void {
-  if (requestBusy || !app.state.workspaces.some((entry) => entry.id === id)) return;
-  const alreadyOpen = menuWorkspaceId === id;
-  closeConversationMenu();
-  if (alreadyOpen) return;
-  menuWorkspaceId = id;
-  trigger.setAttribute('aria-expanded', 'true');
-  const menu = $('conversation-menu');
-  menu.setAttribute('aria-label', 'Workspace actions');
-  menu.innerHTML = `<button role="menuitem" class="destructive-menu-item" data-action="remove-workspace" data-idle-action data-idle-workspace="${escape(id)}" ${workspaceRun(id) ? 'disabled' : ''}>Remove workspace</button>`;
-  positionContextMenu(trigger);
-}
-
-function positionContextMenu(trigger: HTMLElement): void {
-  const menu = $('conversation-menu');
-  menu.hidden = false;
-  const rect = trigger.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(rect.right, window.innerWidth - menu.offsetWidth - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8))}px`;
-  menu.querySelector<HTMLButtonElement>('button')?.focus();
-}
-
-function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
-  const busy = () => kind === 'workspace' ? !!workspaceRun(id) : conversationRunning(id);
-  if (busy() || requestBusy) return;
-  const item = kind === 'workspace' ? app.state.workspaces.find((entry) => entry.id === id) : app.state.conversations.find((entry) => entry.id === id);
-  if (!item) return;
-  const count = app.state.conversations.filter((entry) => entry.workspaceId === id).length;
-  const name = 'name' in item ? item.name : item.title || 'Untitled conversation';
-  const action = kind === 'workspace' ? 'Remove workspace' : 'Delete conversation';
-  const description = kind === 'workspace'
-    ? `Remove <strong>${escape(name)}</strong> from Pith Desk and permanently delete its <strong>${count} ${count === 1 ? 'conversation' : 'conversations'}</strong>, including history, image attachments and run records?`
-    : `Permanently delete <strong>${escape(name)}</strong>, including its history, image attachments and run records?`;
-  confirmRemoval({ title: `${action}?`, action, description,
-    hint: 'The folder and its files stay on your computer, including files created by Pith. Deleted conversation data cannot be recovered from Pith Desk.',
-    scope: kind === 'workspace' ? { workspaceId: id } : { conversationId: id },
-    unavailable: () => busy() || requestBusy, error: () => localError,
-    run: async () => {
-      const activeWorkspace = selectedWorkspace()?.id;
-      const activeID = app.state.activeId;
-      const ok = await mutate(kind === 'workspace' ? '/api/remove-workspace' : '/api/delete-conversation', { id, ...(kind === 'workspace' ? { conversationCount: count } : {}) });
-      if (!ok) return false;
-      if (kind === 'workspace') {
-        expandedWorkspaces.delete(id);
-        if (selectedWorkspaceId === id) selectedWorkspaceId = '';
-        if (resourcesWorkspaceId === id) { resources = null; resourcesWorkspaceId = ''; resourcesRequest++; $<HTMLDialogElement>('resources-dialog').close(); }
-      }
-      if (activeID !== app.state.activeId || activeWorkspace !== selectedWorkspace()?.id) {
-        clearHistoryImages();
-        loadComposerDraft();
-        resizeComposer();
-      }
-      render();
-      return true;
-  } });
-}
-
-function renderQueue(): void {
-  const queued = app.state.queuedMessages || [];
-  renderQueueEditor();
-  const signature = JSON.stringify([app.state.activeId, queued, app.state.running, requestBusy]);
-  if (signature === queueSignature) return;
-  queueSignature = signature;
-  $('queued-messages').hidden = !queued.length;
-  $('queued-messages').innerHTML = queued.length ? `<div class="section-heading">Pending messages</div>${queued.map((entry) => {
-    const disabled = requestBusy ? 'disabled' : '';
-    const actions = `data-queued-message="${escape(entry.id)}"`;
-    return `<div class="queued-message">${entry.mode === 'steer' ? '<span class="queue-badge">Instruction</span>' : ''}<div class="queued-message-content"><span class="queued-message-text" title="${escape(entry.text)}">${escape(entry.text || 'Image attachment')}</span>${entry.imageCount ? `<small class="queue-image-count">${entry.imageCount} image${entry.imageCount === 1 ? '' : 's'}</small>` : ''}</div><div class="queued-message-actions">${entry.mode === 'follow-up' && app.state.running ? `<button type="button" class="quiet-icon queue-steer" data-queue-action="steer" ${actions} title="Steer the current task at its next turn" ${disabled}>${icon('steer')}<span>Steer</span></button>` : ''}<button type="button" class="quiet-icon" data-queue-action="edit" ${actions} aria-label="Edit pending message" title="Edit message" ${disabled}>${icon('edit')}</button><button type="button" class="quiet-icon" data-queue-action="delete" ${actions} aria-label="Delete pending message" title="Delete message" ${disabled}>${icon('trash')}</button></div></div>`;
-  }).join('')}` : '';
-}
-
-function renderQueueEditor(): void {
-  if (!queueEditTarget) return;
-  const pending = queueEditTarget.conversationId === app.state.activeId && app.state.queuedMessages.some((entry) => entry.id === queueEditTarget!.messageId);
-  const save = $<HTMLButtonElement>('queue-edit-save');
-  const text = $<HTMLTextAreaElement>('queue-edit-text');
-  const entry = app.state.queuedMessages.find((entry) => entry.id === queueEditTarget!.messageId);
-  save.disabled = requestBusy || !pending || (!text.value.trim() && !entry?.imageCount);
-  text.disabled = requestBusy;
-  if (!pending) $('queue-edit-error').textContent = 'This message is no longer pending. Your draft is kept here so you can copy it.';
-}
-
-function openQueueEditor(entry: QueuedMessage): void {
-  if (requestBusy || !app.state.activeId) return;
-  queueEditTarget = { conversationId: app.state.activeId, messageId: entry.id };
-  $('queue-edit-content').innerHTML = `${dialogHeading('Edit pending message', 'queue-edit-title', 'queue-edit-dialog', 'Pending message')}<form id="queue-edit-form"><label class="field-label" for="queue-edit-text">Message</label><textarea id="queue-edit-text" class="queue-edit-text" rows="5"></textarea>${entry.imageCount ? `<p class="settings-note">${entry.imageCount} attached image${entry.imageCount === 1 ? '' : 's'} will be kept.</p>` : ''}<p id="queue-edit-error" class="form-error" role="alert"></p><div class="queue-edit-actions"><button type="button" class="secondary-button" data-close="queue-edit-dialog">Cancel</button><button id="queue-edit-save" type="submit" class="primary-button">Save message</button></div></form>`;
-  const editor = $<HTMLTextAreaElement>('queue-edit-text');
-  editor.value = entry.text;
-  editor.addEventListener('input', renderQueueEditor);
-  $('queue-edit-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const target = queueEditTarget;
-    if (!target || $<HTMLButtonElement>('queue-edit-save').disabled) return;
-    $('queue-edit-error').textContent = '';
-    if (!await mutate('/api/queue/edit', { id: target.conversationId, messageId: target.messageId, text: editor.value }, () => $<HTMLDialogElement>('queue-edit-dialog').close())) {
-      $('queue-edit-error').textContent = localError;
-    }
-  });
-  renderQueueEditor();
-  showDialog('queue-edit-dialog');
-  editor.focus();
-}
-
-function renderAppearance(): void {
-  const mode = appearanceMode(app.state.settings.appearance);
-  applyAppearance(mode);
-  const selector = document.getElementById('appearance-mode') as HTMLSelectElement | null;
-  if (selector) {
-    selector.value = mode;
-    selector.disabled = requestBusy || !app.loaded;
-  }
-}
-
-function renderWelcome(workspace?: Workspace): void {
-  const ready = !!workspace && app.state.settings.hasApiKey;
-  $('welcome').innerHTML = `
-    <div class="welcome-mark">${logo}</div>
-    <p class="eyebrow">YOUR LOCAL WORK COMPANION</p>
-    <h1>${ready ? 'What are we working on?' : 'Your work. A little more possible.'}</h1>
-    <p class="welcome-description">An agent that works alongside you, with your files<br class="desktop-break"> and the tools you choose.</p>
-    ${!ready ? `<div class="setup-card">
-      <div class="setup-card-heading">Make yourself at home <span>Two quick steps</span></div>
-      <button class="setup-step" data-action="${app.state.settings.hasConnections ? 'model' : 'settings'}"><span class="step-number ${app.state.settings.hasApiKey ? 'complete' : ''}">${app.state.settings.hasApiKey ? icon('check') : '1'}</span><span><strong>${app.state.settings.hasApiKey ? 'Model selected' : app.state.settings.hasConnections ? 'Choose a model' : 'Connect a provider'}</strong><small>${app.state.settings.hasApiKey ? escape(app.state.settings.modelName || app.state.settings.model) : app.state.settings.hasConnections ? 'Your provider connection is ready' : 'Bring your provider API key'}</small></span>${icon('chevron')}</button>
-      <button class="setup-step" data-action="workspace"><span class="step-number ${workspace ? 'complete' : ''}">${workspace ? icon('check') : '2'}</span><span><strong>${workspace ? escape(workspace.name) : 'Choose a workspace'}</strong><small>${workspace ? escape(workspace.path) : 'A folder Pith can help you work in'}</small></span>${icon('chevron')}</button>
-    </div>` : `<div class="welcome-workspace">${icon('folder')}<span>Working in <strong>${escape(workspace.name)}</strong></span><button class="text-button" data-action="workspace">Change</button></div>
-    <div class="suggestions"><button data-prompt="Explore this workspace and give me a concise overview of its files.">${icon('file')}Explore my workspace</button><button data-prompt="Help me plan a task. Start by asking what I want to accomplish.">${icon('chat')}Think through a task</button><button data-prompt="I'd like help creating a document in this workspace. Ask me what it should cover.">${icon('plus')}Create something</button></div>`}
-    <div class="welcome-footnote">${icon('shield')}Local workspace. Your choice of model.</div>
-  `;
-}
-
-
-function renderApproval(): void {
-  const approval = app.state.pendingApproval;
-  const signature = JSON.stringify([approval, requestBusy]);
-  if (signature === approvalSignature) return;
-  approvalSignature = signature;
-  const warning = approval?.warning || (approval?.toolName === 'run_command' ? 'This command runs with your normal computer permissions. It may access or change files outside this workspace.' : '');
-  const canAlwaysAllow = approval?.toolName === 'write_file' || approval?.toolName === 'edit_file';
-  const preview = approval?.preview;
-  const previewBody = preview?.error ? `<p class="preview-note" role="status">${escape(preview.error)}</p>` : preview ? `<div id="approval-diff-preview"></div>${preview.truncated ? '<p class="preview-note">Preview shortened. Expand Tool arguments for the complete change.</p>' : ''}` : '';
-  const previewMarkup = preview ? `<div class="approval-file"><strong>${preview.kind === 'create' ? 'Create file' : 'Modify file'}</strong><code>${escape(preview.path)}</code></div>${previewBody}` : '';
-  const args = `<div id="approval-args-preview"></div>`;
-  $('approval').innerHTML = approval ? `<section class="approval-card" aria-label="Tool approval required"><div class="approval-heading">${icon('shield')}<div><strong>Pith needs your permission</strong><span>Review this action before it runs.</span></div><span class="approval-badge">${escape(approval.toolName)}</span></div>${warning ? `<p class="approval-warning">${escape(warning)}</p>` : ''}${previewMarkup}${preview ? `<details class="approval-arguments" ${preview.error ? 'open' : ''}><summary>Tool arguments</summary>${args}</details>` : args}${canAlwaysAllow ? '<p class="approval-scope">Workspace permission applies to this conversation. Commands and external connection tools still need approval.</p>' : ''}<div class="approval-actions"><button class="secondary-button" data-approval="deny" ${requestBusy ? 'disabled' : ''}>Deny</button>${canAlwaysAllow ? `<button class="secondary-button always-allow-button" data-approval="always" ${requestBusy ? 'disabled' : ''}>Always allow workspace changes</button>` : ''}<button class="primary-button" data-approval="allow" ${requestBusy ? 'disabled' : ''}>${icon('check')}Allow this action</button></div></section>` : '';
-  for (const button of $('approval').querySelectorAll<HTMLButtonElement>('[data-approval]')) button.dataset.approvalId = approval?.id || '';
-  if (preview && !preview.error) mountPagedPreview($('approval-diff-preview'), preview.diff || 'No content changes.', 'diff');
-  if (approval) {
-    const argsContainer = $('approval-args-preview');
-    const details = argsContainer.closest('details');
-    let loaded = false;
-    const showArgs = () => {
-      if (loaded || (details && !details.open)) return;
-      loaded = true;
-      mountPagedPreview(argsContainer, typeof approval.args === 'string' ? approval.args : JSON.stringify(approval.args, null, 2), 'text');
-    };
-    details?.addEventListener('toggle', showArgs);
-    showArgs();
-  }
-}
-
-function renderPermissions(): void {
-  const mode = activePermissionMode();
-  const selector = $<HTMLSelectElement>('permission-mode');
-  selector.value = mode;
-  selector.disabled = !app.loaded || !app.state.activeId || requestBusy;
-  $('permission-control').classList.toggle('full-access', mode === 'full-access');
-  const descriptions: Record<PermissionMode, string> = {
-    ask: 'Pith can read workspace files. Changes, commands, and external connection tools require approval.',
-    'workspace-write': 'Workspace file changes are allowed. Commands and external connection tools still require approval.',
-    'full-access': 'Full access: all enabled tools, including external connections, run without asking. There is no OS sandbox.',
-  };
-  $('permission-description').textContent = descriptions[mode];
-  $('permission-description').classList.toggle('full-access-note', mode === 'full-access');
-  const dialog = $<HTMLDialogElement>('permissions-dialog');
-  if (dialog.open && fullAccessTargetId !== app.state.activeId) {
-    dialog.close();
-    localError = 'The active conversation changed. Choose its permissions again.';
-  }
-  const confirm = document.getElementById('enable-full-access') as HTMLButtonElement | null;
-  if (confirm) confirm.disabled = requestBusy || !fullAccessTargetId || fullAccessTargetId !== app.state.activeId;
-}
-
-function confirmFullAccess(id: string): void {
-  fullAccessTargetId = id;
-  const conversation = app.state.conversations.find((entry) => entry.id === id);
-  $('permissions-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">CONVERSATION PERMISSIONS</span><h2 id="full-access-title">Enable full access?</h2></div><button class="quiet-icon" data-close="permissions-dialog" aria-label="Cancel full access">${icon('close')}</button></div><p class="modal-description">Give Pith permission to run <strong>all enabled tools, including external MCP connections,</strong> without asking in <strong>${escape(conversation?.title || 'this conversation')}</strong>.</p><div class="full-access-explanation">${icon('shield')}<div><strong>This is access to your computer account and connected services.</strong><p>Commands can read, change, or delete files outside the workspace and access the network. External tools can act on their connected services. There is no OS sandbox.</p></div></div><p class="permission-revoke-note">This applies only to the current conversation and stays enabled across app restarts until you revoke it. To revoke it, choose “Ask before changes” or “Allow workspace changes” in the composer. Workspace permission alone never grants external MCP tools access.</p><div id="permissions-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="permissions-dialog">Cancel</button><button class="primary-button full-access-confirm" id="enable-full-access" type="button">Enable full access</button></div>`;
-  $<HTMLDialogElement>('permissions-dialog').showModal();
-  $('enable-full-access').addEventListener('click', async () => {
-    const targetId = fullAccessTargetId;
-    if (!targetId || targetId !== app.state.activeId || requestBusy) return;
-    if (await mutate('/api/permissions', { id: targetId, mode: 'full-access' })) $<HTMLDialogElement>('permissions-dialog').close();
-    else if ($<HTMLDialogElement>('permissions-dialog').open) $('permissions-error').textContent = localError;
-  });
 }
 
 function snapshotChanged(next: State, previous: State, initialized: boolean): void {
   const shouldLoadArtifacts = !next.running && (!initialized || next.activeId !== previous.activeId || previous.running);
   const activeChanged = next.activeId !== previous.activeId;
   const runFinished = previous.runs.length > 0 && !next.runs.length;
-  if (activeChanged) { imageViewer.close(); localError = ''; clearHistoryImages(); artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; setArtifactsOpen(false); $<HTMLDialogElement>('preview-dialog').close(); }
+  if (activeChanged) { imageViewer.close(); activity.error = ''; clearHistoryImages(); files.activeChanged(); }
   loadComposerDraft();
   updateCompletions(initialized);
   render();
@@ -663,791 +253,19 @@ function mutate<P extends MutationPath>(path: P, payload: MutationInput<P>, onRe
   return mutations(path, payload, onResponse);
 }
 
-async function newConversation(workspaceId = selectedWorkspace()?.id): Promise<void> {
-  if (!workspaceId) { openWorkspace(); return; }
-  if (await mutate('/api/conversations', { workspaceId })) {
-    expandedWorkspaces.add(workspaceId);
-    renderHistory();
-    resizeComposer();
-    closeSidebar();
-    input.focus();
-  }
-}
-
-async function send(): Promise<void> {
-  const draft = input.value;
-  const sourceScope = composerScope;
-  const text = input.value.trim();
-  const images = draftImages.map(({ type, data, mimeType }) => ({ type, data, mimeType }));
-  const submittedImages = draftImages.map(({ url, ...image }) => image);
-  const submittedIds = new Set(submittedImages.map((image) => image.id));
-  if ((!text && !images.length) || requestBusy || draftLoading || readingImages || resolvingReferences) return;
-  if (images.length && !app.state.settings.supportsImages) { localError = 'Choose an image-capable model in Settings, or remove the attachments.'; render(); return; }
-  if (app.state.running) { await queueMessage(text, draft, images, submittedImages); return; }
-  if (!app.state.settings.hasApiKey) { openSettings(); return; }
-  if (!selectedWorkspace()) { openWorkspace(); return; }
-  rememberDraft();
-  void drafts.flush(sourceScope).catch(() => {});
-  let id = app.state.activeId;
-  if (!id) {
-    if (!await mutate('/api/conversations', { workspaceId: selectedWorkspace()!.id }, (response) => { id = response.conversation.id; })) return;
-    try {
-      const carried = await drafts.transfer(sourceScope, { id });
-      const remaining = await drafts.load(sourceScope);
-      if (draftKey(composerScope) === draftKey(sourceScope) && !remaining.text && !remaining.images?.length) {
-        input.value = '';
-        clearDraftImages();
-      }
-      await composerDraftReady;
-      if (composerScope.id === id && !input.value && !draftImages.length) {
-        input.value = carried.text;
-        draftImages = await restoreDraftImages(carried.images || [], () => composerScope.id === id);
-        rememberDraft();
-      }
-    } catch (error) { localError = `Draft could not be moved: ${error instanceof Error ? error.message : String(error)}`; render(); return; }
-  }
-  if (await mutate('/api/send', { id, text, images }, () => {
-    drafts.clearIfUnchanged(sourceScope, draft, submittedImages);
-    if (sourceScope.id !== id) drafts.clearIfUnchanged({ id }, draft, submittedImages);
-    if (composerScope.id === id) {
-      if (input.value === draft) input.value = '';
-      clearDraftImages(submittedIds);
-      rememberDraft();
-    }
-  })) {
-    await drafts.flushAll();
-    resizeComposer();
-    render();
-    reader.followLatest();
-  }
-}
-
-async function queueMessage(text: string, draft: string, images: ImageInput[], submittedImages: Omit<DraftImage, 'url'>[]): Promise<void> {
-  const id = app.state.activeId;
-  if (!id || requestBusy) return;
-  requestBusy = true;
-  localError = '';
-  render();
-  try {
-    // A queue POST is sent exactly once. A lost response must not duplicate work.
-    await request('/api/queue', { id, text, images });
-    drafts.clearIfUnchanged({ id }, draft, submittedImages);
-    if (composerScope.id === id) {
-      if (input.value === draft) input.value = '';
-      clearDraftImages(new Set(submittedImages.map((image) => image.id)));
-      rememberDraft();
-    }
-    await drafts.flushAll();
-    resizeComposer();
-    await refresh().catch(() => { localError = 'Message submitted. Waiting for the local service to update the pending list.'; });
-  } catch (error) {
-    localError = `${error instanceof Error ? error.message : String(error)} The message was not resent. Check pending messages before trying again.`;
-  } finally { requestBusy = false; render(); }
-}
-
 function showDialog(id: string): void {
   closeSidebar();
   const dialog = $<HTMLDialogElement>(id);
   if (!dialog.open) dialog.showModal();
 }
 
-function openRename(id = app.state.activeId): void {
-  const conversation = app.state.conversations.find((entry) => entry.id === id);
-  if (!conversation || conversationRunning(id)) return;
-  $('rename-content').innerHTML = `${dialogHeading('Rename conversation', 'rename-title', 'rename-dialog', 'CONVERSATION')}<form id="rename-form"><label class="field-label" for="conversation-title">Title</label><input id="conversation-title" name="title" value="${escape(conversation.title || '')}" required autocomplete="off" /><div id="rename-error" class="form-error" role="alert"></div><div class="modal-footer"><button type="button" class="secondary-button" data-close="rename-dialog">Cancel</button><button type="submit" class="primary-button" data-idle-action data-idle-conversation="${escape(id)}">Save title</button></div></form>`;
-  showDialog('rename-dialog');
-  $<HTMLInputElement>('conversation-title').select();
-  $('rename-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const title = $<HTMLInputElement>('conversation-title').value.trim();
-    if (!title || conversationRunning(id) || requestBusy) return;
-    if (await mutate('/api/rename', { id, title })) $<HTMLDialogElement>('rename-dialog').close();
-    else $('rename-error').textContent = localError;
-  });
-}
-
-async function exportConversation(id = app.state.activeId): Promise<void> {
-  const conversation = app.state.conversations.find((entry) => entry.id === id);
-  if (!conversation || requestBusy || conversationRunning(id)) return;
-  requestBusy = true;
-  localError = '';
-  render();
-  try {
-    const delivery = await request('/api/export', { id: conversation.id });
-    // A native save (including cancellation) fully handles this export.
-    // Only an explicit browser-preview response permits the Blob download.
-    if (delivery?.native === true) return;
-    if (delivery?.native !== false) throw new Error('The local service returned an invalid export response.');
-    const url = URL.createObjectURL(await download('/api/export', { id: conversation.id }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${(conversation.title || 'Conversation').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim() || 'Conversation'}.md`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-  } catch (error) { localError = error instanceof Error ? error.message : String(error); }
-  finally { requestBusy = false; render(); }
-}
-
-function fileActions(kind: 'artifact' | 'resource', ownerId: string, path: string, includePreview = false): string {
-  const preview = kind === 'artifact' && includePreview ? `<button type="button" class="secondary-button" data-preview-path="${escape(path)}" data-preview-id="${escape(ownerId)}" data-idle-action data-idle-conversation="${escape(ownerId)}">Preview</button>` : '';
-  const copy = kind === 'artifact' ? `<button type="button" class="secondary-button" data-file-kind="artifact" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="${nativeClipboard ? 'copy' : 'copy-path'}" data-idle-action data-idle-conversation="${escape(ownerId)}">${nativeClipboard ? 'Copy file' : 'Copy path'}</button>` : '';
-  return `<div class="file-actions">${preview}<button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="open" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Open</button><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="reveal" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Reveal</button>${copy}</div>`;
-}
-
-async function downloadConversationFile(id: string, path: string): Promise<void> {
-  if (requestBusy || conversationRunning(id) || id !== app.state.activeId) return;
-  requestBusy = true;
-  localError = '';
-  render();
-  try {
-    const result = await request('/api/conversation-file', { id, path });
-    // Native cancellation is a completed native action; it must not download.
-    if (result.native) return;
-    const url = URL.createObjectURL(await download('/api/conversation-file', { id, path }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = result.name;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-  } catch (error) { localError = error instanceof Error ? error.message : String(error); }
-  finally { requestBusy = false; render(); }
-}
-
-async function copyText(text: string): Promise<void> {
-  if (nativeClipboard) await request('/api/copy-text', { text });
-  else await navigator.clipboard.writeText(text);
-}
-
-async function copyWithFeedback(button: HTMLButtonElement, action: () => Promise<void>, announcement: string): Promise<void> {
-  const original = button.innerHTML;
-  const label = button.getAttribute('aria-label');
-  const title = button.title;
-  $('copy-status').textContent = '';
-  button.dataset.copyPending = 'true';
-  button.disabled = true;
-  try {
-    await action();
-    $('copy-status').textContent = announcement;
-    if (!button.isConnected) return;
-    button.innerHTML = button.classList.contains('message-action') ? icon('check') : 'Copied';
-    button.setAttribute('aria-label', announcement);
-    button.title = announcement;
-    window.setTimeout(() => {
-      if (!button.isConnected) return;
-      button.innerHTML = original;
-      if (label === null) button.removeAttribute('aria-label'); else button.setAttribute('aria-label', label);
-      button.title = title;
-      delete button.dataset.copyPending;
-      button.disabled = !!button.dataset.idleConversation && (requestBusy || conversationRunning(button.dataset.idleConversation));
-    }, 1500);
-  } catch (error) {
-    delete button.dataset.copyPending;
-    button.disabled = false;
-    localError = error instanceof Error ? error.message : String(error);
-    render();
-  }
-}
-
-function setArtifactsOpen(open: boolean, restoreFocus = false): void {
-  artifactsOpen = open && !$('artifacts-control').hidden;
-  $('artifacts').hidden = !artifactsOpen;
-  $('artifacts-toggle').setAttribute('aria-expanded', String(artifactsOpen));
-  if (artifactsOpen) $('artifacts').focus();
-  else if (restoreFocus && !$('artifacts-control').hidden) $('artifacts-toggle').focus();
-}
-
-function renderArtifacts(): void {
-  const region = $('artifacts');
-  const signature = JSON.stringify([app.state.activeId, artifacts, artifactsError, artifactsLoading]);
-  if (signature === artifactsSignature) return;
-  artifactsSignature = signature;
-  $('artifacts-control').hidden = !app.state.activeId || (!artifacts.length && !artifactsError);
-  if ($('artifacts-control').hidden) setArtifactsOpen(false);
-  const count = `${artifacts.length} ${artifacts.length === 1 ? 'file' : 'files'}`;
-  const label = artifactsError ? 'Conversation files unavailable' : `Conversation files (${count})`;
-  $('artifacts-toggle').setAttribute('aria-label', label);
-  $('artifacts-toggle').title = label;
-  $('artifacts-count').textContent = artifacts.length ? String(artifacts.length) : '!';
-  region.innerHTML = `<div class="artifacts-heading"><h2 id="artifacts-title">Files <span>${count}</span></h2><button type="button" class="quiet-icon" data-artifacts-close aria-label="Close files">${icon('close')}</button></div>${artifactsLoading ? '<p class="artifacts-status" role="status">Looking for files…</p>' : ''}<div class="artifacts-content">${artifacts.map((file) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(file.name)}</strong><span class="file-path">${escape(file.path)}</span></div>${fileActions('artifact', app.state.activeId || '', file.path, true)}</article>`).join('')}${artifactsError ? `<p class="form-error" role="alert">${escape(artifactsError)}</p>` : ''}</div>`;
-}
-
-function clearFilePreview(): void {
-  previewRequest++;
-  if (previewImageURL) URL.revokeObjectURL(previewImageURL);
-  previewImageURL = '';
-  $('preview-content').replaceChildren();
-}
-
-async function openArtifactPreview(id: string, path: string): Promise<void> {
-  if (conversationRunning(id) || id !== app.state.activeId) return;
-  clearFilePreview();
-  const sequence = previewRequest;
-  const dialog = $<HTMLDialogElement>('preview-dialog');
-  const heading = dialogHeading(path.split('/').pop() || 'File preview', 'preview-title', 'preview-dialog', 'File preview');
-  $('preview-content').innerHTML = `${heading}<p class="file-preview-path">${escape(path)}</p><div id="file-preview-body" class="file-preview-body" aria-live="polite">Loading preview…</div><div class="file-preview-actions">${fileActions('artifact', id, path)}</div>`;
-  showDialog('preview-dialog');
-  try {
-    const preview = await request('/api/artifact-preview', { query: { id, path } });
-    if (sequence !== previewRequest || app.state.activeId !== id || !dialog.open) return;
-    const body = $('file-preview-body');
-    if (preview.kind === 'image' && preview.data && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(preview.mimeType || '')) {
-      const blob = await imagePreviewBlob(preview.data, preview.mimeType!, () => sequence === previewRequest && app.state.activeId === id && dialog.open);
-      if (!blob) return;
-      previewImageURL = URL.createObjectURL(blob);
-      body.innerHTML = `<img class="file-preview-image" src="${escape(previewImageURL)}" alt="${escape(path.split('/').pop())}" role="button" tabindex="0" title="Click to enlarge" />`;
-    } else mountPagedPreview(body, preview.text || '', preview.kind === 'markdown' ? 'markdown' : 'text');
-    if (preview.truncated) body.insertAdjacentHTML('beforeend', '<p class="preview-note">Showing the first 8 MiB. Use Open for the complete file.</p>');
-  } catch (error) {
-    if (sequence === previewRequest && dialog.open) $('file-preview-body').textContent = error instanceof Error ? error.message : String(error);
-  }
-}
-
-async function loadArtifacts(id: string): Promise<void> {
-  const sequence = ++artifactsRequest;
-  artifactsLoading = true;
-  artifactsError = '';
-  render();
-  try {
-    const result = await request('/api/artifacts', { query: { id } });
-    if (sequence !== artifactsRequest || app.state.activeId !== id) return;
-    artifacts = result || [];
-  } catch (error) {
-    if (sequence !== artifactsRequest || app.state.activeId !== id) return;
-    artifactsError = error instanceof Error ? error.message : String(error);
-  } finally { if (sequence === artifactsRequest) { artifactsLoading = false; render(); } }
-}
-
-function openResources(): void {
-  const workspace = selectedWorkspace();
-  if (!workspace) { openWorkspace(); return; }
-  resourcesWorkspaceId = workspace.id;
-  resources = null;
-  $('resources-content').innerHTML = `${dialogHeading('Workspace resources', 'resources-title', 'resources-dialog', workspace.name)}<p class="modal-description">Instructions, skills and prompt templates are loaded by Pith for each task. Edit them here or open their Markdown files.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-resources">Refresh</button><button class="secondary-button" data-sdk="resource" data-resource-workspace="${escape(resourcesWorkspaceId)}" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}" data-kind="skill">Add skill</button><button class="secondary-button" data-sdk="resource" data-resource-workspace="${escape(resourcesWorkspaceId)}" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}" data-kind="template">Add prompt template</button></div><div id="resources-list"><p class="feature-hint">Loading workspace resources…</p></div><div id="resources-error" class="form-error" role="alert"></div>`;
-  showDialog('resources-dialog');
-  void loadResources();
-}
-
-async function loadResources(): Promise<void> {
-  const id = resourcesWorkspaceId;
-  if (!id) return;
-  const sequence = ++resourcesRequest;
-  $('resources-error').textContent = '';
-  try {
-    const result = await request('/api/resources', { query: { workspaceId: id } });
-    if (sequence !== resourcesRequest || id !== resourcesWorkspaceId) return;
-    resources = result;
-    renderResources();
-  } catch (error) { if (sequence === resourcesRequest) $('resources-error').textContent = error instanceof Error ? error.message : String(error); }
-}
-
-function renderResources(): void {
-  if (!resources) return;
-  const workspace = app.state.workspaces.find((entry) => entry.id === resourcesWorkspaceId);
-  const rootPath = `${workspace?.path.replace(/\\/g, '/').replace(/\/$/, '')}/AGENTS.md`;
-  const hasInstructions = (resources.instructions || []).some((entry) => entry.path.replace(/\\/g, '/') === rootPath);
-  $('resources-list').innerHTML = `<section class="resource-section"><h3>Instructions</h3>${(resources.instructions || []).map((entry) => `<article class="resource-card"><div class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('instructions', entry, resourcesWorkspaceId)}</div><details class="resource-preview"><summary>View instructions</summary><pre>${escape(entry.content)}</pre></details></article>`).join('') || '<p class="feature-hint">No workspace instructions found.</p>'}${!hasInstructions ? `<button class="secondary-button" data-sdk="resource" data-resource-workspace="${escape(resourcesWorkspaceId)}" data-kind="instructions" data-idle-action data-idle-workspace="${escape(resourcesWorkspaceId)}">Create AGENTS.md in this workspace</button>` : ''}</section><section class="resource-section"><h3>Skills</h3>${(resources.skills || []).map((entry) => `<article class="file-card">${icon('file')}<div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${fileActions('resource', resourcesWorkspaceId, entry.path)}${sdkUI.resourceActions('skill', entry, resourcesWorkspaceId)}</article>`).join('') || '<p class="feature-hint">No skills found. Add .pi/skills/&lt;skill-name&gt;/SKILL.md in this workspace, then refresh.</p>'}</section><section class="resource-section"><h3>Prompt templates</h3>${(resources.templates || []).map((entry) => `<article class="file-card"><div class="file-info"><strong>${escape(entry.name)}</strong><p>${escape(entry.description)}</p><span class="file-path">${escape(entry.path)}</span></div>${sdkUI.resourceActions('template', entry, resourcesWorkspaceId)}</article>`).join('') || '<p class="feature-hint">No prompt templates yet.</p>'}</section>${(resources.diagnostics || []).length ? `<section class="resource-section resource-diagnostics"><h3>Resource notes</h3>${(resources.diagnostics || []).map((entry) => `<p>${escape(entry)}</p>`).join('')}</section>` : ''}`;
-  render();
-}
-
-function openConnections(): void {
-  $('connections-content').innerHTML = `${dialogHeading('Connections', 'connections-title', 'connections-dialog', 'EXTERNAL TOOLS')}<p class="modal-description">Add an MCP server to give Pith access to its tools. Enabled connections connect automatically when a task starts. Disable a connection to stop using it in tasks. External tools require approval unless this conversation has full access.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-mcp">Refresh</button></div><div id="mcp-list"><p class="feature-hint">Loading connections…</p></div><div id="mcp-error" data-dialog-error class="form-error" role="alert"></div><section class="connection-editor"><div class="section-heading"><span id="mcp-form-title">Add connection</span><button type="button" class="text-button" data-action="new-mcp">New connection</button></div><form id="mcp-form"><label class="field-label" for="mcp-name">Name</label><input id="mcp-name" name="name" required autocomplete="off" placeholder="my-tools" /><label class="field-label" for="mcp-type">Connection type</label><select id="mcp-type" name="type" class="feature-select"><option value="http">HTTP</option><option value="stdio">Local command (stdio)</option></select><div id="mcp-http-fields"><label class="field-label" for="mcp-url">Server URL</label><input id="mcp-url" name="url" type="url" placeholder="https://example.com/mcp" autocomplete="off" /><label class="checkbox-field"><input id="mcp-oauth" type="checkbox" />Sign in with OAuth</label><details class="provider-advanced"><summary>OAuth settings (optional)</summary><label class="field-label">Registered client ID<input id="mcp-oauth-client" /></label><label class="field-label">Scopes<input id="mcp-oauth-scope" /></label><p class="field-hint">Uses the server’s OAuth discovery and PKCE. The temporary callback listens on 127.0.0.1:54819.</p></details><label class="field-label" for="mcp-token">Bearer token (optional)</label><input id="mcp-token" name="bearerToken" type="password" autocomplete="new-password" placeholder="Optional token" /><label class="checkbox-field" id="mcp-clear-token-row" hidden><input id="mcp-clear-token" type="checkbox" />Remove saved bearer token</label><p class="field-hint">Saved tokens are never returned to this page. Leave this field blank to keep an existing token.</p></div><div id="mcp-stdio-fields" hidden><label class="field-label" for="mcp-command">Installed executable</label><input id="mcp-command" name="command" placeholder="/path/to/mcp-server" autocomplete="off" /><label class="field-label" for="mcp-args">Arguments (JSON array)</label><textarea id="mcp-args" name="args" rows="3" spellcheck="false">[]</textarea><p class="field-hint">The executable and any runtime it needs must already be installed on your computer. Pith Desk does not bundle external runtimes or a marketplace.</p><div class="secret-label"><label class="field-label" for="mcp-env">Environment overrides (JSON object, optional)</label><button class="text-button" type="button" id="mcp-env-visibility" data-action="toggle-env" aria-controls="mcp-env" aria-pressed="false">Show</button></div><textarea id="mcp-env" class="secret-field" name="env" rows="3" spellcheck="false" autocomplete="off" aria-describedby="mcp-env-hint" placeholder='{"API_KEY":"…"}'></textarea><p id="mcp-env-hint" class="field-hint">Values stay private. Leave blank to keep saved overrides. Add a JSON object of string keys and values to set or replace individual overrides.</p><p id="mcp-env-keys" class="field-hint" hidden></p><label class="checkbox-field" id="mcp-clear-env-row" hidden><input id="mcp-clear-env" type="checkbox" />Clear saved environment overrides</label></div><label class="checkbox-field"><input id="mcp-enabled" name="enabled" type="checkbox" checked />Enable this connection</label><div id="mcp-form-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="connections-dialog">Close</button><button class="primary-button" type="submit" data-idle-action data-global-idle>Save connection</button></div></form></section>`;
-  showDialog('connections-dialog');
-  $<HTMLSelectElement>('mcp-type').addEventListener('change', renderMCPType);
-  $('mcp-form').addEventListener('submit', (event) => { event.preventDefault(); void saveMCP(); });
-  renderMCPType();
-  render();
-  void loadMCP();
-}
-
-function renderMCPType(): void {
-  const http = $<HTMLSelectElement>('mcp-type').value === 'http';
-  $('mcp-http-fields').hidden = !http;
-  $('mcp-stdio-fields').hidden = http;
-  $<HTMLInputElement>('mcp-url').required = http;
-  $<HTMLInputElement>('mcp-command').required = !http;
-}
-
-async function loadMCP(): Promise<void> {
-  const sequence = ++mcpRequest;
-  $('mcp-error').textContent = '';
-  try {
-    const result = await request('/api/mcp');
-    if (sequence !== mcpRequest) return;
-    mcpConnections = result || [];
-    renderMCPList();
-    render();
-  } catch (error) { if (sequence === mcpRequest) $('mcp-error').textContent = error instanceof Error ? error.message : String(error); }
-}
-
-function mcpStatusLabel(entry: MCPConnection): string {
-  if (!entry.enabled) return 'Will not be used by tasks';
-  if (entry.status === 'connected') return `Connected · ${entry.toolCount} ${entry.toolCount === 1 ? 'tool' : 'tools'}`;
-  if (entry.status === 'connecting') return 'Connecting…';
-  if (entry.status === 'error') return 'Connection failed';
-  return 'Connects automatically when a task starts';
-}
-
-function renderMCPList(): void {
-  $('mcp-list').innerHTML = mcpConnections.map((entry) => `<article class="connection-card"><div class="connection-card-heading"><strong>${escape(entry.name)}</strong></div><p class="file-path">${escape(entry.type === 'http' ? entry.url : [entry.command, ...(entry.args || [])].join(' '))}</p><p class="feature-hint">${entry.enabled ? 'Enabled' : 'Disabled'}${entry.hasBearerToken ? ' · Token configured' : ''}</p><p class="connection-status ${entry.enabled && entry.status === 'error' ? 'is-error' : ''}" role="status">${escape(mcpStatusLabel(entry))}</p>${entry.envKeys?.length ? `<p class="feature-hint">Saved environment keys: ${escape(entry.envKeys.join(', '))}</p>` : ''}${entry.error ? `<p class="form-error">${escape(entry.error)}</p>` : ''}<div class="file-actions">${entry.oauth ? `<button class="secondary-button" data-sdk="mcp-login" data-id="${escape(entry.name)}">${entry.signedIn ? 'Sign in again' : 'Sign in'}</button>${entry.signedIn ? `<button class="secondary-button" data-sdk="mcp-logout" data-id="${escape(entry.name)}">Sign out</button>` : ''}` : ''}<button class="secondary-button" data-mcp-edit="${escape(entry.name)}">Edit</button><button class="secondary-button" data-mcp-toggle="${escape(entry.name)}" data-global-idle data-idle-action>${entry.enabled ? 'Disable' : 'Enable'}</button><button class="secondary-button destructive-button" data-mcp-remove="${escape(entry.name)}" data-global-idle data-idle-action>Delete</button></div></article>`).join('') || '<p class="feature-hint">No connections yet. Add an HTTP server or an installed local MCP command below. Tools are discovered on demand using tool search and Codemode.</p>';
-}
-
-function editMCP(entry?: MCPConnection): void {
-  mcpEditorGeneration++;
-  $<HTMLFormElement>('mcp-form').reset();
-  $<HTMLTextAreaElement>('mcp-env').classList.remove('revealed');
-  $('mcp-env-visibility').setAttribute('aria-pressed', 'false');
-  $('mcp-env-visibility').textContent = 'Show';
-  $('mcp-form-title').textContent = entry ? `Edit ${entry.name}` : 'Add connection';
-  $<HTMLInputElement>('mcp-name').value = entry?.name || '';
-  $<HTMLInputElement>('mcp-name').readOnly = !!entry;
-  $<HTMLSelectElement>('mcp-type').value = entry?.type || 'http';
-  $<HTMLInputElement>('mcp-url').value = entry?.url || '';
-  $<HTMLInputElement>('mcp-oauth').checked = entry?.oauth || false;
-  $<HTMLInputElement>('mcp-oauth-client').value = entry?.oauthClientId || '';
-  $<HTMLInputElement>('mcp-oauth-scope').value = entry?.oauthScope || '';
-  $<HTMLInputElement>('mcp-command').value = entry?.command || '';
-  $<HTMLTextAreaElement>('mcp-args').value = JSON.stringify(entry?.args || [], null, 2);
-  $<HTMLInputElement>('mcp-enabled').checked = entry?.enabled ?? true;
-  $<HTMLInputElement>('mcp-token').placeholder = entry?.hasBearerToken ? 'Leave blank to keep your saved token' : 'Optional token';
-  $('mcp-clear-token-row').hidden = !entry?.hasBearerToken;
-  const envKeys = entry?.envKeys || [];
-  $('mcp-clear-env-row').hidden = !envKeys.length;
-  $('mcp-env-keys').hidden = !envKeys.length;
-  $('mcp-env-keys').textContent = `Saved environment keys: ${envKeys.join(', ')}`;
-  $('mcp-form-error').textContent = '';
-  renderMCPType();
-  $<HTMLInputElement>(entry ? entry.type === 'stdio' ? 'mcp-command' : 'mcp-url' : 'mcp-name').focus();
-}
-
-function parseConnectionJSON(value: string, label: string): unknown {
-  try { return JSON.parse(value); }
-  catch { throw new Error(`Enter valid JSON for ${label}.`); }
-}
-
-async function saveMCP(): Promise<void> {
-  if (requestBusy || anyRunning()) return;
-  const originalForm = $<HTMLFormElement>('mcp-form');
-  const generation = mcpEditorGeneration;
-  const isCurrent = () => $<HTMLDialogElement>('connections-dialog').open && document.getElementById('mcp-form') === originalForm && mcpEditorGeneration === generation;
-  $('mcp-form-error').textContent = '';
-  try {
-    const name = $<HTMLInputElement>('mcp-name').value.trim();
-    const type = $<HTMLSelectElement>('mcp-type').value === 'stdio' ? 'stdio' : 'http';
-    const args: unknown = type === 'stdio' ? parseConnectionJSON($<HTMLTextAreaElement>('mcp-args').value || '[]', 'arguments') : [];
-    if (!Array.isArray(args) || !args.every((value) => typeof value === 'string')) throw new Error('Arguments must be a JSON array of strings.');
-    const envDraft = $<HTMLTextAreaElement>('mcp-env').value.trim();
-    const env: unknown = type === 'stdio' && envDraft ? parseConnectionJSON(envDraft, 'environment overrides') : undefined;
-    if (env !== undefined && (!env || typeof env !== 'object' || Array.isArray(env) || !Object.values(env).every((value) => typeof value === 'string'))) throw new Error('Environment overrides must be a JSON object with string values.');
-    const bearerToken = $<HTMLInputElement>('mcp-token').value.trim();
-    const payload = { name, type, args, oauth: false, enabled: $<HTMLInputElement>('mcp-enabled').checked, ...(type === 'http' ? { oauth: $<HTMLInputElement>('mcp-oauth').checked, oauthClientId: $<HTMLInputElement>('mcp-oauth-client').value.trim(), oauthScope: $<HTMLInputElement>('mcp-oauth-scope').value.trim(), url: $<HTMLInputElement>('mcp-url').value.trim(), ...(bearerToken ? { bearerToken } : {}), ...($<HTMLInputElement>('mcp-clear-token').checked ? { clearBearerToken: true } : {}) } : { command: $<HTMLInputElement>('mcp-command').value.trim(), ...(env !== undefined ? { env: env as Record<string, string> } : {}), ...($<HTMLInputElement>('mcp-clear-env').checked ? { clearEnv: true } : {}) }) };
-    const saved = await mutate('/api/mcp/save', payload);
-    if (!isCurrent()) return;
-    $<HTMLInputElement>('mcp-token').value = '';
-    if (!saved) $('mcp-form-error').textContent = localError;
-    else {
-      $<HTMLTextAreaElement>('mcp-env').value = '';
-      await loadMCP();
-      if (isCurrent()) editMCP(mcpConnections.find((entry) => entry.name === name));
-    }
-  } catch (error) { if (isCurrent()) $('mcp-form-error').textContent = error instanceof Error ? error.message : String(error); }
-}
-
-function thinkingLabel(level: string): string {
-  return level === 'off' ? 'Thinking off' : `Thinking: ${level === 'xhigh' ? 'extra high' : level}`;
-}
-
-function modelEditorMarkup(prefix: string): string {
-  return `<label class="field-label" for="${prefix}-provider">Provider</label><select class="feature-select" id="${prefix}-provider" required disabled><option value="">Loading providers…</option></select><label class="field-label" for="${prefix}-search">Model</label><input id="${prefix}-search" type="search" placeholder="Search by model name or ID" autocomplete="off" /><label class="sr-only" for="${prefix}-model">Choose model</label><select id="${prefix}-model" class="model-list" size="6" required disabled></select><p id="${prefix}-capabilities" class="field-hint" aria-live="polite"></p><label class="field-label" id="${prefix}-thinking-label" for="${prefix}-thinking">Thinking effort</label><select id="${prefix}-thinking" class="feature-select" aria-describedby="${prefix}-capabilities" required></select><p class="field-hint">Built-in models come from the Pith SDK catalog. Custom models use your saved definitions. Availability depends on your endpoint and account.</p>`;
-}
-
-function modelFormSelection(prefix: string): { provider: string; model: string; thinkingLevel: string } {
-  return { provider: $<HTMLSelectElement>(`${prefix}-provider`).value, model: $<HTMLSelectElement>(`${prefix}-model`).value, thinkingLevel: $<HTMLSelectElement>(`${prefix}-thinking`).value };
-}
-
-function setupModelEditor(prefix: string, catalog: ModelCatalog, configuredOnly: boolean): void {
-  const providers = configuredOnly ? (catalog.providers || []).filter((entry) => entry.hasApiKey) : (catalog.providers || []);
-  const providerSelect = $<HTMLSelectElement>(`${prefix}-provider`);
-  const modelSelect = $<HTMLSelectElement>(`${prefix}-model`);
-  const search = $<HTMLInputElement>(`${prefix}-search`);
-  const effort = $<HTMLSelectElement>(`${prefix}-thinking`);
-  providerSelect.innerHTML = providers.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}</option>`).join('');
-  providerSelect.disabled = providers.length === 0;
-  providerSelect.value = providers.some((entry) => entry.id === app.state.settings.provider) ? app.state.settings.provider! : providers[0]?.id || '';
-  let selected = '';
-  const capabilities = () => {
-    selected = modelSelect.value;
-    const model = (catalog.models || []).find((entry) => entry.provider === providerSelect.value && entry.id === selected);
-    const previous = effort.value;
-    const levels = model?.thinkingLevels || ['off'];
-    effort.innerHTML = levels.map((level) => `<option value="${escape(level)}">${escape(thinkingLabel(level))}</option>`).join('');
-    effort.value = levels.includes(previous) ? previous : levels.includes('high') ? 'high' : levels.includes('medium') ? 'medium' : levels[0];
-    effort.disabled = levels.length < 2;
-    effort.hidden = levels.length < 2;
-    $(`${prefix}-thinking-label`).hidden = levels.length < 2;
-    $(`${prefix}-capabilities`).textContent = model ? `${model.supportsImages ? 'Text + images' : 'Text only'} · ${new Intl.NumberFormat('en').format(model.contextWindow)} context tokens · ${new Intl.NumberFormat('en').format(model.maxTokens)} max output tokens` : 'No matching models.';
-  };
-  const renderModels = () => {
-    const query = search.value.trim().toLowerCase();
-    const models = (catalog.models || []).filter((entry) => entry.provider === providerSelect.value && (entry.id === selected || `${entry.name} ${entry.id}`.toLowerCase().includes(query)));
-    modelSelect.innerHTML = models.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)} — ${escape(entry.id)}</option>`).join('');
-    modelSelect.disabled = models.length === 0;
-    modelSelect.value = models.some((entry) => entry.id === selected) ? selected : models[0]?.id || '';
-    capabilities();
-  };
-  const chooseProvider = () => {
-    const provider = providers.find((entry) => entry.id === providerSelect.value);
-    if (!provider) return;
-    search.value = '';
-    selected = provider.model || (provider.id === app.state.settings.provider ? app.state.settings.model : '');
-    effort.innerHTML = `<option value="${escape(provider.thinkingLevel || app.state.settings.thinkingLevel || 'high')}"></option>`;
-    renderModels();
-  };
-  providerSelect.addEventListener('change', chooseProvider);
-  modelSelect.addEventListener('change', capabilities);
-  search.addEventListener('input', renderModels);
-  chooseProvider();
-}
-
-async function openModelPicker(): Promise<void> {
-  if (anyRunning() || requestBusy) return;
-  if (!app.state.settings.hasConnections && !app.state.settings.hasApiKey) { openSettings(); return; }
-  $('model-content').innerHTML = `${dialogHeading('Choose a model', 'model-title', 'model-dialog', 'PITH MODEL CATALOG')}<form id="model-form">${modelEditorMarkup('picker')}<div id="model-error" class="form-error" role="alert"></div><div class="modal-footer"><button type="button" class="secondary-button" data-close="model-dialog">Cancel</button><button type="submit" class="primary-button" id="choose-model" data-global-idle data-control-pending="true" disabled>Use model</button></div></form>`;
-  showDialog('model-dialog');
-  const form = $<HTMLFormElement>('model-form');
-  const isCurrent = () => $<HTMLDialogElement>('model-dialog').open && $('model-form') === form;
-  try {
-    const catalog = await request('/api/models');
-    if (!isCurrent()) return;
-    if (!(catalog.providers || []).some((entry) => entry.hasApiKey)) { $<HTMLDialogElement>('model-dialog').close(); openSettings(); return; }
-    setupModelEditor('picker', catalog, true);
-    setControlPending($<HTMLButtonElement>('choose-model'), false);
-    render();
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (anyRunning() || requestBusy) return;
-      if (await mutate('/api/model-selection', modelFormSelection('picker'))) $<HTMLDialogElement>('model-dialog').close();
-      else if (isCurrent()) $('model-error').textContent = localError;
-    });
-    $<HTMLInputElement>('picker-search').focus();
-  } catch (error) { if (isCurrent()) $('model-error').textContent = String(error); }
-}
-
 $<HTMLSelectElement>('composer-thinking').addEventListener('change', async (event) => {
-  if (anyRunning() || requestBusy) { render(); return; }
+  if (anyRunning() || activity.busy) { render(); return; }
   const thinkingLevel = (event.currentTarget as HTMLSelectElement).value;
   await mutate('/api/model-selection', { provider: app.state.settings.provider, model: app.state.settings.model, thinkingLevel });
 });
 
-function openSettings(): void {
-  settingsUpdates?.dispose();
-  closeSidebar();
-  connectionProbe?.abort();
-  connectionProbe = null;
-  $('settings-content').innerHTML = `
-    ${dialogHeading('Settings', 'settings-title', 'settings-dialog', 'MAKE IT YOURS')}
-    <section class="settings-section appearance-settings" aria-labelledby="appearance-title">
-      <h3 id="appearance-title">Appearance</h3>
-      <p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p>
-      <label class="sr-only" for="appearance-mode">Appearance</label>
-      <select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select>
-      <div id="appearance-error" class="form-error" role="alert"></div>
-    </section>
-    <section id="update-settings" class="settings-section update-settings" aria-labelledby="update-title">
-      <h3 id="update-title">Updates</h3>
-      <div class="settings-copy">
-        <p class="field-hint" data-update-version></p>
-        <p class="field-hint" role="status" aria-live="polite" data-update-message>Loading update status…</p>
-      </div>
-      <progress max="100" value="0" aria-label="Update progress" hidden></progress>
-      <div class="settings-actions"><button class="secondary-button" type="button" data-update-check disabled>Check for updates</button><button class="primary-button" type="button" data-update-install hidden>Update and restart</button></div>
-    </section>
-    <form id="settings-form">
-      <section class="settings-section" aria-labelledby="provider-title">
-        <h3 id="provider-title">Model providers</h3>
-        <p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p>
-        <div class="settings-actions"><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button></div>
-        <div class="settings-field">
-          <label class="field-label" for="settings-provider">Provider</label>
-          <select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select>
-          <div id="provider-actions" hidden></div>
-          <p id="provider-auth-hint" class="field-hint" hidden></p>
-        </div>
-        <details id="provider-advanced" class="provider-advanced">
-          <summary>Advanced connection settings</summary>
-          <label class="field-label" for="base-url">API base URL</label>
-          <div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(app.state.settings.baseUrl)}" autocomplete="off" /></div>
-          <p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p>
-        </details>
-        <div id="provider-api-key" class="settings-field">
-          <label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label>
-          <input id="api-key" name="apiKey" type="password" placeholder="${app.state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${app.state.settings.hasApiKey ? '' : 'required'} />
-          <p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p>
-          <button class="secondary-button destructive-button" id="remove-key" type="button" hidden>Remove saved API key</button>
-        </div>
-      </section>
-      <section class="settings-section connection-test">
-        <p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p>
-        <div class="settings-actions"><button type="button" class="secondary-button" id="test-connection" data-control-pending="true" disabled data-global-idle data-idle-action>Test connection</button></div>
-        <div id="connection-test-result" role="status" aria-live="polite"></div>
-      </section>
-      <div id="settings-error" data-dialog-error class="form-error" role="alert"></div>
-      <section class="settings-section diagnostics-setting">
-        <p class="field-hint">Version, usage and failure category only; no conversation, file contents, paths or credentials.</p>
-        <div class="settings-actions"><button type="button" class="secondary-button" data-action="diagnostics">Save diagnostics</button></div>
-      </section>
-      <div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-control-pending="true" disabled data-global-idle type="submit">Save settings</button></div>
-    </form>`;
-  renderAppearance();
-  $<HTMLDialogElement>('settings-dialog').showModal();
-  settingsUpdates = mountUpdates($('update-settings'), request);
-  let catalog: ModelCatalog | null = null;
-  const originalForm = $<HTMLFormElement>('settings-form');
-  const isCurrent = () => $<HTMLDialogElement>('settings-dialog').open && document.getElementById('settings-form') === originalForm;
-  $<HTMLSelectElement>('appearance-mode').addEventListener('change', async (event) => {
-    if (requestBusy) { renderAppearance(); return; }
-    const mode = appearanceMode((event.currentTarget as HTMLSelectElement).value);
-    $('appearance-error').textContent = '';
-    if (!await mutate('/api/appearance', { mode }) && isCurrent()) $('appearance-error').textContent = localError;
-  });
-  const keyStatus = () => {
-    const provider = (catalog?.providers || []).find((entry) => entry.id === $<HTMLSelectElement>('settings-provider').value);
-    const retained = !!provider?.hasSavedKey && provider.baseUrl === $<HTMLInputElement>('base-url').value.trim().replace(/\/+$/, '');
-    $('key-status').textContent = provider?.signedIn ? 'Signed in' : retained ? 'Configured' : 'Not configured';
-    const key = $<HTMLInputElement>('api-key');
-    const signInOnly = !!provider?.oauth && !provider.apiKeySupported;
-    const useSignIn = signInOnly || !!provider?.signedIn;
-    $('provider-api-key').hidden = useSignIn;
-    key.disabled = useSignIn;
-    key.required = !useSignIn && !retained && !provider?.custom;
-    const hint = $('provider-auth-hint');
-    hint.hidden = !useSignIn;
-    hint.textContent = provider?.signedIn ? 'Signed in with your provider account. No API key is needed.' : 'Sign in with your provider account above. No API key is needed.';
-    key.placeholder = retained ? 'Leave blank to keep this provider’s key' : provider?.custom ? 'Optional API key for this endpoint' : 'Paste this provider’s API key';
-    $('remove-key').hidden = !retained || !!provider?.signedIn;
-    const actions = $('provider-actions');
-    actions.hidden = !provider?.oauth && !provider?.custom;
-    actions.innerHTML = provider ? sdkUI.providerActions(provider) : '';
-  };
-  refreshSettingsAuth = (providerID) => {
-    if (!isCurrent()) return;
-    void request('/api/models').then((result) => {
-      if (!isCurrent()) return;
-      catalog = result;
-      const select = $<HTMLSelectElement>('settings-provider');
-      for (const option of select.options) {
-        const provider = (result.providers || []).find((entry) => entry.id === option.value);
-        if (provider) option.textContent = `${provider.name}${provider.signedIn ? ' · Signed in' : provider.hasApiKey ? ' · Configured' : ''}`;
-      }
-      if (select.value === providerID) keyStatus();
-    }).catch((error) => { if (isCurrent()) $('settings-error').textContent = String(error); });
-  };
-  setControlPending($<HTMLButtonElement>('save-settings'), true);
-  void request('/api/models').then((result) => {
-    if (!isCurrent()) return;
-    catalog = result;
-    const providerSelect = $<HTMLSelectElement>('settings-provider');
-    providerSelect.innerHTML = (result.providers || []).map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}${entry.signedIn ? ' · Signed in' : entry.hasApiKey ? ' · Configured' : ''}</option>`).join('');
-    providerSelect.disabled = false;
-    providerSelect.value = (result.providers || []).some((entry) => entry.id === app.state.settings.provider) ? app.state.settings.provider! : (result.providers || [])[0]?.id || '';
-    const chooseProvider = (changed: boolean) => {
-      const provider = (result.providers || []).find((entry) => entry.id === providerSelect.value);
-      if (!provider) return;
-      $<HTMLInputElement>('base-url').value = provider.baseUrl;
-      if (changed) {
-        $<HTMLInputElement>('api-key').value = '';
-        $<HTMLDetailsElement>('provider-advanced').open = false;
-        connectionProbe?.abort();
-        $('connection-test-result').textContent = '';
-      }
-      keyStatus();
-    };
-    providerSelect.addEventListener('change', () => chooseProvider(true));
-    chooseProvider(false);
-    setControlPending($<HTMLButtonElement>('save-settings'), false);
-    setControlPending($<HTMLButtonElement>('test-connection'), false);
-    render();
-  }).catch((error) => { if (isCurrent()) $('settings-error').textContent = String(error); });
-  $<HTMLInputElement>('base-url').addEventListener('input', keyStatus);
-  $<HTMLInputElement>('base-url').addEventListener('invalid', () => { $<HTMLDetailsElement>('provider-advanced').open = true; });
-  $('test-connection').addEventListener('click', async () => {
-    if (connectionProbe) { connectionProbe.abort(); return; }
-    if (anyRunning() || requestBusy || !catalog || !originalForm.reportValidity()) return;
-    const controller = new AbortController();
-    connectionProbe = controller;
-    const form = new FormData(originalForm);
-    const payload = { provider: $<HTMLSelectElement>('settings-provider').value, baseUrl: String(form.get('baseUrl') || '').trim(), apiKey: String(form.get('apiKey') || '').trim() };
-    const button = $<HTMLButtonElement>('test-connection');
-    button.textContent = 'Cancel test';
-    setControlPending($<HTMLButtonElement>('save-settings'), true);
-    $('connection-test-result').textContent = 'Testing streaming and tool calling…';
-    try {
-      const result = await request('/api/test-provider-connection', payload, { signal: controller.signal });
-      if (!isCurrent() || connectionProbe !== controller) return;
-      $('connection-test-result').textContent = result.message;
-      $('connection-test-result').className = result.ok ? 'test-success' : 'form-error';
-    } catch (error) {
-      if (isCurrent() && connectionProbe === controller) {
-        $('connection-test-result').textContent = controller.signal.aborted ? 'Test cancelled.' : error instanceof Error ? error.message : String(error);
-        $('connection-test-result').className = 'form-error';
-      }
-    } finally {
-      if (connectionProbe === controller) { connectionProbe = null; if (isCurrent()) { button.textContent = 'Test connection'; setControlPending($<HTMLButtonElement>('save-settings'), false); render(); } }
-    }
-  });
-  originalForm.addEventListener('input', (event) => {
-    if ((event.target as HTMLElement).id === 'appearance-mode') return;
-    connectionProbe?.abort();
-    $('connection-test-result').textContent = '';
-  });
-  $('settings-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (requestBusy || connectionProbe || !catalog) return;
-    const form = new FormData(event.currentTarget as HTMLFormElement);
-    const apiKey = String(form.get('apiKey') || '').trim();
-    const payload = { provider: $<HTMLSelectElement>('settings-provider').value, baseUrl: String(form.get('baseUrl')).trim(), ...(apiKey ? { apiKey } : {}) };
-    setControlPending($<HTMLButtonElement>('save-settings'), true);
-    const saved = await mutate('/api/provider-config', payload);
-    if (!isCurrent()) return;
-    if (!saved) $('settings-error').textContent = localError;
-    $<HTMLInputElement>('api-key').value = '';
-    setControlPending($<HTMLButtonElement>('save-settings'), false); render();
-    if (saved) { $<HTMLDialogElement>('settings-dialog').close(); if (!app.state.settings.hasApiKey && app.state.settings.hasConnections) await openModelPicker(); }
-  });
-  document.getElementById('remove-key')?.addEventListener('click', async () => {
-    if (requestBusy) return;
-    const removed = await mutate('/api/provider-config', { provider: $<HTMLSelectElement>('settings-provider').value, baseUrl: $<HTMLInputElement>('base-url').value.trim(), clearApiKey: true });
-    if (!isCurrent()) return;
-    if (removed) $<HTMLDialogElement>('settings-dialog').close();
-    else $('settings-error').textContent = localError;
-  });
-}
-
-function openWorkspace(): void {
-  closeSidebar();
-  $('workspace-content').innerHTML = `${dialogHeading('Workspaces', 'workspace-title', 'workspace-dialog', 'A PLACE TO WORK')}<p class="modal-description">Choose a local folder. Conversations belong to a workspace, so Pith knows where to read and create files.</p><div class="modal-workspaces">${app.state.workspaces.map((entry) => `<button class="modal-workspace" data-modal-workspace="${escape(entry.id)}">${icon('folder')}<span><strong>${escape(entry.name)}</strong><small>${escape(entry.path)}</small></span>${icon('chevron')}</button>`).join('')}</div><div class="workspace-add"><button class="picker-button" id="pick-folder" type="button">${icon('folder')}Choose a folder…</button><div class="path-divider"><span>or enter a folder path</span></div><form id="workspace-form"><label class="sr-only" for="workspace-path">Absolute folder path</label><input id="workspace-path" name="path" placeholder="/Users/you/Documents/my-work" required autocomplete="off" spellcheck="false" /><p class="field-hint">Use an existing folder on this computer. Pith will work inside it.</p><div id="workspace-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="workspace-dialog">Cancel</button><button class="primary-button" id="add-workspace" type="submit">Add workspace</button></div></form></div>`;
-  $<HTMLDialogElement>('workspace-dialog').showModal();
-  $('workspace-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    await addWorkspace($<HTMLInputElement>('workspace-path').value.trim());
-  });
-  $('pick-folder').addEventListener('click', async () => {
-    const button = $<HTMLButtonElement>('pick-folder');
-    button.disabled = true;
-    $('workspace-error').textContent = '';
-    try {
-      const result = await request('/api/pick-workspace', {});
-      if (result.path) { $<HTMLInputElement>('workspace-path').value = result.path; await addWorkspace(result.path); }
-    } catch (error) {
-      $('workspace-error').textContent = `${error instanceof Error ? error.message : String(error)} You can enter the path below.`;
-      $<HTMLInputElement>('workspace-path').focus();
-    } finally { button.disabled = false; }
-  });
-}
-
-async function addWorkspace(path: string): Promise<void> {
-  if (!path) return;
-  $<HTMLButtonElement>('add-workspace').disabled = true;
-  let workspaceId = '';
-  if (await mutate('/api/workspaces', { path }, (response) => {
-    if (!response?.workspace?.id) throw new Error('The local service did not return the added workspace.');
-    workspaceId = response.workspace.id;
-  })) {
-    selectedWorkspaceId = workspaceId;
-    $<HTMLDialogElement>('workspace-dialog').close();
-    await newConversation(workspaceId);
-  } else $('workspace-error').textContent = localError;
-  $<HTMLButtonElement>('add-workspace').disabled = false;
-}
-
 function closeSidebar(): void { $('sidebar').classList.remove('open'); $('sidebar-scrim').classList.remove('visible'); }
-function renderDraftImages(): void {
-  $('draft-images').hidden = !draftImages.length;
-  $('draft-images').innerHTML = draftImages.map((image) => `<figure class="draft-image"><img src="${escape(image.url)}" alt="${escape(image.name)}" role="button" tabindex="0" title="Click to enlarge" /><figcaption>${escape(image.name)}</figcaption><button type="button" class="remove-image" data-remove-image="${image.id}" aria-label="Remove ${escape(image.name)}" ${requestBusy || readingImages ? 'disabled' : ''}>${icon('close')}</button></figure>`).join('');
-  $<HTMLButtonElement>('attach-images').disabled = requestBusy || readingImages || draftLoading || !app.loaded;
-  const guidance = $('image-guidance');
-  guidance.hidden = !draftImages.length;
-  guidance.textContent = app.state.settings.supportsImages
-    ? 'Images are saved with this conversation and sent to your configured model provider. Up to 50 MiB total per message.'
-    : 'This model does not support images. Choose an image-capable model in Settings, or remove the attachments.';
-}
-
-function clearDraftImages(ids?: Set<string>): void {
-  if (!ids) draftGeneration++;
-  draftImages = draftImages.filter((image) => {
-    if (ids && !ids.has(image.id)) return true;
-    URL.revokeObjectURL(image.url);
-    return false;
-  });
-}
-
-async function restoreDraftImages(images: WireDraftImage[], active: () => boolean): Promise<DraftImage[]> {
-  const restored: DraftImage[] = [];
-  for (const image of images) {
-    const blob = await imagePreviewBlob(image.data, image.mimeType, active);
-    if (blob && active()) restored.push({ ...image, type: 'image', url: URL.createObjectURL(blob) });
-  }
-  return restored;
-}
-
-async function addImageFiles(files: File[]): Promise<void> {
-  if (!files.length || requestBusy || readingImages || draftLoading) return;
-  readingImages = true;
-  localError = '';
-  render();
-  const added: DraftImage[] = [];
-  const generation = draftGeneration;
-  try {
-    const limit = app.state.settings.imageUploadLimit || 50 * 1024 * 1024;
-    if (draftImages.reduce((sum, image) => sum + image.size, 0) + files.reduce((sum, file) => sum + file.size, 0) > limit) throw new Error('Image attachments must total 50 MiB or less per message.');
-    for (const file of files) {
-      const mimeType = file.type || ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' } as Record<string, string>)[file.name.split('.').pop()?.toLowerCase() || ''];
-      if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mimeType) || !file.size) throw new Error('Use nonempty PNG, JPEG, GIF or WebP images.');
-      const data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
-        reader.onload = () => resolve(String(reader.result).split(',', 2)[1]);
-        reader.readAsDataURL(file);
-      });
-      added.push({ id: Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join(''), type: 'image', data, mimeType, name: file.name || 'Pasted image', size: file.size, url: URL.createObjectURL(file) });
-    }
-    if (disposed || generation !== draftGeneration) { for (const image of added) URL.revokeObjectURL(image.url); return; }
-    draftImages.push(...added);
-    rememberDraft();
-  } catch (error) {
-    for (const image of added) URL.revokeObjectURL(image.url);
-    localError = error instanceof Error ? error.message : String(error);
-  } finally { readingImages = false; render(); }
-}
-
-function clearHistoryImages(): void {
-  imageGeneration++;
-  for (const value of historyImages.values()) void value.then((url) => URL.revokeObjectURL(url)).catch(() => {});
-  historyImages.clear();
-}
-
-function loadHistoryImages(): void {
-  for (const image of $('messages').querySelectorAll<HTMLImageElement>('img[data-image-key]')) {
-    if (image.hasAttribute('src')) continue;
-    const key = image.dataset.imageKey!;
-    let value = historyImages.get(key);
-    if (!value) {
-      const generation = imageGeneration;
-      value = download('/api/image', { id: app.state.activeId, message: image.dataset.messageId!, index: Number(image.dataset.imageIndex) }).then((blob) => {
-        if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type)) throw new Error('Invalid image attachment.');
-        if (generation !== imageGeneration || disposed) throw new Error('Conversation changed.');
-        return URL.createObjectURL(blob);
-      });
-      historyImages.set(key, value);
-      const pending = value;
-      void pending.catch(() => { if (historyImages.get(key) === pending) historyImages.delete(key); });
-    }
-    void value.then((url) => { if (image.isConnected) image.src = url; }).catch(() => { if (image.isConnected) { image.alt = 'Image unavailable'; image.classList.add('image-unavailable'); } });
-  }
-}
 
 $('image-picker').addEventListener('change', (event) => {
   const picker = event.currentTarget as HTMLInputElement;
@@ -1461,30 +279,28 @@ input.addEventListener('paste', (event) => {
 });
 installWorkspaceFileDrop({
   form: $('composer-form'), input, native: nativeFileDrop,
-  busy: () => requestBusy || draftLoading || !app.loaded,
-  context: () => `${selectedWorkspace()?.id}/${app.state.activeId}/${draftGeneration}`,
+  busy: () => activity.busy || composer.draftLoading || !app.loaded,
+  context: () => `${selectedWorkspace()?.id}/${app.state.activeId}/${composer.draftGeneration}`,
   workspaceID: () => selectedWorkspace()?.id,
   disposed: () => disposed,
   resolve: async (workspaceId, paths) => (await request('/api/workspace-references', { workspaceId, paths })).paths || [],
   images: addImageFiles,
-  pending: (pending) => { resolvingReferences = pending; render(); },
-  changed: () => { localError = ''; rememberDraft(); resizeComposer(); render(); },
-  error: (message) => { localError = message; render(); },
+  pending: (pending) => { composer.resolvingReferences = pending; render(); },
+  changed: () => { activity.error = ''; rememberDraft(); resizeComposer(); render(); },
+  error: (message) => { activity.error = message; render(); },
 });
 nativeMenu = installNativeMenu({
   native: nativeMenus,
-  context: () => ({ ready: app.loaded, busy: requestBusy || draftLoading || readingImages || resolvingReferences, workspaceId: selectedWorkspace()?.id, activeId: app.state.activeId }),
+  context: () => ({ ready: app.loaded, busy: activity.busy || composer.draftLoading || composer.readingImages || composer.resolvingReferences, workspaceId: selectedWorkspace()?.id, activeId: app.state.activeId }),
   request,
   canExport: () => !!app.state.conversations.find((entry) => entry.id === app.state.activeId) && !conversationRunning(app.state.activeId),
-  actions: { newConversation, chooseWorkspace: openWorkspace, exportConversation, settings: openSettings, checkUpdates: async () => { openSettings(); await settingsUpdates?.check(); } },
-  error: (message) => { localError = message; render(); },
+  actions: { newConversation, chooseWorkspace: openWorkspace, exportConversation, settings: () => settings.openSettings(), checkUpdates: () => settings.checkUpdates() },
+  error: (message) => { activity.error = message; render(); },
 });
-
-function resizeComposer(): void { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
 
 document.addEventListener('click', async (event) => {
   const clicked = event.target as HTMLElement;
-  if (artifactsOpen && !clicked.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
+  if (files.artifactsOpen && !clicked.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
   if (clicked instanceof HTMLImageElement && clicked.matches('.history-image, .draft-image img, .file-preview-image')) { imageViewer.open(clicked); return; }
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand, a[data-download-path]');
@@ -1494,7 +310,7 @@ document.addEventListener('click', async (event) => {
     await downloadConversationFile(target.dataset.downloadConversation, target.dataset.downloadPath);
     return;
   }
-  if (target.id === 'artifacts-toggle') { setArtifactsOpen(!artifactsOpen); return; }
+  if (target.id === 'artifacts-toggle') { setArtifactsOpen(!files.artifactsOpen); return; }
   if (target.hasAttribute('data-artifacts-close')) { setArtifactsOpen(false, true); return; }
   if (target.hasAttribute('data-copy-code') && !(target as HTMLButtonElement).disabled) {
     const code = target.closest('.code-block')?.querySelector('pre > code');
@@ -1513,7 +329,7 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (target.dataset.queueAction && target.dataset.queuedMessage) {
-    if (requestBusy || !app.state.activeId) return;
+    if (activity.busy || !app.state.activeId) return;
     const entry = app.state.queuedMessages.find((message) => message.id === target.dataset.queuedMessage);
     if (!entry) return;
     if (target.dataset.queueAction === 'edit') openQueueEditor(entry);
@@ -1524,18 +340,17 @@ document.addEventListener('click', async (event) => {
   if (target.dataset.workspaceMenu) { openWorkspaceMenu(target.dataset.workspaceMenu, target); return; }
   if (target.dataset.toggleWorkspace) {
     const id = target.dataset.toggleWorkspace;
-    if (expandedWorkspaces.has(id)) expandedWorkspaces.delete(id); else expandedWorkspaces.add(id);
-    renderHistory();
+    conversations.toggleWorkspace(id);
     document.querySelector<HTMLElement>(`[aria-controls="workspace-children-${CSS.escape(id)}"]`)?.focus();
     return;
   }
   if (target.dataset.newWorkspace) { await newConversation(target.dataset.newWorkspace); return; }
-  if (target.dataset.removeImage) { if (!requestBusy && !readingImages) { clearDraftImages(new Set([target.dataset.removeImage])); rememberDraft(); render(); } return; }
+  if (target.dataset.removeImage) { if (!activity.busy && !composer.readingImages) { clearDraftImages(new Set([target.dataset.removeImage])); rememberDraft(); render(); } return; }
   if (target.dataset.close) { $<HTMLDialogElement>(target.dataset.close).close(); return; }
   if (target.dataset.previewPath && target.dataset.previewId) { await openArtifactPreview(target.dataset.previewId, target.dataset.previewPath); return; }
   if (target.classList.contains('brand')) { event.preventDefault(); input.focus(); return; }
   if (target.dataset.fileKind && target.dataset.filePath && target.dataset.fileOwner) {
-    if (requestBusy || (target.dataset.fileKind === 'resource' ? workspaceRun(target.dataset.fileOwner) : conversationRunning(target.dataset.fileOwner))) return;
+    if (activity.busy || (target.dataset.fileKind === 'resource' ? workspaceRun(target.dataset.fileOwner) : conversationRunning(target.dataset.fileOwner))) return;
     const kind = target.dataset.fileKind;
     const payload = { kind, ...(kind === 'resource' ? { workspaceId: target.dataset.fileOwner } : { id: target.dataset.fileOwner }), path: target.dataset.filePath, action: target.dataset.fileAction || '' };
     if (kind === 'artifact' && ['copy', 'copy-path'].includes(payload.action || '')) {
@@ -1543,26 +358,26 @@ document.addEventListener('click', async (event) => {
       await copyWithFeedback(target as HTMLButtonElement, () => payload.action === 'copy' ? request('/api/file', payload).then(() => {}) : copyText(payload.path), payload.action === 'copy' ? 'File copied.' : 'Path copied.');
       return;
     }
-    if (!await mutate('/api/file', payload) && kind === 'resource') $('resources-error').textContent = localError;
+    if (!await mutate('/api/file', payload) && kind === 'resource') $('resources-error').textContent = activity.error;
     return;
   }
-  if (target.dataset.mcpEdit) { const entry = mcpConnections.find((item) => item.name === target.dataset.mcpEdit); if (entry) editMCP(entry); return; }
+  if (target.dataset.mcpEdit) { const entry = settings.mcpConnections.find((item) => item.name === target.dataset.mcpEdit); if (entry) editMCP(entry); return; }
   if (target.dataset.mcpToggle || target.dataset.mcpRemove) {
-    if (requestBusy || anyRunning()) return;
-    const entry = mcpConnections.find((item) => item.name === (target.dataset.mcpToggle || target.dataset.mcpRemove));
+    if (activity.busy || anyRunning()) return;
+    const entry = settings.mcpConnections.find((item) => item.name === (target.dataset.mcpToggle || target.dataset.mcpRemove));
     if (!entry) return;
     $('mcp-error').textContent = '';
     const save = async () => {
       const ok = target.dataset.mcpRemove ? await mutate('/api/mcp/remove', { name: entry.name }) : await mutate('/api/mcp/save', { name: entry.name, type: entry.type, oauth: entry.oauth, url: entry.url, command: entry.command, args: entry.args || [], enabled: !entry.enabled });
       if (ok) { await loadMCP(); if (target.dataset.mcpRemove && $<HTMLInputElement>('mcp-name').value === entry.name) editMCP(); }
-      else $('mcp-error').textContent = localError;
+      else $('mcp-error').textContent = activity.error;
       return ok;
     };
-    if (target.dataset.mcpRemove) confirmRemoval({ title: 'Delete connection?', action: 'Delete connection', description: `Remove <strong>${escape(entry.name)}</strong> and its saved credentials from Pith Desk?`, hint: 'Workspace files and existing conversations stay on your computer.', scope: { global: true }, unavailable: () => requestBusy || anyRunning(), run: save, error: () => localError });
+    if (target.dataset.mcpRemove) confirmRemoval({ title: 'Delete connection?', action: 'Delete connection', description: `Remove <strong>${escape(entry.name)}</strong> and its saved credentials from Pith Desk?`, hint: 'Workspace files and existing conversations stay on your computer.', scope: { global: true }, unavailable: () => activity.busy || anyRunning(), run: save, error: () => activity.error });
     else await save();
     return;
   }
-  if (target.dataset.prompt) { if (draftLoading) return; input.value = target.dataset.prompt; rememberDraft(); resizeComposer(); render(); input.focus(); return; }
+  if (target.dataset.prompt) { if (composer.draftLoading) return; input.value = target.dataset.prompt; rememberDraft(); resizeComposer(); render(); input.focus(); return; }
   if (target.dataset.conversation) {
     if (await mutate('/api/open', { id: target.dataset.conversation })) {
       acknowledgeViewedCompletion();
@@ -1571,7 +386,7 @@ document.addEventListener('click', async (event) => {
   }
   if (target.dataset.workspace || target.dataset.modalWorkspace) {
     const id = target.dataset.workspace || target.dataset.modalWorkspace!;
-    selectedWorkspaceId = id;
+    conversations.selectedWorkspaceId = id;
     if (target.dataset.modalWorkspace) $<HTMLDialogElement>('workspace-dialog').close();
     const conversation = app.state.conversations.filter((entry) => entry.workspaceId === id).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
     if (conversation) await mutate('/api/open', { id: conversation.id });
@@ -1581,7 +396,7 @@ document.addEventListener('click', async (event) => {
   if (target.dataset.approval && app.state.pendingApproval) {
     const approval = app.state.pendingApproval;
     if (target.dataset.approvalId !== approval.id) {
-      localError = 'This tool request has changed. Review the current request before allowing it.';
+      activity.error = 'This tool request has changed. Review the current request before allowing it.';
       render();
       return;
     }
@@ -1595,20 +410,20 @@ document.addEventListener('click', async (event) => {
     case 'settings': openSettings(); break;
     case 'model': await openModelPicker(); break;
     case 'continue': if (!app.state.running && app.state.activeId && app.state.failure?.canContinue) await mutate('/api/continue', { id: app.state.activeId }); break;
-    case 'attach-images': if (!requestBusy && !readingImages) $<HTMLInputElement>('image-picker').click(); break;
+    case 'attach-images': if (!activity.busy && !composer.readingImages) $<HTMLInputElement>('image-picker').click(); break;
     case 'diagnostics': await exportDiagnostics(); break;
     case 'workspace': openWorkspace(); break;
     case 'resources': openResources(); break;
     case 'connections': openConnections(); break;
-    case 'rename': { const id = menuConversationId; closeConversationMenu(); if (id) openRename(id); break; }
-    case 'delete-conversation': { const id = menuConversationId; closeConversationMenu(); if (id) openDeletion('conversation', id); break; }
-    case 'remove-workspace': { const id = menuWorkspaceId; closeConversationMenu(); if (id) openDeletion('workspace', id); break; }
-    case 'export': { const id = menuConversationId; closeConversationMenu(true); if (id) await exportConversation(id); break; }
+    case 'rename': { const id = conversations.menuConversationId; closeConversationMenu(); if (id) openRename(id); break; }
+    case 'delete-conversation': { const id = conversations.menuConversationId; closeConversationMenu(); if (id) openDeletion('conversation', id); break; }
+    case 'remove-workspace': { const id = conversations.menuWorkspaceId; closeConversationMenu(); if (id) openDeletion('workspace', id); break; }
+    case 'export': { const id = conversations.menuConversationId; closeConversationMenu(true); if (id) await exportConversation(id); break; }
     case 'refresh-resources': await loadResources(); break;
     case 'create-instructions':
-      if (workspaceRun(resourcesWorkspaceId) || requestBusy) break;
-      if (await mutate('/api/create-instructions', { workspaceId: resourcesWorkspaceId })) await loadResources();
-      else $('resources-error').textContent = localError;
+      if (workspaceRun(files.resourcesWorkspaceId) || activity.busy) break;
+      if (await mutate('/api/create-instructions', { workspaceId: files.resourcesWorkspaceId })) await loadResources();
+      else $('resources-error').textContent = activity.error;
       break;
     case 'refresh-mcp': await loadMCP(); break;
     case 'new-mcp': editMCP(); break;
@@ -1618,21 +433,21 @@ document.addEventListener('click', async (event) => {
       $('mcp-env-visibility').textContent = revealed ? 'Hide' : 'Show';
       break;
     }
-    case 'stop': if (app.state.running && !requestBusy) await mutate('/api/abort', { id: app.state.activeId }); break;
+    case 'stop': if (app.state.running && !activity.busy) await mutate('/api/abort', { id: app.state.activeId }); break;
     case 'menu': $('sidebar').classList.add('open'); $('sidebar-scrim').classList.add('visible'); break;
   }
 });
 
 $('sidebar-scrim').addEventListener('click', closeSidebar);
-$<HTMLInputElement>('history-search').addEventListener('input', (event) => { historySearch = (event.currentTarget as HTMLInputElement).value; renderHistory(); });
+$<HTMLInputElement>('history-search').addEventListener('input', (event) => { conversations.search((event.currentTarget as HTMLInputElement).value); });
 $('composer-form').addEventListener('submit', (event) => { event.preventDefault(); void send(); });
 input.addEventListener('input', () => { rememberDraft(); resizeComposer(); render(); });
-input.addEventListener('blur', () => { rememberDraft(); void drafts.flush(composerScope).catch(() => {}); });
+input.addEventListener('blur', () => { rememberDraft(); void drafts.flush(composer.composerScope).catch(() => {}); });
 $<HTMLSelectElement>('permission-mode').addEventListener('change', async (event) => {
   const mode = (event.currentTarget as HTMLSelectElement).value as PermissionMode;
   const id = app.state.activeId;
   renderPermissions();
-  if (!id || requestBusy || mode === activePermissionMode()) return;
+  if (!id || activity.busy || mode === activePermissionMode()) return;
   if (mode === 'full-access') confirmFullAccess(id);
   else await mutate('/api/permissions', { id, mode });
 });
@@ -1641,16 +456,16 @@ input.addEventListener('keydown', (event) => {
 });
 document.addEventListener('focusin', (event) => {
   const target = event.target as HTMLElement;
-  if (artifactsOpen && !target.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
+  if (files.artifactsOpen && !target.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && artifactsOpen && !document.querySelector('dialog[open]')) {
+  if (event.key === 'Escape' && files.artifactsOpen && !document.querySelector('dialog[open]')) {
     event.preventDefault(); setArtifactsOpen(false, true); return;
   }
   if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLImageElement && event.target.matches('.history-image, .draft-image img, .file-preview-image')) {
     event.preventDefault(); imageViewer.open(event.target); return;
   }
-  if (menuConversationId || menuWorkspaceId) {
+  if (conversations.menuConversationId || conversations.menuWorkspaceId) {
     if (event.key === 'Escape') { event.preventDefault(); closeConversationMenu(true); return; }
     if (event.key === 'Tab') closeConversationMenu();
     const buttons = [...$('conversation-menu').querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
@@ -1666,20 +481,20 @@ document.addEventListener('keydown', (event) => {
 $('history-list').addEventListener('scroll', () => closeConversationMenu(), { passive: true });
 window.addEventListener('resize', () => closeConversationMenu());
 for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
-  if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => { fullAccessTargetId = null; });
+  if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => tasks.closePermissions());
   dialog.addEventListener('close', () => {
     if (dialog.id === 'preview-dialog' && !dialog.open) clearFilePreview();
     acknowledgeViewedCompletion();
-    if (dialog.id === 'queue-edit-dialog') queueEditTarget = null;
-    if (dialog.id === 'settings-dialog') { settingsUpdates?.dispose(); settingsUpdates = undefined; connectionProbe?.abort(); connectionProbe = null; const key = document.getElementById('api-key') as HTMLInputElement | null; if (key) key.value = ''; }
-    if (dialog.id === 'connections-dialog') { mcpRequest++; const key = document.getElementById('mcp-token') as HTMLInputElement | null; if (key) key.value = ''; const env = document.getElementById('mcp-env') as HTMLTextAreaElement | null; if (env) env.value = ''; }
-    if (dialog.id === 'resources-dialog') resourcesRequest++;
+    if (dialog.id === 'queue-edit-dialog') composer.closeQueueEditor();
+    if (dialog.id === 'settings-dialog') settings.closeSettings();
+    if (dialog.id === 'connections-dialog') settings.closeConnections();
+    if (dialog.id === 'resources-dialog') files.closeResources();
   });
   dialog.addEventListener('click', (event) => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } });
 }
 
 const runtimeClock = window.setInterval(() => {
-  if (app.state.running && app.state.runtime && activeRunPhases.has(app.state.runtime.phase)) renderRuntimeTiming();
+  tasks.tick();
 }, 1000);
 function saveDraftsOnLeave(): void { rememberDraft(); void drafts.flushAll({ keepalive: true }); }
 const removeLifecycle = installAppLifecycle({
@@ -1690,7 +505,7 @@ const removeLifecycle = installAppLifecycle({
     input.readOnly = true;
     const results = await drafts.flushAll();
     const saved = results.every((result) => result.status === 'fulfilled');
-    if (!saved) input.readOnly = draftLoading;
+    if (!saved) input.readOnly = composer.draftLoading;
     return saved;
   },
   dispose: () => {

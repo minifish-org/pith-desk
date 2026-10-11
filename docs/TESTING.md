@@ -47,6 +47,22 @@ or process crashes. Native lifecycle checks remain separate below.
 The two `TestUsabilityNative` scenarios also passed on 2026-10-12 with the rebuilt
 embedded UI in an actual WKWebView, using isolated data and local providers.
 
+## Frontend feature ownership (2026-10-12)
+
+The app remains the snapshot and transport owner. Composer, conversation
+navigation, messages, task controls, settings and files own their existing
+temporary state. SDK resource editing, custom connections, history and provider
+login use a shared dialog generation so an older response cannot replace a
+newer feature dialog. Cross-feature coordination stays in main through queries
+and callbacks, with the existing application-wide mutation gate.
+
+`frontend/tests/feature-controllers.test.mjs` verifies late draft reads across
+conversation selection, a resource read overtaken by history, and dialog-close
+invalidation. The 40 Chromium/WebKit scenarios cover DOM selection, tool folds,
+reading position, image drafts, original mutation targets and real Host
+reconnect/restart. Both opt-in `TestUsabilityNative` scenarios passed with the
+rebuilt embedded UI. These changes retain existing UI and permission flows.
+
 ## Persistence compatibility and file failures (2026-10-12)
 
 Literal fixtures in `internal/desk/testdata/persistence` cover settings and its
