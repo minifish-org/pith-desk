@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/minifish-org/pith-desk/internal/workspacefs"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 	"github.com/minifish-org/pith/packages/durable"
 )
@@ -86,7 +87,7 @@ func (s *Service) workspaceIdleLocked(id string) error {
 		return errors.New("Workspace not found")
 	}
 	for _, r := range s.runtimes {
-		if r.Running && (within(w.Path, r.workspace.Path) || within(r.workspace.Path, w.Path)) {
+		if r.Running && (workspacefs.Within(w.Path, r.workspace.Path) || workspacefs.Within(r.workspace.Path, w.Path)) {
 			return errors.New("A task is already running in this workspace or an overlapping folder. Open that conversation or wait for it to finish")
 		}
 	}

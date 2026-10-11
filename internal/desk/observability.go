@@ -142,7 +142,7 @@ func (s *Service) receiptFile(id string) string { return filepath.Join(s.dataDir
 func (r *conversationRuntime) loadRuntimeLocked(id string) error {
 	s := r.service
 	var receipt runReceipt
-	if err := readJSON(s.receiptFile(id), &receipt); err != nil {
+	if err := s.files.ReadJSON(s.receiptFile(id), &receipt); err != nil {
 		return err
 	}
 	r.Runtime, r.Failure = receipt.Runtime, receipt.Failure

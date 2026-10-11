@@ -47,6 +47,41 @@ or process crashes. Native lifecycle checks remain separate below.
 The two `TestUsabilityNative` scenarios also passed on 2026-10-12 with the rebuilt
 embedded UI in an actual WKWebView, using isolated data and local providers.
 
+## Persistence compatibility and file failures (2026-10-12)
+
+Literal fixtures in `internal/desk/testdata/persistence` cover settings and its
+legacy shape, legacy/current catalogs, SDK credentials, MCP configuration and
+OAuth state, Session v3, receipts, costs, scoped image drafts, deletion intent,
+notifications v1 and durable JSONL format 1 with task/document sidecars. Tests
+use actual readers and semantic write-back, including corrupt/version/tail
+handling, session title authority and catalog-dependent deletion recovery.
+Fixtures contain invented credentials and private temporary paths only.
+
+`internal/localstore` owns JSON replacement and streaming JSONL mechanics;
+`internal/workspacefs` owns shared path/resource validation without importing
+Desk or the SDK. DraftStore and CostLedger retain their own format and rules;
+Service owns scope checks, locking and cross-file commit order.
+
+Instance-scoped filesystem faults cover mkdir/create, partial Write, Sync,
+Close and Rename. Tests verify old JSON commits and private permissions,
+application-state rollback, settings/receipt partial success, failed usage
+appends being unavailable, and root-confined draft cleanup. No global fault
+hooks affect other tasks. The existing MCP endpoint-change ordering is also
+explicitly characterized: old OAuth state is removed before configuration
+commit, so a failed save may leave the old configuration signed out.
+
+```sh
+GOWORK=off CGO_ENABLED=0 go test ./internal/desk ./internal/localstore ./internal/workspacefs -run 'TestPersistence|TestAtomicJSON|TestStorageFailure|TestDraftPrune|TestCostLedger|TestRelative' -count=1
+```
+
+Atomic JSON writes sync the temporary file before rename, without syncing the
+parent directory or providing a multi-file transaction. JSONL append failures
+can leave a corrupt tail or a fully written record with a reported Sync/Close
+failure; these tests do not establish crash, power-loss or exactly-once guarantees.
+SDK Session/auth/durable writes remain owned by the pinned SDK. Workspace
+resource edits retain their separate os.Root/exclusive-create protocol and
+0644 permission rules instead of using the private JSON writer.
+
 ## Drafts, approval diffs and file previews (2026-10-10)
 
 Tests verify independent conversation/workspace text drafts, mode-0600 storage,

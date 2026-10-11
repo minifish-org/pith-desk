@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/minifish-org/pith-desk/internal/workspacefs"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
 
@@ -200,7 +201,7 @@ func openDeskSession(file, id, cwd string) (*codingagent.SessionManager, error) 
 	if err == nil && !info.Mode().IsRegular() {
 		return nil, errors.New("Conversation session is not a regular file")
 	}
-	canonical, err := canonicalDirectory(cwd)
+	canonical, err := workspacefs.Directory(cwd)
 	if err != nil {
 		return nil, err
 	}

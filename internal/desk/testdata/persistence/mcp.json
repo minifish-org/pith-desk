@@ -1,0 +1,1 @@
+[{"oauth":true,"oauthClientId":"fixture-client","oauthScope":"tools","name":"fixture-mcp","type":"http","url":"https://mcp.example.invalid/api","args":[],"bearerToken":"fixture-bearer","enabled":false,"env":{"FIXTURE_ENV":"fixture-value"}}]

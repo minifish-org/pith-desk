@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/minifish-org/pith-desk/internal/workspacefs"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
 
@@ -25,11 +26,11 @@ type filePolicy struct {
 }
 
 func newFilePolicy(path, dataDir string) (*filePolicy, error) {
-	path, err := canonicalDirectory(path)
+	path, err := workspacefs.Directory(path)
 	if err != nil {
 		return nil, err
 	}
-	dataDir, err = canonicalDirectory(dataDir)
+	dataDir, err = workspacefs.Directory(dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -41,47 +42,7 @@ func newFilePolicy(path, dataDir string) (*filePolicy, error) {
 }
 
 func (p *filePolicy) checked(path string) (string, error) {
-	abs := codingagent.ResolveToCwd(path, p.path)
-	if !within(p.path, abs) {
-		return "", errors.New("File tools can only access the selected workspace")
-	}
-	canonical, err := canonicalMissingPath(abs)
-	if err != nil {
-		return "", err
-	}
-	if !within(p.path, canonical) || within(p.dataDir, canonical) {
-		return "", errors.New("This path is outside the selected workspace or contains private application data")
-	}
-	return filepath.Rel(p.path, canonical)
-}
-
-// Resolve the nearest existing ancestor, then append nonexistent components.
-// Dangling symlinks are rejected instead of treated as a writable new path.
-func canonicalMissingPath(path string) (string, error) {
-	current := path
-	var missing []string
-	for {
-		_, err := os.Lstat(current)
-		if err == nil {
-			resolved, err := filepath.EvalSymlinks(current)
-			if err != nil {
-				return "", err
-			}
-			for i := len(missing) - 1; i >= 0; i-- {
-				resolved = filepath.Join(resolved, missing[i])
-			}
-			return resolved, nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return "", err
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", err
-		}
-		missing = append(missing, filepath.Base(current))
-		current = parent
-	}
+	return workspacefs.Relative(p.path, p.dataDir, codingagent.ResolveToCwd(path, p.path))
 }
 
 func (p *filePolicy) ReadFile(path string) ([]byte, error) {

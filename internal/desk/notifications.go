@@ -151,7 +151,7 @@ func completionNotificationID(conversationID, runID string) string {
 
 func (s *Service) readCompletionNotificationsLocked() (completionNotificationLedger, error) {
 	ledger := completionNotificationLedger{Version: 1}
-	if err := readJSON(filepath.Join(s.dataDir, completionNotificationsFile), &ledger); err != nil {
+	if err := s.files.ReadJSON(filepath.Join(s.dataDir, completionNotificationsFile), &ledger); err != nil {
 		return ledger, fmt.Errorf("load notification targets: %w", err)
 	}
 	if ledger.Version != 1 || len(ledger.Entries) > completionNotificationLimit {
@@ -161,7 +161,7 @@ func (s *Service) readCompletionNotificationsLocked() (completionNotificationLed
 }
 
 func (s *Service) writeCompletionNotificationsLocked(ledger completionNotificationLedger) error {
-	if err := writeJSON(filepath.Join(s.dataDir, completionNotificationsFile), ledger); err != nil {
+	if err := s.files.WriteJSON(filepath.Join(s.dataDir, completionNotificationsFile), ledger); err != nil {
 		return fmt.Errorf("save notification targets: %w", err)
 	}
 	return nil

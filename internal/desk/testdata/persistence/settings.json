@@ -1,0 +1,1 @@
+{"provider":"deepseek","thinkingLevel":"high","connections":{"deepseek":{"baseUrl":"https://api.deepseek.com/v1","apiKey":"fixture-settings-key","model":"deepseek-flash","thinkingLevel":"high"}},"baseUrl":"https://api.deepseek.com/v1","model":"deepseek-flash","apiKey":"fixture-settings-key","appearance":"dark"}

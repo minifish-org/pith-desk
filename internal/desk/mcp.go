@@ -162,7 +162,7 @@ func (s *Service) SaveMCP(input MCPInput) error {
 	} else {
 		configs[index] = next
 	}
-	if err := writeJSON(filepath.Join(s.dataDir, "mcp.json"), configs); err != nil {
+	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "mcp.json"), configs); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -202,7 +202,7 @@ func (s *Service) RemoveMCP(name string) error {
 		s.mu.Unlock()
 		return errors.New("MCP server not found")
 	}
-	if err := writeJSON(filepath.Join(s.dataDir, "mcp.json"), configs); err != nil {
+	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "mcp.json"), configs); err != nil {
 		s.mu.Unlock()
 		return err
 	}

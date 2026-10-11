@@ -124,7 +124,7 @@ func (s *Service) BranchConversation(id, nodeID string, before bool) error {
 	s.active.Failure = nil
 	s.active.Runtime.Phase = "ready"
 	s.active.updateRuntimeLocked(manager)
-	if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: s.active.Runtime}); err != nil {
+	if err := s.files.WriteJSON(s.receiptFile(id), runReceipt{Runtime: s.active.Runtime}); err != nil {
 		return err
 	}
 	s.changedLocked()

@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/minifish-org/pith-desk/internal/localstore"
+	"github.com/minifish-org/pith-desk/internal/workspacefs"
 	agenttypes "github.com/minifish-org/pith/packages/agent/types"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
@@ -155,6 +157,7 @@ type Service struct {
 	loginAnswer      chan string
 	mu               sync.Mutex
 	dataDir          string
+	files            localstore.Store
 	config           savedConfig
 	state            State
 	closed           bool
@@ -210,17 +213,17 @@ func New(dataDir string) (*Service, error) {
 		config: savedConfig{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", Appearance: AppearanceSystem},
 		state:  State{Workspaces: []Workspace{}, Conversations: []Conversation{}}}
 	s.selectRuntimeLocked(s.newRuntimeLocked(""))
-	if err := readJSON(filepath.Join(abs, "settings.json"), &s.config); err != nil {
+	if err := s.files.ReadJSON(filepath.Join(abs, "settings.json"), &s.config); err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
 	s.config.AuthPath = filepath.Join(abs, "auth.json")
 	s.config.Appearance = normalizedAppearance(s.config.Appearance)
 	s.config = normalizedConfig(s.config)
-	if err := readJSON(filepath.Join(abs, "mcp.json"), &s.mcpConfigs); err != nil {
+	if err := s.files.ReadJSON(filepath.Join(abs, "mcp.json"), &s.mcpConfigs); err != nil {
 		return nil, fmt.Errorf("load MCP settings: %w", err)
 	}
 	var saved catalogState
-	if err := readJSON(filepath.Join(abs, "catalog.json"), &saved); err != nil {
+	if err := s.files.ReadJSON(filepath.Join(abs, "catalog.json"), &saved); err != nil {
 		return nil, fmt.Errorf("load conversations: %w", err)
 	}
 	if saved.Workspaces != nil {
@@ -286,7 +289,7 @@ func (s *Service) Configure(input ConfigInput) error {
 
 func (s *Service) saveConfigLocked(next savedConfig) error {
 	affectsActive := s.config.Provider != next.Provider || s.config.Model != next.Model || s.config.ThinkingLevel != next.ThinkingLevel || s.config.BaseURL != next.BaseURL || s.config.APIKey != next.APIKey
-	if err := writeJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
+	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
 		return err
 	}
 	s.config = next
@@ -296,7 +299,7 @@ func (s *Service) saveConfigLocked(next savedConfig) error {
 		previous := *s.active.Failure
 		s.active.Failure.CanContinue = true
 		s.active.Failure.Advice = "Model settings changed. Test the connection, then review the conversation before continuing."
-		if err := writeJSON(s.receiptFile(s.state.ActiveID), runReceipt{Runtime: s.active.Runtime, Failure: s.active.Failure}); err != nil {
+		if err := s.files.WriteJSON(s.receiptFile(s.state.ActiveID), runReceipt{Runtime: s.active.Runtime, Failure: s.active.Failure}); err != nil {
 			s.active.Failure = &previous
 			s.changedLocked()
 			return fmt.Errorf("settings saved, but task status could not be updated: %w", err)
@@ -312,13 +315,13 @@ func (s *Service) AddWorkspace(path string) (Workspace, error) {
 	if err := s.availableLocked(); err != nil {
 		return Workspace{}, err
 	}
-	path, err := canonicalDirectory(path)
+	path, err := workspacefs.Directory(path)
 	if err != nil {
 		return Workspace{}, err
 	}
 	// Keeping the application store outside a workspace prevents recursive
 	// search and instruction discovery from exposing saved credentials.
-	if within(path, s.dataDir) || within(s.dataDir, path) {
+	if workspacefs.Within(path, s.dataDir) || workspacefs.Within(s.dataDir, path) {
 		return Workspace{}, errors.New("Choose a folder separate from Pith Desk's private application data")
 	}
 	for _, existing := range s.state.Workspaces {
@@ -431,7 +434,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 		return err
 	}
 	r.workspace = workspace
-	currentPath, err := canonicalDirectory(workspace.Path)
+	currentPath, err := workspacefs.Directory(workspace.Path)
 	if err != nil || currentPath != workspace.Path {
 		return errors.New("The workspace has moved or is no longer available; add its current folder again")
 	}
@@ -472,7 +475,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	r.Runtime.Timing = TaskTiming{StartedAt: r.runStarted.UTC().Format(time.RFC3339Nano)}
 	r.Runtime.Cost.RunTotal, r.Runtime.Cost.RunRequests, r.Runtime.Cost.RunUnknownRequests = 0, 0, 0
 	r.Runtime.UpdatedAt = timestamp()
-	if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: r.Runtime}); err != nil {
+	if err := s.files.WriteJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: r.Runtime}); err != nil {
 		r.runStarted = time.Time{}
 		r.Running = false
 		r.Runtime, r.Failure = previousRuntime, previousFailure
@@ -491,7 +494,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 		r.Running = false
 		r.Runtime, r.Failure = previousRuntime, previousFailure
 		r.runStarted = time.Time{}
-		_ = writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: previousRuntime, Failure: previousFailure})
+		_ = s.files.WriteJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: previousRuntime, Failure: previousFailure})
 		close(r.runDone)
 		r.runCancel = nil
 		return err
@@ -525,7 +528,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 				r.Runtime.Phase = "complete"
 			}
 			r.Runtime.UpdatedAt = timestamp()
-			if err := writeJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
+			if err := s.files.WriteJSON(s.receiptFile(conversation.ID), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
 				r.Error = err.Error()
 			}
 		}
@@ -772,7 +775,7 @@ func (r *conversationRuntime) run(ctx context.Context, id string, workspace Work
 		r.Runtime.UpdatedAt = timestamp()
 		r.updateTimingLocked()
 		r.runStarted = time.Time{}
-		if err := writeJSON(s.receiptFile(id), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
+		if err := s.files.WriteJSON(s.receiptFile(id), runReceipt{Runtime: r.Runtime, Failure: r.Failure}); err != nil {
 			r.Error = "Task history was saved, but run status could not be saved: " + err.Error()
 		}
 		r.session, r.activeManager, r.runCancel = nil, nil, nil
@@ -813,7 +816,7 @@ func (r *conversationRuntime) run(ctx context.Context, id string, workspace Work
 	if runErr != nil {
 		return
 	}
-	if runErr = validateRuntimeResources(workspace.Path, s.dataDir); runErr != nil {
+	if runErr = workspacefs.ValidateResources(workspace.Path, s.dataDir, codingagent.ConfigDirName); runErr != nil {
 		return
 	}
 	if err := r.connectMCP(ctx); err != nil && ctx.Err() == nil {
@@ -936,7 +939,7 @@ func (r *conversationRuntime) observe(event codingagent.SessionEvent, manager *c
 		r.updateRuntimeLocked(manager)
 		r.Runtime.Phase = "working"
 		r.observeQueuedMessageLocked(event)
-		if err := writeJSON(s.receiptFile(r.id), runReceipt{Runtime: r.Runtime}); err != nil {
+		if err := s.files.WriteJSON(s.receiptFile(r.id), runReceipt{Runtime: r.Runtime}); err != nil {
 			r.Error = "Run status could not be saved: " + err.Error()
 		}
 	case codingagent.SessionEventAgentEnd:
@@ -1137,7 +1140,7 @@ func (s *Service) refreshSettingsLocked() {
 }
 
 func (s *Service) persistCatalogLocked() error {
-	return writeJSON(filepath.Join(s.dataDir, "catalog.json"), catalogState{
+	return s.files.WriteJSON(filepath.Join(s.dataDir, "catalog.json"), catalogState{
 		Workspaces: s.state.Workspaces, Conversations: s.state.Conversations, ActiveID: s.state.ActiveID,
 	})
 }
@@ -1149,30 +1152,6 @@ func (s *Service) changedLocked() {
 	}
 }
 
-func canonicalDirectory(path string) (string, error) {
-	if strings.TrimSpace(path) == "" {
-		return "", errors.New("Choose an existing folder")
-	}
-	abs, err := filepath.Abs(strings.TrimSpace(path))
-	if err != nil {
-		return "", err
-	}
-	abs, err = filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", fmt.Errorf("Open folder: %w", err)
-	}
-	info, err := os.Stat(abs)
-	if err != nil || !info.IsDir() {
-		return "", errors.New("Choose an existing folder")
-	}
-	return abs, nil
-}
-
-func within(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
 func newID() string {
 	var bytes [16]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -1182,44 +1161,6 @@ func newID() string {
 }
 
 func timestamp() string { return time.Now().UTC().Format(time.RFC3339Nano) }
-
-func readJSON(path string, target any) error {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, target)
-}
-
-func writeJSON(path string, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	file, err := os.CreateTemp(filepath.Dir(path), ".save-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), path)
-}
 
 func redact(value, secret string) string {
 	if secret != "" {

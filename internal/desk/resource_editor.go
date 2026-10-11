@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/minifish-org/pith-desk/internal/workspacefs"
+	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
 
 type ResourceInput struct {
@@ -29,7 +32,7 @@ func (s *Service) SaveResource(input ResourceInput) error {
 	if !ok {
 		return errors.New("Workspace not found")
 	}
-	if err := validateRuntimeResources(w.Path, s.dataDir); err != nil {
+	if err := workspacefs.ValidateResources(w.Path, s.dataDir, codingagent.ConfigDirName); err != nil {
 		return err
 	}
 	path := input.Path
@@ -65,7 +68,7 @@ func (s *Service) SaveResource(input ResourceInput) error {
 			return errors.New("Edit a discovered workspace resource")
 		}
 	}
-	if !within(w.Path, path) {
+	if !workspacefs.Within(w.Path, path) {
 		return errors.New("Inherited instructions are read-only; edit the workspace's AGENTS.md instead")
 	}
 	rel, err := filepath.Rel(w.Path, path)

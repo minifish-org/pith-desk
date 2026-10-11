@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/minifish-org/pith-desk/internal/workspacefs"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 )
 
@@ -43,7 +44,7 @@ func (s *Service) resourcesLocked(workspaceID string) (ResourceInventory, error)
 	if !ok {
 		return ResourceInventory{}, errors.New("Workspace not found")
 	}
-	if err := validateRuntimeResources(workspace.Path, s.dataDir); err != nil {
+	if err := workspacefs.ValidateResources(workspace.Path, s.dataDir, codingagent.ConfigDirName); err != nil {
 		return ResourceInventory{}, err
 	}
 	mode := PermissionAsk
@@ -56,7 +57,7 @@ func (s *Service) resourcesLocked(workspaceID string) (ResourceInventory, error)
 	}
 	inventory := ResourceInventory{WorkspaceID: workspaceID, Instructions: []InstructionResource{}, Skills: []SkillResource{}, Diagnostics: append([]string{}, loaded.Diagnostics...)}
 	for _, path := range loaded.ContextFiles {
-		canonical, err := checkedResourceFile(path, s.dataDir)
+		canonical, err := workspacefs.ResourceFile(path, s.dataDir)
 		if err != nil {
 			inventory.Diagnostics = append(inventory.Diagnostics, err.Error())
 			continue
@@ -69,8 +70,8 @@ func (s *Service) resourcesLocked(workspaceID string) (ResourceInventory, error)
 		inventory.Instructions = append(inventory.Instructions, InstructionResource{Name: filepath.Base(path), Path: canonical, Content: string(content)})
 	}
 	for _, skill := range loaded.Skills {
-		canonical, err := checkedResourceFile(skill.File, s.dataDir)
-		if err != nil || !within(workspace.Path, canonical) {
+		canonical, err := workspacefs.ResourceFile(skill.File, s.dataDir)
+		if err != nil || !workspacefs.Within(workspace.Path, canonical) {
 			inventory.Diagnostics = append(inventory.Diagnostics, fmt.Sprintf("Skill %q is not a regular file inside the workspace", skill.Name))
 			continue
 		}
@@ -78,8 +79,8 @@ func (s *Service) resourcesLocked(workspaceID string) (ResourceInventory, error)
 	}
 	inventory.Templates = []SkillResource{}
 	for _, template := range loaded.Templates {
-		canonical, err := checkedResourceFile(template.File, s.dataDir)
-		if err != nil || !within(workspace.Path, canonical) {
+		canonical, err := workspacefs.ResourceFile(template.File, s.dataDir)
+		if err != nil || !workspacefs.Within(workspace.Path, canonical) {
 			continue
 		}
 		inventory.Templates = append(inventory.Templates, SkillResource{Name: template.Name, Path: canonical, Description: template.Description})
@@ -97,7 +98,7 @@ func (s *Service) CreateInstructions(workspaceID string) (string, error) {
 	if !ok {
 		return "", errors.New("Workspace not found")
 	}
-	if err := validateRuntimeResources(workspace.Path, s.dataDir); err != nil {
+	if err := workspacefs.ValidateResources(workspace.Path, s.dataDir, codingagent.ConfigDirName); err != nil {
 		return "", err
 	}
 	root, err := os.OpenRoot(workspace.Path)
@@ -139,7 +140,7 @@ func (s *Service) ResolveResourceFile(workspaceID, path string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	canonical, err := checkedResourceFile(path, s.dataDir)
+	canonical, err := workspacefs.ResourceFile(path, s.dataDir)
 	if err != nil {
 		return "", err
 	}
@@ -159,130 +160,4 @@ func (s *Service) ResolveResourceFile(workspaceID, path string) (string, error) 
 		}
 	}
 	return "", errors.New("Open a discovered instruction, skill, or template from this workspace")
-}
-
-func checkedResourceFile(path, dataDir string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	canonical, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", err
-	}
-	if within(dataDir, canonical) {
-		return "", errors.New("Resources cannot access private application data")
-	}
-	info, err := os.Stat(canonical)
-	if err != nil || !info.Mode().IsRegular() {
-		return "", errors.New("Open a regular instruction or skill file")
-	}
-	return canonical, nil
-}
-
-// Check discovery inputs before Pith reads their content. Regular instruction
-// files may be inherited from ancestors. Symlinked instructions and project
-// system prompts must resolve inside the workspace, as must skills/templates.
-func validateRuntimeResources(workspacePath, dataDir string) error {
-	workspace, err := canonicalDirectory(workspacePath)
-	if err != nil {
-		return err
-	}
-	private, err := canonicalDirectory(dataDir)
-	if err != nil {
-		return err
-	}
-	if within(private, workspace) || within(workspace, private) {
-		return errors.New("The workspace must not contain private application data")
-	}
-	for current := workspace; ; current = filepath.Dir(current) {
-		for _, name := range []string{"AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"} {
-			path := filepath.Join(current, name)
-			if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-				continue
-			} else if err != nil {
-				return err
-			}
-			canonical, err := filepath.EvalSymlinks(path)
-			if err != nil {
-				return fmt.Errorf("Resolve instruction file: %w", err)
-			}
-			if within(private, canonical) {
-				return errors.New("Instruction files cannot point to private application data")
-			}
-			if canonical != path && !within(workspace, canonical) {
-				return errors.New("Instruction symlinks must resolve inside the selected workspace")
-			}
-			info, err := os.Stat(canonical)
-			if err != nil {
-				return err
-			}
-			if !info.IsDir() && !info.Mode().IsRegular() {
-				return errors.New("Instruction files must be regular files")
-			}
-		}
-		if filepath.Dir(current) == current {
-			break
-		}
-	}
-	for _, name := range []string{"SYSTEM.md", "APPEND_SYSTEM.md"} {
-		path := filepath.Join(workspace, codingagent.ConfigDirName, name)
-		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-			continue
-		} else if err != nil {
-			return err
-		}
-		canonical, err := checkedResourceFile(path, private)
-		if err != nil {
-			return err
-		}
-		if !within(workspace, canonical) {
-			return errors.New("Project system prompts must stay inside the selected workspace")
-		}
-	}
-	for _, kind := range []string{"skills", "prompts"} {
-		if err := validateResourceTree(filepath.Join(workspace, codingagent.ConfigDirName, kind), workspace, private, map[string]bool{}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateResourceTree(path, workspace, private string, visited map[string]bool) error {
-	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	canonical, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return fmt.Errorf("Resolve project resource: %w", err)
-	}
-	if !within(workspace, canonical) || within(private, canonical) {
-		return errors.New("Project skills and prompts must stay inside the workspace and outside private application data")
-	}
-	info, err := os.Stat(canonical)
-	if err != nil {
-		return err
-	}
-	if info.Mode().IsRegular() {
-		return nil
-	}
-	if !info.IsDir() {
-		return errors.New("Project resources must be regular files or directories")
-	}
-	if visited[canonical] {
-		return nil
-	}
-	visited[canonical] = true
-	entries, err := os.ReadDir(canonical)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if err := validateResourceTree(filepath.Join(canonical, entry.Name()), workspace, private, visited); err != nil {
-			return err
-		}
-	}
-	return nil
 }

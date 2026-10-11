@@ -13,28 +13,32 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/minifish-org/pith-desk/internal/localstore"
 	codingagent "github.com/minifish-org/pith/packages/coding-agent"
 	"github.com/minifish-org/pith/packages/mcp"
 )
 
 // The SDK owns discovery, registration, PKCE, exchange and token refresh.
 // The host supplies only a private file store and loopback callback/UI.
-type mcpOAuthFile struct{ path string }
+type mcpOAuthFile struct {
+	path  string
+	files localstore.Store
+}
 
 func (f mcpOAuthFile) Load() (*mcp.McpOAuthState, error) {
 	if _, err := os.Stat(f.path); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	var state mcp.McpOAuthState
-	if err := readJSON(f.path, &state); err != nil {
+	if err := f.files.ReadJSON(f.path, &state); err != nil {
 		return nil, err
 	}
 	return &state, nil
 }
-func (f mcpOAuthFile) Save(state mcp.McpOAuthState) error { return writeJSON(f.path, state) }
+func (f mcpOAuthFile) Save(state mcp.McpOAuthState) error { return f.files.WriteJSON(f.path, state) }
 func (s *Service) mcpOAuthStore(config savedMCP) mcpOAuthFile {
 	key := sha256.Sum256([]byte(config.Name + "\x00" + config.URL))
-	return mcpOAuthFile{filepath.Join(s.dataDir, "mcp-auth", hex.EncodeToString(key[:])+".json")}
+	return mcpOAuthFile{path: filepath.Join(s.dataDir, "mcp-auth", hex.EncodeToString(key[:])+".json"), files: s.files}
 }
 
 const mcpCallbackURL = "http://127.0.0.1:54819/oauth/callback"

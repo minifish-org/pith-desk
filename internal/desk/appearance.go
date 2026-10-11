@@ -37,7 +37,7 @@ func (s *Service) SetAppearance(mode AppearanceMode) error {
 	}
 	next := s.config
 	next.Appearance = mode
-	if err := writeJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
+	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
 		return err
 	}
 	s.config = next

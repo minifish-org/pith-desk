@@ -3,9 +3,7 @@ package desk
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"math"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -67,6 +65,10 @@ type CostReport struct {
 
 func (s *Service) costFile(id string) string { return filepath.Join(s.dataDir, "costs", id+".jsonl") }
 
+func (s *Service) costLedger(id string) CostLedger {
+	return CostLedger{path: s.costFile(id), files: s.files}
+}
+
 func (s *Service) Costs(id string) (CostReport, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,33 +85,13 @@ func (s *Service) costsLocked(id string, includeRun bool) (CostReport, error) {
 			runID = r.Runtime.RunID
 		} else {
 			var receipt runReceipt
-			if err := readJSON(s.receiptFile(id), &receipt); err != nil {
+			if err := s.files.ReadJSON(s.receiptFile(id), &receipt); err != nil {
 				return CostReport{}, err
 			}
 			runID = receipt.Runtime.RunID
 		}
 	}
-	report := CostReport{Currency: "USD", Estimated: true, Requests: []RequestCost{}}
-	file, err := os.Open(s.costFile(id))
-	if errors.Is(err, os.ErrNotExist) {
-		return report, nil
-	}
-	if err != nil {
-		return report, err
-	}
-	defer file.Close()
-	decoder := json.NewDecoder(file)
-	for {
-		var request RequestCost
-		if err = decoder.Decode(&request); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			return report, err
-		}
-		report.Requests = append(report.Requests, request)
-		report.add(request, includeRun && request.RunID == runID)
-	}
-	return report, nil
+	return s.costLedger(id).read(runID, includeRun)
 }
 
 func (s *Service) recordCost(id, runID, purpose string, model *aitypes.Model, config savedConfig, response aitypes.AssistantMessage) {
@@ -152,27 +134,16 @@ func (s *Service) recordCost(id, runID, purpose string, model *aitypes.Model, co
 		}
 		r.updateTimingLocked()
 	}
-	if err := os.MkdirAll(filepath.Dir(s.costFile(id)), 0700); err != nil {
+	if err := s.costLedger(id).ensureDirectory(); err != nil {
 		if r != nil {
 			r.Error = err.Error()
-		}
-		if r != nil {
 			r.Runtime.Cost.Unavailable = true
 		}
 		s.changedLocked()
 		return
 	}
-	file, err := os.OpenFile(s.costFile(id), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err == nil {
-		err = json.NewEncoder(file).Encode(record)
-		if err == nil {
-			err = file.Sync()
-		}
-		closeErr := file.Close()
-		if err == nil {
-			err = closeErr
-		}
-	}
+	err := s.costLedger(id).append(record)
+
 	if err != nil {
 		if r != nil {
 			r.Error = "Could not save request usage: " + err.Error()

@@ -1,0 +1,1 @@
+{"format":1,"type":"commit","seq":1,"writes":[{"type":"conversation","value":{"id":0}},{"type":"task.sidecar","id":1,"ordinal":0},{"type":"document.create","record":{"id":2,"kind":"fixture.document","scope":{"kind":"session"}},"ordinal":0}]}

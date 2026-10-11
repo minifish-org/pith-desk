@@ -111,10 +111,10 @@ func (s *Service) deleteDataLocked(workspaceID string, ids []string) error {
 	}
 	// Persist intent before changing the catalog. On restart, only IDs absent
 	// from the committed catalog are deleted; an uncommitted request is canceled.
-	if err := writeJSON(filepath.Join(s.dataDir, deletionFile), ids); err != nil {
+	if err := s.files.WriteJSON(filepath.Join(s.dataDir, deletionFile), ids); err != nil {
 		return err
 	}
-	if err := writeJSON(filepath.Join(s.dataDir, "catalog.json"), next); err != nil {
+	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "catalog.json"), next); err != nil {
 		return errors.Join(err, root.Remove(deletionFile))
 	}
 	activeRemoved := s.state.ActiveID != next.ActiveID

@@ -1,0 +1,1 @@
+{"format":1,"type":"record","seq":1,"ordinal":0,"payload":{"type":"task","value":{"id":1,"conversationId":0,"kind":"desk.agent-session","version":1,"input":{"runId":"fixture-interrupted","text":"Never replay this fixture","compact":false},"background":false,"abortRequested":false,"state":{"status":"pending","checkpoint":{"phase":"execute"}}}}}

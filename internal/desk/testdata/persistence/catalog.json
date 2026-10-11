@@ -1,0 +1,1 @@
+{"workspaces":[{"id":"fixture-workspace","name":"Fixture workspace","path":"__WORKSPACE__"}],"conversations":[{"id":"fixture-conversation","title":"Catalog title","workspaceId":"fixture-workspace","updatedAt":"2026-10-01T00:00:00Z","permissionMode":"workspace-write","completedRunId":"fixture-run","unread":true}],"activeId":"fixture-conversation"}
