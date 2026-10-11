@@ -1,0 +1,38 @@
+{
+  "settings": {
+    "provider": "fixture-provider", "modelName": "Fixture Model", "thinkingLevel": "medium", "thinkingLevels": ["off", "medium"],
+    "baseUrl": "http://127.0.0.1:12345/v1", "model": "fixture-model", "hasConnections": true, "hasApiKey": true,
+    "appearance": "system", "supportsImages": true, "imageUploadLimit": 52428800
+  },
+  "workspaces": [
+    {"id": "workspace-a", "name": "Fixture A", "path": "/fixture/workspace-a"},
+    {"id": "workspace-b", "name": "Fixture B", "path": "/fixture/workspace-b"}
+  ],
+  "conversations": [
+    {"id": "chat-a", "title": "审查文件", "workspaceId": "workspace-a", "updatedAt": "2026-10-11T00:00:00Z", "permissionMode": "ask", "completedRunId": "run-previous", "unread": true},
+    {"id": "chat-b", "title": "Background", "workspaceId": "workspace-b", "updatedAt": "2026-10-11T00:00:00Z", "permissionMode": "workspace-write"},
+    {"id": "chat-idle", "title": "Idle", "workspaceId": "workspace-b", "updatedAt": "2026-10-11T00:00:00Z", "permissionMode": "full-access"}
+  ],
+  "activeId": "chat-a",
+  "runs": [
+    {"conversationId": "chat-a", "workspaceId": "workspace-a", "phase": "tool", "needsApproval": true},
+    {"conversationId": "chat-b", "workspaceId": "workspace-b", "phase": "working", "needsApproval": false}
+  ],
+  "messages": [
+    {"id": "message-user", "role": "user", "text": "检查图片", "images": [{"index": 0, "mimeType": "image/png"}], "branchNodeId": "node-user"},
+    {"id": "message-tool", "role": "tool", "text": "done", "toolName": "run_command", "toolCallId": "call-command", "status": "done", "command": {"text": "pwd", "cwd": "/fixture/workspace-a", "exitCode": 0}}
+  ],
+  "queuedMessages": [{"id": "queue-a", "text": "下一步", "mode": "follow-up", "imageCount": 1}],
+  "running": true,
+  "pendingApproval": {
+    "id": "approval-a", "toolName": "write_file", "args": {"path": "notes.txt", "content": "fixture"}, "warning": "Review the file",
+    "preview": {"path": "notes.txt", "kind": "create", "diff": "+fixture", "truncated": true}
+  },
+  "runtime": {
+    "runId": "run-a", "provider": "fixture-provider", "thinkingLevel": "medium", "phase": "tool", "model": "fixture-model",
+    "usage": {"input": 10, "output": 2, "cacheRead": 3, "cacheWrite": 4, "total": 19},
+    "cost": {"total": 0.25, "runTotal": 0.05, "requestCount": 3, "unknownRequests": 1, "runRequests": 2, "runUnknownRequests": 1, "unavailable": true},
+    "timing": {"startedAt": "2026-10-11T00:00:00Z", "elapsedMs": 1000, "outputTokens": 2, "partial": true},
+    "contextTokens": 19, "contextWindow": 1000, "compactions": 1, "toolFailures": 1, "updatedAt": "2026-10-11T00:00:01Z"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "provider": "", "modelName": "", "thinkingLevel": "", "thinkingLevels": [],
+    "baseUrl": "", "model": "", "hasConnections": false, "hasApiKey": false,
+    "appearance": "system", "supportsImages": false, "imageUploadLimit": 52428800
+  },
+  "workspaces": [], "conversations": [], "activeId": "", "runs": [],
+  "messages": [], "queuedMessages": [], "running": false,
+  "runtime": {
+    "phase": "idle", "model": "",
+    "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0},
+    "cost": {"total": 0, "runTotal": 0, "requestCount": 0, "unknownRequests": 0, "runRequests": 0, "runUnknownRequests": 0},
+    "timing": {"elapsedMs": 0, "outputTokens": 0},
+    "contextTokens": 0, "contextWindow": 0, "compactions": 0, "toolFailures": 0
+  }
+}

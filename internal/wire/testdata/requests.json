@@ -1,0 +1,14 @@
+[
+  {"method": "GET", "format": "json", "path": "/api/state", "url": "/api/state", "input": {}},
+  {"method": "GET", "format": "json", "path": "/api/history", "url": "/api/history?id=chat%2F%E4%B8%AD%E6%96%87", "input": {"id": "chat/中文"}},
+  {"method": "GET", "format": "blob", "path": "/api/image", "url": "/api/image?id=chat-a&message=image+one&index=0", "input": {"id": "chat-a", "message": "image one", "index": 0}},
+  {"method": "POST", "format": "json", "path": "/api/open", "url": "/api/open", "input": {"id": "chat-b"}},
+  {"method": "POST", "format": "json", "path": "/api/send", "url": "/api/send", "input": {"id": "chat-a", "text": "你好", "images": [{"type": "image", "data": "Zml4dHVyZQ==", "mimeType": "image/png"}]}},
+  {"method": "POST", "format": "json", "path": "/api/queue", "url": "/api/queue", "input": {"id": "chat-a", "text": "下一步", "mode": "steer", "images": [{"type": "image", "data": "Zml4dHVyZQ==", "mimeType": "image/png"}]}},
+  {"method": "POST", "format": "json", "path": "/api/queue/edit", "url": "/api/queue/edit", "input": {"id": "chat-a", "messageId": "queue-a", "text": "修改后的消息"}},
+  {"method": "POST", "format": "json", "path": "/api/approval", "url": "/api/approval", "input": {"id": "approval-a", "allow": false, "alwaysAllow": true}},
+  {"method": "POST", "format": "json", "path": "/api/read", "url": "/api/read", "input": {"id": "chat-a", "runId": "run-previous"}},
+  {"method": "POST", "format": "json", "path": "/api/permissions", "url": "/api/permissions", "input": {"id": "chat-a", "mode": "workspace-write"}},
+  {"method": "POST", "format": "json", "path": "/api/branch", "url": "/api/branch", "input": {"id": "chat-a", "nodeId": "node-user", "before": true}},
+  {"method": "POST", "format": "json", "path": "/api/mcp/disconnect", "url": "/api/mcp/disconnect", "input": {}}
+]
