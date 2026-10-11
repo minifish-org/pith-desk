@@ -130,7 +130,7 @@ export function createSDKUI(api: API) {
     try {
       switch (target.dataset.sdk) {
         case 'custom': await custom(target.dataset.id); break;
-        case 'resource': await resource(target.dataset.workspace || '', target.dataset.kind || 'instructions', target.dataset.path); break;
+        case 'resource': await resource(target.dataset.resourceWorkspace || '', target.dataset.kind || 'instructions', target.dataset.path); break;
         case 'use-resource': api.draft(target.dataset.command || ''); $<HTMLDialogElement>('resources-dialog').close(); break;
         case 'history': await history(); break;
         case 'branch':
@@ -158,7 +158,7 @@ export function createSDKUI(api: API) {
     },
     resourceActions(kind: string, resource: Resource, workspaceId: string) {
       const command = kind === 'skill' ? `/skill:${resource.name} ` : `/${resource.name} `;
-      return `<div class="file-actions">${kind !== 'instructions' ? `<button class="secondary-button" data-sdk="use-resource" data-command="${escape(command)}">Use</button>` : ''}<button class="secondary-button" data-sdk="resource" data-workspace="${escape(workspaceId)}" data-kind="${kind}" data-path="${escape(resource.path)}">View / edit</button></div>`;
+      return `<div class="file-actions">${kind !== 'instructions' ? `<button class="secondary-button" data-sdk="use-resource" data-command="${escape(command)}">Use</button>` : ''}<button class="secondary-button" data-sdk="resource" data-resource-workspace="${escape(workspaceId)}" data-kind="${kind}" data-path="${escape(resource.path)}">View / edit</button></div>`;
     },
   };
 }

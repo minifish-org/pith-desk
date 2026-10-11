@@ -71,6 +71,7 @@ test('resource edits keep the dialog workspace after a notification switches con
   await page.evaluate(() => { window.reviewState.activeId = 'b'; window.reviewState.conversations.find(c => c.id === 'b').workspaceId = 'other'; window.emitReview(); });
   await page.locator('#resources-content [data-kind="skill"]').click();
   await expect(page.locator('#sdk-content .file-path')).toHaveText('/tmp/pith-review');
+  expect(await page.evaluate(() => window.reviewState.activeId)).toBe('b');
   await page.locator('#resource-name').fill('fixture-skill');
   await page.locator('#resource-form [type="submit"]').click();
   expect(await page.evaluate(() => window.review.requests.find(r => r.path === '/api/resource').body.workspaceId)).toBe('w');
