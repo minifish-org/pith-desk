@@ -16,9 +16,11 @@
     "release:preview": "node --experimental-strip-types scripts/package-release.ts",
     "release:signed": "node --experimental-strip-types scripts/package-release.ts --signed",
     "generate:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen",
-    "check:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen -check"
+    "check:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen -check",
+    "test:ui": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.0",
     "mygo-cli": "0.3.6"
   }
 }

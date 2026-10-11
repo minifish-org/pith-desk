@@ -18,3 +18,7 @@ output/playwright/
 # Local SDK integration; releases pin a published Pith revision.
 go.work
 go.work.sum
+
+# Browser regression reports
+playwright-report/
+test-results/

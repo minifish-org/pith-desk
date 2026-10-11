@@ -68,17 +68,22 @@ export function installConversationReader(scroll: HTMLElement, messages: HTMLEle
     restore(position);
   }
 
-  function clearMarks(): void {
-    for (const mark of messages.querySelectorAll('mark[data-find-match]')) mark.replaceWith(document.createTextNode(mark.textContent || ''));
-    messages.normalize();
+  let cachedMatches = new WeakMap<HTMLElement, { query: string; version?: string; matches: typeof matches }>();
+  function clearMarks(root: HTMLElement = messages): void {
+    for (const mark of root.querySelectorAll('mark[data-find-match]')) mark.replaceWith(document.createTextNode(mark.textContent || ''));
+    root.normalize();
+    if (root === messages) cachedMatches = new WeakMap();
+    else cachedMatches.delete(root);
   }
   function markMatches(): void {
     const previousKey = matches[selected]?.key;
-    clearMarks();
     matches = [];
     const query = field.value;
     if (!bar.hidden && query) {
       for (const root of messages.querySelectorAll<HTMLElement>('[data-reading-id]')) {
+        const cached = cachedMatches.get(root);
+        if (cached?.query === query && cached.version === root.dataset.renderVersion) { matches.push(...cached.matches); continue; }
+        clearMarks(root);
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
           acceptNode: (node) => node.parentElement?.closest('button, summary, script, style, [data-find-ignore]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
         });
@@ -113,8 +118,9 @@ export function installConversationReader(scroll: HTMLElement, messages: HTMLEle
           fragment.append(document.createTextNode(node.data.slice(offset)));
           node.replaceWith(fragment);
         }
+        cachedMatches.set(root, { query, version: root.dataset.renderVersion, matches: matches.slice(base) });
       }
-    }
+    } else clearMarks();
     const kept = matches.findIndex((match) => match.key === previousKey);
     selected = matches.length ? kept >= 0 ? kept : Math.max(0, Math.min(selected, matches.length - 1)) : -1;
     updateSelection();

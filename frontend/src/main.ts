@@ -1,4 +1,6 @@
 import './style.css';
+import { escape, icon } from './ui';
+import { createMessageView } from './messages-view';
 import { createDrafts, draftKey } from './drafts';
 import { createMutations } from './mutations';
 import { controlDisabled, setControlPending } from './controls';
@@ -124,37 +126,9 @@ let draftLoadGeneration = 0;
 let previewRequest = 0;
 let previewImageURL = '';
 
-const paths: Record<string, string> = {
-  steer: '<path d="M4 5v7a3 3 0 0 0 3 3h13m-5-5 5 5-5 5"/>',
-  edit: '<path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5"/>',
-  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
-  branch: '<path d="M4 12h7M11 12l9-9M14 3h6v6M11 12l9 9M14 21h6v-6"/>',
-  compress: '<path d="M7 3h10M12 3v6m-3-3 3 3 3-3M5 12h14M12 21v-6m-3 3 3-3 3 3M7 21h10"/>',
-  image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  chat: '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5a8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/>',
-  folder: '<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
-  settings: '<path d="m9.5 3-.7 2.2-2.1 1.2-2.3-.5-2.5 4.2 1.6 1.7v2.4l-1.6 1.7 2.5 4.2 2.3-.5 2.1 1.2.7 2.2h5l.7-2.2 2.1-1.2 2.3.5 2.5-4.2-1.6-1.7v-2.4l1.6-1.7-2.5-4.2-2.3.5-2.1-1.2-.7-2.2Z"/><circle cx="12" cy="12" r="3"/>',
-  arrow: '<path d="M12 19V5m-6 6 6-6 6 6"/>',
-  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
-  chevron: '<path d="m9 5 7 7-7 7"/>',
-  down: '<path d="m6 9 6 6 6-6"/>',
-  close: '<path d="m6 6 12 12M18 6 6 18"/>',
-  check: '<path d="m5 12 4 4L19 6"/>',
-  shield: '<path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/>',
-  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
-  terminal: '<path d="m4 7 5 5-5 5M12 17h8"/>',
-  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"/>',
-  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
-  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18Z"/>',
-  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
-  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
-  compose: '<path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7"/><path d="m16 3 5 5-10 10-5 1 1-5Z"/>',
-  plug: '<path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M8 8V5M16 8V5"/>',
-};
-const icon = (name: string, className = '') => `<svg class="icon ${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? paths.chat}</svg>`;
+
 const logo = '<span class="logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
-const escape = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
 $('app').innerHTML = `
@@ -242,6 +216,7 @@ const updateCompletions = (initialized: boolean) => completionUI.observe(initial
 const acknowledgeViewedCompletion = () => completionUI.acknowledgeViewed();
 const dismissCompletion = (runID: string) => completionUI.dismiss(runID);
 const mutations = createMutations({ request, refresh, busy: () => requestBusy, setBusy: (value) => { requestBusy = value; }, error: (message) => { localError = message; }, render });
+const messageView = createMessageView($('messages'));
 const sdkUI = createSDKUI({
   state: () => state, request, mutate, error: () => localError,
   busy: () => requestBusy || draftLoading || !snapshotLoaded,
@@ -327,14 +302,7 @@ function render(): void {
     const currentFolds = new Map(Array.from($('messages').querySelectorAll<HTMLDetailsElement>('[data-tool-fold]'), (element) => [element.dataset.toolFold!, element.open] as const));
     if (renderedActiveId) conversationFolds.set(renderedActiveId, currentFolds);
     const folds = changedConversation ? conversationFolds.get(state.activeId || '') || new Map<string, boolean>() : currentFolds;
-    // Keep decoded images across stream updates so their intrinsic dimensions
-    // and lazy-loading state do not reset every time the message text changes.
-    const historyImageNodes = new Map(Array.from($('messages').querySelectorAll<HTMLImageElement>('img[data-image-key]'), (image) => [image.dataset.imageKey!, image] as const));
-    $('messages').innerHTML = renderMessages(state.messages, folds) + (state.running && !state.pendingApproval ? '<div class="agent-working" role="status"><span class="working-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Working…</span></div>' : '');
-    for (const image of $('messages').querySelectorAll<HTMLImageElement>('img[data-image-key]')) {
-      const previous = historyImageNodes.get(image.dataset.imageKey!);
-      if (previous) image.replaceWith(previous);
-    }
+    messageView.update(state.activeId || '', state.messages, state.running && !state.pendingApproval, folds);
     messagesSignature = signature;
     renderedActiveId = state.activeId;
     loadHistoryImages();
@@ -552,7 +520,6 @@ function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
       if (resourcesWorkspaceId === id) { resources = null; resourcesWorkspaceId = ''; resourcesRequest++; $<HTMLDialogElement>('resources-dialog').close(); }
     }
     if (activeID !== state.activeId || activeWorkspace !== selectedWorkspace()?.id) {
-      clearDraftImages();
       clearHistoryImages();
       loadComposerDraft();
       resizeComposer();
@@ -634,54 +601,6 @@ function renderWelcome(workspace?: Workspace): void {
   `;
 }
 
-function toolGroupLabel(tools: Message[]): string {
-  if (tools.length === 1) return ({ list_files: 'Listed files', read_file: 'Read a file', run_command: 'Ran a command', write_file: 'Wrote a file', edit_file: 'Edited a file', tool_search: 'Searched tools', codemode: 'Ran code' } as Record<string, string>)[tools[0].toolName || ''] || 'Used a tool';
-  const hasCommands = tools.some((tool) => tool.toolName === 'run_command');
-  const exploredFiles = tools.every((tool) => ['list_files', 'read_file', 'grep', 'find', 'ls', 'run_command'].includes(tool.toolName || ''));
-  if (tools.every((tool) => tool.toolName === 'run_command')) return 'Ran commands';
-  if (exploredFiles) return hasCommands ? 'Ran commands and explored files' : 'Explored files';
-  return 'Used tools';
-}
-
-function renderMessages(messages: Message[], folds: Map<string, boolean>): string {
-  const output: string[] = [];
-  let groupIndex = 0;
-  for (let index = 0; index < messages.length;) {
-    if (messages[index].role !== 'tool') {
-      output.push(renderMessage(messages[index++]));
-      continue;
-    }
-    const start = index;
-    while (index < messages.length && messages[index].role === 'tool') index++;
-    const tools = messages.slice(start, index);
-    // Group order stays stable when live tool IDs are replaced by saved nodes.
-    const key = `group-${groupIndex++}`;
-    const running = tools.filter((tool) => tool.status === 'running').length;
-    const failed = tools.filter((tool) => tool.status === 'error').length;
-    output.push(`<details class="tool-group" data-tool-fold="${key}" ${folds.get(key) ? 'open' : ''}><summary>${icon('terminal')}<span class="tool-group-label">${toolGroupLabel(tools)}</span><span class="tool-group-count">${tools.length} ${tools.length === 1 ? 'call' : 'calls'}</span>${failed ? `<span class="tool-group-failed">${failed} failed</span>` : ''}${running ? `<span class="tool-group-running">${running} running</span>` : ''}${icon('down')}</summary><div class="tool-group-content">${tools.map((tool) => { const toolKey = `${key}-tool-${tool.toolCallId || tool.id}`; return renderMessage(tool, folds.get(toolKey), toolKey); }).join('')}</div></details>`);
-  }
-  return output.join('');
-}
-
-function renderMessage(message: Message, expanded = false, foldKey = ''): string {
-  const text = message.text ?? '';
-  const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${state.activeId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" role="button" tabindex="0" title="Click to enlarge" loading="lazy" />`).join('');
-  const gallery = images ? `<div class="message-images">${images}</div>` : '';
-  const copy = message.role === 'assistant' && text && message.status !== 'streaming' ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="Copy response" aria-label="Copy response">${icon('copy')}</button>` : '';
-  const branch = message.role === 'assistant' && message.branchNodeId ? `<button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button>` : '';
-  const actions = copy || branch ? `<div class="message-actions">${copy}${branch}</div>` : '';
-  if (message.role === 'tool') {
-    const command = message.command;
-    const details = command ? `<div class="command-details"><span class="tool-field-label">Command</span><pre class="command-text">${escape(command.text)}</pre><div class="command-directory"><span class="tool-field-label">Directory</span><code>${escape(command.cwd)}</code></div></div>` : '';
-    const status = command ? ({ running: 'Running', done: 'Completed', error: 'Failed' } as Record<string, string>)[message.status || ''] || message.status || 'Result' : message.status || 'Result';
-    const exit = command?.exitCode !== undefined ? ` · Exit ${command.exitCode}` : '';
-    const output = command ? `<div class="command-output"><span class="tool-field-label">Output</span><pre>${escape(text)}</pre></div>` : `<pre>${escape(text)}</pre>`;
-    return `<details class="tool-message" data-reading-id="${escape(message.id)}" data-tool-fold="${escape(foldKey)}" ${expanded ? 'open' : ''}><summary>${icon('terminal')}<span>${command ? 'Command' : escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(status + exit)}</span>${icon('down')}</summary>${details}${output}${gallery}</details>`;
-  }
-  if (message.role === 'user') return `<article class="message user-message" data-reading-id="${escape(message.id)}" aria-label="Your message"><div class="message-content">${gallery}${text ? `<div class="user-text">${escape(text)}</div>` : ''}</div></article>`;
-  if (message.role === 'system') return `<div class="system-message" data-reading-id="${escape(message.id)}">${escape(text)}</div>`;
-  return `<article class="message assistant-message" data-reading-id="${escape(message.id)}" aria-label="Agent response"><div class="message-content"><div class="markdown">${renderMarkdown(text)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}${actions}</div></article>`;
-}
 
 function renderApproval(): void {
   const approval = state.pendingApproval;
@@ -1646,7 +1565,6 @@ document.addEventListener('click', async (event) => {
   if (target.dataset.prompt) { if (draftLoading) return; input.value = target.dataset.prompt; rememberDraft(); resizeComposer(); render(); input.focus(); return; }
   if (target.dataset.conversation) {
     if (await mutate('/api/open', { id: target.dataset.conversation })) {
-      clearDraftImages();
       acknowledgeViewedCompletion();
     }
     render(); closeSidebar(); return;

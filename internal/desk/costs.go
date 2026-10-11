@@ -1,7 +1,6 @@
 package desk
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	agenttypes "github.com/minifish-org/pith/packages/agent/types"
 	"github.com/minifish-org/pith/packages/ai"
 	"github.com/minifish-org/pith/packages/ai/catalog"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
@@ -203,46 +201,4 @@ func catalogEndpoint(provider, id, endpoint string) bool {
 		return true
 	}
 	return false
-}
-
-// Forward SDK events unchanged, but commit request usage before publishing the
-// terminal event. Retries and summaries are separate ledger records, without
-// double-counting message/session totals or recalculating old prices.
-func (s *Service) meteredStream(ctx context.Context, id, runID string, config savedConfig, base agenttypes.StreamFn, purpose func() string) agenttypes.StreamFn {
-	return func(model *aitypes.Model, transcript *aitypes.TranscriptContext, options *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream {
-		requestPurpose := purpose()
-		upstream := base(model, transcript, options)
-		output := aitypes.NewAssistantMessageEventStream()
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					// A settled response remains account-able even if cancellation
-					// arrived before the forwarding goroutine ran.
-					response, err := upstream.Result(ctx)
-					if err == nil {
-						s.recordCost(id, runID, requestPurpose, model, config, response)
-					}
-					output.End(nil)
-					return
-				case item := <-upstream.Next():
-					if item.Done {
-						output.End(nil)
-						return
-					}
-					event := item.Value
-					if event.Type == "done" || event.Type == "error" {
-						response, err := upstream.Result(ctx)
-						if err == nil {
-							s.recordCost(id, runID, requestPurpose, model, config, response)
-						}
-						output.Push(event)
-						return
-					}
-					output.Push(event)
-				}
-			}
-		}()
-		return output
-	}
 }

@@ -30,6 +30,10 @@ jobs:
       - run: npm ci
       - run: npm --prefix frontend ci
       - run: npm run check
+      - name: Install browser test engines
+        run: npx playwright install chromium webkit
+      - name: Check browser regressions
+        run: npm run test:ui
       - name: Check concurrency
         # Packages each exercise their own concurrent execution. Run one
         # package at a time to avoid competing race-instrumented runtimes.

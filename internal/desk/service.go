@@ -883,17 +883,13 @@ func (r *conversationRuntime) run(ctx context.Context, id string, workspace Work
 			return "compaction"
 		}
 		return "agent"
-	})
+	}, r.appendAssistantText)
 	session, runErr = codingagent.CreateAgentSession(codingagent.SessionOptions{
 		Cwd: workspace.Path, Manager: manager, Tools: registry,
 		Model: codingagent.ModelOptions{Model: model, ThinkingLevel: thinking, StreamFn: stream,
 			APIKey: func(context.Context, string) (string, error) { return config.APIKey, nil }},
 		Resources: codingagent.ResourceOptions{Cwd: workspace.Path, SystemPrompt: deskPrompt(mode)},
 		Policy:    r.compactionWithStream(model, config.APIKey, stream),
-		OnProviderStreamEvent: func(data any, _ *aitypes.Model) error {
-			r.appendProviderText(data)
-			return ctx.Err()
-		},
 	})
 	if runErr != nil {
 		return
@@ -1012,41 +1008,6 @@ func (r *conversationRuntime) observe(event codingagent.SessionEvent, manager *c
 	default:
 		return
 	}
-	s.changedLocked()
-}
-
-// SessionEvent.Text also carries reasoning/tool argument deltas. The provider's
-// parsed content field lets us stream only actual assistant text into the UI.
-func (r *conversationRuntime) appendProviderText(data any) {
-	s := r.service
-	chunk, ok := data.(map[string]any)
-	if !ok {
-		return
-	}
-	choices, ok := chunk["choices"].([]any)
-	if !ok || len(choices) == 0 {
-		return
-	}
-	choice, ok := choices[0].(map[string]any)
-	if !ok {
-		return
-	}
-	delta, ok := choice["delta"].(map[string]any)
-	if !ok {
-		return
-	}
-	content, _ := delta["content"].(string)
-	if content == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	last := len(r.Messages) - 1
-	if last < 0 || r.Messages[last].Status != "streaming" {
-		r.Messages = append(r.Messages, Message{ID: newID(), Role: "assistant", Status: "streaming"})
-		last++
-	}
-	r.Messages[last].Text += content
 	s.changedLocked()
 }
 
