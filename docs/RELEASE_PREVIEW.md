@@ -1,6 +1,16 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.17:
+New in rc.18:
+
+- Settings uses consistent text line height, spacing between explanations and
+  controls, section dividers and button sizes. Update version and status appear
+  together. Connection testing and diagnostics place their explanation above
+  the action. Save diagnostics, Remove saved API key and Remove connection use
+  the same secondary button style as other actions.
+- Model providers has a section heading. Provider sign-in status stays beside
+  its controls, and providers without actions leave no empty action row.
+
+Previous changes (rc.17):
 
 - Check for updates in Settings or the application menu. **Update and restart**
   downloads a verified update, installs it and restarts immediately. Running

@@ -714,3 +714,20 @@ check an older release, click Update and restart, verify the new process's full
 version, restored draft and released data lock. Exercise both idle and pending
 approval confirmation, and verify that cancel leaves the old app and task intact.
 Never test bundle replacement against the normal installed app.
+
+## Settings spacing (2026-10-11)
+
+An isolated browser fixture checked light and dark appearance, signed-in Codex,
+API-key and custom providers, expanded connection settings and a smaller window.
+Supporting text uses a 20px line height; measured text-to-control gaps are 12px
+for Appearance, Updates, Provider, Test connection and Save diagnostics. Update
+version and status share one continuous text block. Diagnostics and connection
+removal use secondary buttons, and empty provider action rows are hidden.
+Screenshots are retained under ignored `output/playwright/settings-spacing/`.
+No real provider credentials or model requests were used.
+
+The existing native Settings update test passed after the final layout change,
+including update availability, failure, retry progress and saving the text draft
+before restart. Its WKWebView screenshots were visually checked. Frontend build,
+contract checks, all 37 frontend/release-script tests, Go tests and vet passed
+with `GOWORK=off` and `CGO_ENABLED=0`.

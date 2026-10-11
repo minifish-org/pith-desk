@@ -416,7 +416,7 @@ function renderRuntime(): void {
   costUI.render();
   const failure = state.failure;
   $('task-failure').hidden = !failure || state.running;
-  $('task-failure').innerHTML = failure && !state.running ? `<strong>${escape(failure.message)}</strong><p>${escape(failure.advice)}</p><div>${failure.canContinue ? '<button class="secondary-button" type="button" data-action="continue" data-idle-action data-idle-workspace="${escape(selectedWorkspace()?.id)}">Review and continue</button>' : '<button class="secondary-button" type="button" data-action="settings">Check model settings</button>'}<button class="text-button" type="button" data-action="diagnostics">Save diagnostics</button></div>` : '';
+  $('task-failure').innerHTML = failure && !state.running ? `<strong>${escape(failure.message)}</strong><p>${escape(failure.advice)}</p><div>${failure.canContinue ? '<button class="secondary-button" type="button" data-action="continue" data-idle-action data-idle-workspace="${escape(selectedWorkspace()?.id)}">Review and continue</button>' : '<button class="secondary-button" type="button" data-action="settings">Check model settings</button>'}<button class="secondary-button" type="button" data-action="diagnostics">Save diagnostics</button></div>` : '';
 }
 
 async function exportDiagnostics(): Promise<void> {
@@ -1218,10 +1218,62 @@ $<HTMLSelectElement>('composer-thinking').addEventListener('change', async (even
 function openSettings(): void {
   settingsUpdates?.dispose();
   closeSidebar();
-  const appearanceSection = `<section class="appearance-settings" aria-labelledby="appearance-title"><div><h3 id="appearance-title">Appearance</h3><p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p></div><label class="sr-only" for="appearance-mode">Appearance</label><select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select><div id="appearance-error" class="form-error" role="alert"></div></section>`;
   connectionProbe?.abort();
   connectionProbe = null;
-  $('settings-content').innerHTML = `<div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>${appearanceSection}<section id="update-settings" class="update-settings" aria-labelledby="update-title"><h3 id="update-title">Updates</h3><p class="field-hint" data-update-version></p><p class="field-hint" role="status" aria-live="polite" data-update-message>Loading update status…</p><progress max="100" value="0" aria-label="Update progress" hidden></progress><div><button class="secondary-button" type="button" data-update-check disabled>Check for updates</button><button class="primary-button" type="button" data-update-install hidden>Update and restart</button></div></section><p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button><form id="settings-form"><label class="field-label" for="settings-provider">Provider</label><select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select><div id="provider-actions"></div><details id="provider-advanced" class="provider-advanced"><summary>Advanced connection settings</summary><label class="field-label" for="base-url">API base URL</label><div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div><p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p></details><p id="provider-auth-hint" class="field-hint" hidden></p><div id="provider-api-key"><label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label><input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} /><p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p><button class="remove-key" id="remove-key" type="button" hidden>Remove saved API key</button></div><div class="connection-test"><button type="button" class="secondary-button" id="test-connection" data-global-idle data-idle-action>Test connection</button><p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p><div id="connection-test-result" role="status" aria-live="polite"></div></div><div id="settings-error" class="form-error" role="alert"></div><div class="diagnostics-setting"><button type="button" class="text-button" data-action="diagnostics">Save diagnostics</button><span>Version, usage and failure category only; no conversation, file contents, paths or credentials.</span></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-global-idle type="submit">Save settings</button></div></form>`;
+  $('settings-content').innerHTML = `
+    <div class="modal-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2>Settings</h2></div><button type="button" class="quiet-icon" data-close="settings-dialog" aria-label="Close settings">${icon('close')}</button></div>
+    <section class="settings-section appearance-settings" aria-labelledby="appearance-title">
+      <h3 id="appearance-title">Appearance</h3>
+      <p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p>
+      <label class="sr-only" for="appearance-mode">Appearance</label>
+      <select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select>
+      <div id="appearance-error" class="form-error" role="alert"></div>
+    </section>
+    <section id="update-settings" class="settings-section update-settings" aria-labelledby="update-title">
+      <h3 id="update-title">Updates</h3>
+      <div class="settings-copy">
+        <p class="field-hint" data-update-version></p>
+        <p class="field-hint" role="status" aria-live="polite" data-update-message>Loading update status…</p>
+      </div>
+      <progress max="100" value="0" aria-label="Update progress" hidden></progress>
+      <div class="settings-actions"><button class="secondary-button" type="button" data-update-check disabled>Check for updates</button><button class="primary-button" type="button" data-update-install hidden>Update and restart</button></div>
+    </section>
+    <form id="settings-form">
+      <section class="settings-section" aria-labelledby="provider-title">
+        <h3 id="provider-title">Model providers</h3>
+        <p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p>
+        <div class="settings-actions"><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button></div>
+        <div class="settings-field">
+          <label class="field-label" for="settings-provider">Provider</label>
+          <select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select>
+          <div id="provider-actions" hidden></div>
+          <p id="provider-auth-hint" class="field-hint" hidden></p>
+        </div>
+        <details id="provider-advanced" class="provider-advanced">
+          <summary>Advanced connection settings</summary>
+          <label class="field-label" for="base-url">API base URL</label>
+          <div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(state.settings.baseUrl)}" autocomplete="off" /></div>
+          <p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p>
+        </details>
+        <div id="provider-api-key" class="settings-field">
+          <label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label>
+          <input id="api-key" name="apiKey" type="password" placeholder="${state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${state.settings.hasApiKey ? '' : 'required'} />
+          <p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p>
+          <button class="secondary-button destructive-button" id="remove-key" type="button" hidden>Remove saved API key</button>
+        </div>
+      </section>
+      <section class="settings-section connection-test">
+        <p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p>
+        <div class="settings-actions"><button type="button" class="secondary-button" id="test-connection" data-global-idle data-idle-action>Test connection</button></div>
+        <div id="connection-test-result" role="status" aria-live="polite"></div>
+      </section>
+      <div id="settings-error" class="form-error" role="alert"></div>
+      <section class="settings-section diagnostics-setting">
+        <p class="field-hint">Version, usage and failure category only; no conversation, file contents, paths or credentials.</p>
+        <div class="settings-actions"><button type="button" class="secondary-button" data-action="diagnostics">Save diagnostics</button></div>
+      </section>
+      <div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-global-idle type="submit">Save settings</button></div>
+    </form>`;
   renderAppearance();
   $<HTMLDialogElement>('settings-dialog').showModal();
   settingsUpdates = mountUpdates($('update-settings'), request);
@@ -1249,7 +1301,9 @@ function openSettings(): void {
     hint.textContent = provider?.signedIn ? 'Signed in with your provider account. No API key is needed.' : 'Sign in with your provider account above. No API key is needed.';
     key.placeholder = retained ? 'Leave blank to keep this provider’s key' : provider?.custom ? 'Optional API key for this endpoint' : 'Paste this provider’s API key';
     $('remove-key').hidden = !retained || !!provider?.signedIn;
-    if (provider) $('provider-actions').innerHTML = sdkUI.providerActions(provider);
+    const actions = $('provider-actions');
+    actions.hidden = !provider?.oauth && !provider?.custom;
+    actions.innerHTML = provider ? sdkUI.providerActions(provider) : '';
   };
   refreshSettingsAuth = (providerID) => {
     if (!isCurrent()) return;

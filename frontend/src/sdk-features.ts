@@ -155,7 +155,7 @@ export function createSDKUI(api: API) {
   return {
     render,
     providerActions(provider: ProviderChoice) {
-      return `<div class="feature-toolbar">${provider.oauth ? `<button type="button" class="secondary-button" data-sdk="${provider.signedIn ? 'logout' : 'login'}" data-id="${escape(provider.id)}">${provider.signedIn ? 'Sign out' : 'Sign in with provider'}</button>` : ''}${provider.custom ? `<button type="button" class="secondary-button" data-sdk="custom" data-id="${escape(provider.id)}">Edit models and prices</button><button type="button" class="text-button destructive-button" data-sdk="remove-connection" data-id="${escape(provider.id)}">Remove connection</button>` : ''}</div>`;
+      return `<div class="feature-toolbar">${provider.oauth ? `<button type="button" class="secondary-button" data-sdk="${provider.signedIn ? 'logout' : 'login'}" data-id="${escape(provider.id)}">${provider.signedIn ? 'Sign out' : 'Sign in with provider'}</button>` : ''}${provider.custom ? `<button type="button" class="secondary-button" data-sdk="custom" data-id="${escape(provider.id)}">Edit models and prices</button><button type="button" class="secondary-button destructive-button" data-sdk="remove-connection" data-id="${escape(provider.id)}">Remove connection</button>` : ''}</div>`;
     },
     resourceActions(kind: string, resource: Resource) {
       const command = kind === 'skill' ? `/skill:${resource.name} ` : `/${resource.name} `;
