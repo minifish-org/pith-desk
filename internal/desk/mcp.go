@@ -146,6 +146,10 @@ func (s *Service) SaveMCP(input MCPInput) error {
 		s.mu.Unlock()
 		return err
 	}
+	if err := s.connections.prepareMCPAuthChange(s.files); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	var pending *pendingMCPAuth
 	if index >= 0 {
 		previous := s.connections.mcpConfigs[index]
@@ -189,6 +193,10 @@ func (s *Service) RemoveMCP(name string) error {
 	defer s.releaseMCP()
 	s.mu.Lock()
 	if err := s.idleLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.connections.prepareMCPAuthChange(s.files); err != nil {
 		s.mu.Unlock()
 		return err
 	}

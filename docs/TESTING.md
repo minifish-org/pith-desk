@@ -143,6 +143,17 @@ discards them after it. Pending backup cleanup errors report partial success and
 can retry during startup; these checks do not establish power-loss durability or
 a global transaction.
 
+`mcp_recovery_test.go` exercises cleanup failures followed by re-adding a deleted
+connection or reverting endpoint, OAuth, client and scope changes. Subsequent
+configuration and sign-in/sign-out operations first resolve pending backups
+against the currently committed config, before a new config can reuse its
+fingerprint. Failed reconciliation preserves the config and blocks the change;
+retry and restart cannot restore invalidated tokens, while fresh logins survive.
+The cleanup fixture uses a temporarily nonempty backup directory so the fault
+is deterministic even when tests run as root. `recovery_integration_test.go`
+combines live task recovery, failed MCP cleanup, config reuse and explicit
+Continue, checking preserved input and initialization with the fresh login.
+
 ## Durable task lifecycle
 
 TaskSupervisor retains workspace occupancy through settlement and resource

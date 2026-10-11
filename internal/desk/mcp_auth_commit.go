@@ -58,6 +58,17 @@ func (p *pendingMCPAuth) finish(committed bool) error {
 	return err
 }
 
+// Resolve backups against the current committed config before another change
+// can reuse its fingerprint. A failed cleanup/rollback must not become a login
+// source for a re-added connection, a reverted config or a later sign-out.
+// The caller holds the application mutex and the existing operation guards.
+func (c *Connections) prepareMCPAuthChange(files localstore.Store) error {
+	if err := c.recoverMCPAuth(files); err != nil {
+		return fmt.Errorf("Resolve pending MCP OAuth changes before continuing: %w", err)
+	}
+	return nil
+}
+
 func (c *Connections) recoverMCPAuth(files localstore.Store) error {
 	dir := filepath.Join(c.dataDir, "mcp-auth")
 	entries, err := os.ReadDir(dir)

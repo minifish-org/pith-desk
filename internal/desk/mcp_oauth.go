@@ -124,6 +124,10 @@ func (c *Connections) startMCPOAuth(name string, files localstore.Store, canStar
 		c.mu.Unlock()
 		return errors.New("Enable OAuth on this HTTP MCP connection first")
 	}
+	if err := c.prepareMCPAuthChange(files); err != nil {
+		c.mu.Unlock()
+		return err
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:54819")
 	if err != nil {
 		c.mu.Unlock()
@@ -204,6 +208,9 @@ func (s *Service) LogoutMCPOAuth(name string) error {
 	}
 	for _, config := range s.connections.mcpConfigs {
 		if config.Name == name {
+			if err := s.connections.prepareMCPAuthChange(s.files); err != nil {
+				return err
+			}
 			err := os.Remove(s.mcpOAuthStore(config).path)
 			if errors.Is(err, os.ErrNotExist) {
 				return nil
