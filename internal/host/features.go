@@ -126,6 +126,13 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 			break
 		}
 		value, err = s.service.Artifacts(query.ID)
+	case "/api/conversation-file":
+		query, queryErr := wire.ReadQuery[wire.ConversationFileInput](r)
+		if queryErr != nil {
+			err = queryErr
+			break
+		}
+		return s.serveConversationFile(w, r, query)
 	case "/api/artifact-preview":
 		query, queryErr := wire.ReadQuery[wire.ArtifactQuery](r)
 		if queryErr != nil {
@@ -326,6 +333,11 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 					return true
 				}
 			}
+		}
+	case "/api/conversation-file":
+		var in wire.ConversationFileInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
+			return s.serveConversationFile(w, r, in)
 		}
 	case "/api/queue":
 		var in wire.QueueInput

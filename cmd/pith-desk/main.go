@@ -137,6 +137,7 @@ func runDesktop(dataDir, devURL string) error {
 		}, func(path string) error {
 			return mygo.Clipboard.WriteFiles(path)
 		})
+		installFileDownload(server, window.Load, &dialogMu)
 		server.SetExportAction(func(markdown string) error {
 			dialogMu.Lock()
 			defer dialogMu.Unlock()

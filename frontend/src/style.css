@@ -301,6 +301,7 @@ mark.find-current { background: var(--accent); color: white; }
 .history-image, .draft-image img, .file-preview-image { cursor: zoom-in; }
 .markdown blockquote { margin: 12px 0; border-left: 3px solid var(--border); padding: 3px 14px; color: var(--muted-tonal); }
 .markdown a { color: var(--accent); text-underline-offset: 3px; }
+.markdown a[aria-disabled="true"] { color: var(--muted); cursor: wait; }
 .markdown table { display: block; overflow-x: auto; border-collapse: collapse; margin: 12px 0; }
 .markdown th, .markdown td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
 .markdown th { background: var(--surface-subtle); color: var(--text); }

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -43,6 +44,7 @@ type Server struct {
 	copyText          func(string) error
 	copyFile          func(string) error
 	exportMarkdown    func(string) error
+	saveFile          func(string, io.Reader) error
 	saveDiagnostics   func(string) error
 	updateStatus      func() wire.UpdateStatus
 	updateAction      func(string) error

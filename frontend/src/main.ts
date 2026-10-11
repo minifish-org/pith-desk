@@ -343,6 +343,9 @@ function render(): void {
   }
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-global-idle]')) button.disabled = controlDisabled(button, requestBusy || anyRunning());
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mcp-edit], [data-action="new-mcp"]')) button.disabled = controlDisabled(button, requestBusy || anyRunning());
+  for (const link of document.querySelectorAll<HTMLAnchorElement>('a[data-download-conversation]')) {
+    link.setAttribute('aria-disabled', String(requestBusy || conversationRunning(link.dataset.downloadConversation!)));
+  }
   nativeMenu?.update();
 }
 
@@ -819,6 +822,27 @@ function fileActions(kind: 'artifact' | 'resource', ownerId: string, path: strin
   const preview = kind === 'artifact' && includePreview ? `<button type="button" class="secondary-button" data-preview-path="${escape(path)}" data-preview-id="${escape(ownerId)}" data-idle-action data-idle-conversation="${escape(ownerId)}">Preview</button>` : '';
   const copy = kind === 'artifact' ? `<button type="button" class="secondary-button" data-file-kind="artifact" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="${nativeClipboard ? 'copy' : 'copy-path'}" data-idle-action data-idle-conversation="${escape(ownerId)}">${nativeClipboard ? 'Copy file' : 'Copy path'}</button>` : '';
   return `<div class="file-actions">${preview}<button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="open" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Open</button><button class="secondary-button" data-file-kind="${kind}" data-file-owner="${escape(ownerId)}" data-file-path="${escape(path)}" data-file-action="reveal" data-idle-action ${kind === 'resource' ? 'data-idle-workspace' : 'data-idle-conversation'}="${escape(ownerId)}">Reveal</button>${copy}</div>`;
+}
+
+async function downloadConversationFile(id: string, path: string): Promise<void> {
+  if (requestBusy || conversationRunning(id) || id !== state.activeId) return;
+  requestBusy = true;
+  localError = '';
+  render();
+  try {
+    const result = await request('/api/conversation-file', { id, path });
+    // Native cancellation is a completed native action; it must not download.
+    if (result.native) return;
+    const url = URL.createObjectURL(await download('/api/conversation-file', { id, path }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = result.name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch (error) { localError = error instanceof Error ? error.message : String(error); }
+  finally { requestBusy = false; render(); }
 }
 
 async function copyText(text: string): Promise<void> {
@@ -1491,8 +1515,13 @@ document.addEventListener('click', async (event) => {
   if (artifactsOpen && !clicked.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
   if (clicked instanceof HTMLImageElement && clicked.matches('.history-image, .draft-image img, .file-preview-image')) { imageViewer.open(clicked); return; }
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
-  const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand');
+  const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand, a[data-download-path]');
   if (!target) return;
+  if (target.dataset.downloadPath && target.dataset.downloadConversation) {
+    event.preventDefault();
+    await downloadConversationFile(target.dataset.downloadConversation, target.dataset.downloadPath);
+    return;
+  }
   if (target.id === 'artifacts-toggle') { setArtifactsOpen(!artifactsOpen); return; }
   if (target.hasAttribute('data-artifacts-close')) { setArtifactsOpen(false, true); return; }
   if (target.hasAttribute('data-copy-code') && !(target as HTMLButtonElement).disabled) {

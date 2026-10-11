@@ -124,6 +124,14 @@ type ArtifactQuery struct {
 	ID   string `json:"id"`
 	Path string `json:"path"`
 }
+type ConversationFileInput struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+type FileDownloadResponse struct {
+	Native bool   `json:"native"`
+	Name   string `json:"name"`
+}
 type ModelsQuery struct {
 	Provider string `json:"provider,omitempty"`
 }
@@ -194,6 +202,7 @@ var Endpoints = []Endpoint{
 	{Method: "GET", Path: "/api/diagnostics", Format: "blob"},
 	{Method: "GET", Path: "/api/export", Query: reflect.TypeFor[IDInput](), Format: "blob"},
 	{Method: "GET", Path: "/api/image", Query: reflect.TypeFor[ImageQuery](), Format: "blob"},
+	{Method: "GET", Path: "/api/conversation-file", Query: reflect.TypeFor[ConversationFileInput](), Format: "blob"},
 	{Method: "GET", Path: "/api/socket", Output: reflect.TypeFor[desk.State](), Format: "stream"},
 	{Method: "GET", Path: "/api/events", Output: reflect.TypeFor[desk.State](), Format: "stream"},
 	post[desk.ConfigInput, OKResponse]("/api/config"),
@@ -226,6 +235,7 @@ var Endpoints = []Endpoint{
 	post[IDInput, OKResponse]("/api/continue"),
 	post[EmptyInput, NativeResponse]("/api/diagnostics"),
 	post[IDInput, NativeResponse]("/api/export"),
+	post[ConversationFileInput, FileDownloadResponse]("/api/conversation-file"),
 	post[QueueInput, OKResponse]("/api/queue"),
 	post[QueueMutationInput, OKResponse]("/api/queue/edit"),
 	post[QueueMutationInput, OKResponse]("/api/queue/delete"),

@@ -9,8 +9,16 @@ export function installFixture() {
     window.fetch = async (url, options) => {
       const target = new URL(url, location.href), path = target.pathname;
       if (!path.startsWith('/api/')) return originalFetch(url, options);
-      window.review.requests.push({ path, method: options?.method || 'GET', body: options?.body ? JSON.parse(options.body) : undefined });
+      window.review.requests.push({ path, query: Object.fromEntries(target.searchParams), method: options?.method || 'GET', body: options?.body ? JSON.parse(options.body) : undefined });
       if (options?.method === 'POST' && path === window.review.failMutation) return Response.json({ error: 'Fixture action rejected' }, { status: 409 });
+      if (path === '/api/conversation-file') {
+        if (options?.method === 'POST') {
+          const input = JSON.parse(options.body);
+          if (window.review.holdSave) await new Promise(resolve => window.releaseSave = resolve);
+          return Response.json({ native: !!window.review.nativeDownload, name: input.path.split('/').at(-1) });
+        }
+        return new Response(new Uint8Array([80, 75, 3, 4, 0, 255]), { headers: { 'Content-Type': 'application/octet-stream' } });
+      }
       if (path === '/api/test-provider-connection') { if (window.review.holdProbe) await new Promise(resolve => window.releaseProbe = resolve); return Response.json({ ok: true, message: 'Fixture connected' }); }
       if (path === '/api/resource-content') return Response.json({ content: '# Saved instructions' });
       if (path === '/api/state' && window.review.failState) { window.review.failState = false; return Response.json({ error: 'Snapshot unavailable after successful mutation' }, { status: 503 }); }
