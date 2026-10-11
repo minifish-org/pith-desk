@@ -34,6 +34,13 @@ jobs:
         run: npx playwright install chromium webkit
       - name: Check browser regressions
         run: npm run test:ui
+      - name: Save failed browser traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-regression-traces
+          path: test-results/
+          if-no-files-found: ignore
       - name: Check concurrency
         # Packages each exercise their own concurrent execution. Run one
         # package at a time to avoid competing race-instrumented runtimes.

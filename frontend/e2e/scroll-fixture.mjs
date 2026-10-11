@@ -24,7 +24,13 @@ export async function verifyScroll(page) {
   await page.goto('http://127.0.0.1:5197');
   await page.waitForFunction(() => window.scrollSocket?.onmessage);
   const results = await page.evaluate(async () => {
-    const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const pause = async ms => {
+      await new Promise(resolve => setTimeout(resolve, ms));
+      // Read positions after paint and its ResizeObserver follow-up. A fixed
+      // 65 ms timer can run before WebKit paints on a slower CI machine.
+      await frame(); await frame();
+    };
     const scroll = document.getElementById('chat-scroll');
     const gap = () => Math.round(scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop);
     const messages = withImages => Array.from({ length: 12 }, (_, i) => ({ id: 'm' + i, role: i % 2 ? 'assistant' : 'user', text: ('Message ' + i + ' with enough text to wrap. ').repeat(8), ...(withImages && i === 10 ? { images: [{ index: 0, mimeType: 'image/png' }] } : {}) }));
