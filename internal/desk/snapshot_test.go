@@ -16,15 +16,17 @@ import (
 func snapshotFixtureService() *Service {
 	exitCode := 0
 	s := &Service{
-		config: savedConfig{APIKey: "fixture-private-api-key", AuthPath: "/fixture/private/auth.json"},
-		state: applicationState{
-			Settings: Settings{
-				Provider: "fixture-provider", ModelName: "Fixture Model", Model: "fixture-model",
-				ThinkingLevel: "medium", ThinkingLevels: []string{"off", "medium"},
-				BaseURL: "http://127.0.0.1:12345/v1", HasConnections: true, HasAPIKey: true,
-				Appearance: AppearanceSystem, SupportsImages: true, ImageUploadLimit: MaxImageUploadBytes,
+		connections: Connections{
+			config: savedConfig{APIKey: "fixture-private-api-key", AuthPath: "/fixture/private/auth.json"},
+			applicationState: applicationState{
+				Settings: Settings{
+					Provider: "fixture-provider", ModelName: "Fixture Model", Model: "fixture-model",
+					ThinkingLevel: "medium", ThinkingLevels: []string{"off", "medium"},
+					BaseURL: "http://127.0.0.1:12345/v1", HasConnections: true, HasAPIKey: true,
+					Appearance: AppearanceSystem, SupportsImages: true, ImageUploadLimit: MaxImageUploadBytes,
+				},
+				Login: &LoginStatus{ID: "login-fixture", Provider: "fixture-provider", Phase: "prompt", Message: "Choose an account", URL: "https://example.invalid/login", Code: "FIXTURE-CODE", Prompt: "Account", PromptType: "select", Options: []LoginOption{{ID: "account-a", Label: "Fixture account"}}},
 			},
-			Login: &LoginStatus{ID: "login-fixture", Provider: "fixture-provider", Phase: "prompt", Message: "Choose an account", URL: "https://example.invalid/login", Code: "FIXTURE-CODE", Prompt: "Account", PromptType: "select", Options: []LoginOption{{ID: "account-a", Label: "Fixture account"}}},
 		},
 		catalog: Catalog{catalogState: catalogState{
 			Workspaces: []Workspace{{ID: "workspace-a", Name: "Fixture A", Path: "/fixture/workspace-a"}, {ID: "workspace-b", Name: "Fixture B", Path: "/fixture/workspace-b"}},
@@ -92,7 +94,7 @@ func TestSnapshotNestedIsolation(t *testing.T) {
 			want := oracle.Snapshot()
 			returned := s.Snapshot()
 			tc.mutate(&returned)
-			if !reflect.DeepEqual(s.state, oracle.state) || !reflect.DeepEqual(s.catalog.catalogState, oracle.catalog.catalogState) || !reflect.DeepEqual(s.active.ConversationState, oracle.active.ConversationState) {
+			if !reflect.DeepEqual(s.connections.applicationState, oracle.connections.applicationState) || !reflect.DeepEqual(s.catalog.catalogState, oracle.catalog.catalogState) || !reflect.DeepEqual(s.active.ConversationState, oracle.active.ConversationState) {
 				t.Fatal("mutating the returned snapshot changed its owner")
 			}
 			if got := s.Snapshot(); !reflect.DeepEqual(got, want) {
@@ -102,14 +104,14 @@ func TestSnapshotNestedIsolation(t *testing.T) {
 			frozen := s.Snapshot()
 			s.mu.Lock()
 			// Apply the same mutation to the owners, including scalar fields.
-			live := State{Settings: s.state.Settings, Login: s.state.Login, Workspaces: s.catalog.Workspaces, Conversations: s.catalog.Conversations, ActiveID: s.catalog.ActiveID}
+			live := State{Settings: s.connections.Settings, Login: s.connections.Login, Workspaces: s.catalog.Workspaces, Conversations: s.catalog.Conversations, ActiveID: s.catalog.ActiveID}
 			live.ConversationState = *s.active.ConversationState
 			live.Runs = nil
 			if tc.name == "runs" {
 				s.runtimes["chat-a"].Runtime.Phase = "changed"
 			} else {
 				tc.mutate(&live)
-				s.state = applicationState{Settings: live.Settings, Login: live.Login}
+				s.connections.applicationState = applicationState{Settings: live.Settings, Login: live.Login}
 				s.catalog.replace(catalogState{Workspaces: live.Workspaces, Conversations: live.Conversations, ActiveID: live.ActiveID})
 				*s.active.ConversationState = live.ConversationState
 			}
@@ -134,7 +136,7 @@ func TestSnapshotPrivateFieldsStayPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, private := range []string{s.config.APIKey, s.config.AuthPath, s.active.PendingApproval.fileReview.path, "fileReview", "apiKey"} {
+	for _, private := range []string{s.connections.config.APIKey, s.connections.config.AuthPath, s.active.PendingApproval.fileReview.path, "fileReview", "apiKey"} {
 		if bytes.Contains(encoded, []byte(private)) {
 			t.Fatalf("public snapshot contains private value or field %q", private)
 		}
@@ -152,12 +154,12 @@ func TestSnapshotEmptyNestedValues(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			s := snapshotFixtureService()
-			s.state.Login = &LoginStatus{}
+			s.connections.Login = &LoginStatus{}
 			s.active.PendingApproval = &Approval{}
 			s.active.Messages = []Message{{ID: "message-empty", Role: "tool", Command: &CommandDetails{}}}
 			s.active.QueuedMessages = []QueuedMessage{{ID: "queue-empty", Mode: QueueFollowUp}}
 			if initialized {
-				s.state.Login.Options = []LoginOption{}
+				s.connections.Login.Options = []LoginOption{}
 				s.active.Messages[0].Images = []MessageImage{}
 				s.active.QueuedMessages[0].Images = []aitypes.ImageContent{}
 			}
@@ -193,9 +195,9 @@ func TestSnapshotFixedJSON(t *testing.T) {
 			s := snapshotFixtureService()
 			switch name {
 			case "empty":
-				s = &Service{state: applicationState{Settings: Settings{Appearance: AppearanceSystem, ImageUploadLimit: MaxImageUploadBytes}}, active: &conversationRuntime{ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}}
+				s = &Service{connections: Connections{applicationState: applicationState{Settings: Settings{Appearance: AppearanceSystem, ImageUploadLimit: MaxImageUploadBytes}}}, active: &conversationRuntime{ConversationState: &ConversationState{Runtime: RuntimeStatus{Phase: "idle"}}}}
 			case "active":
-				s.state.Login, s.active.Failure, s.active.Error = nil, nil, ""
+				s.connections.Login, s.active.Failure, s.active.Error = nil, nil, ""
 			case "idle":
 				s.active.Running, s.runtimes["chat-b"].Running = false, false
 				s.active.PendingApproval = nil

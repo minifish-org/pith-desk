@@ -90,7 +90,7 @@ func TestAppearanceSaveFailureKeepsPreviousPreferenceAndCredentials(t *testing.T
 	if settings := s.Snapshot().Settings; settings.Appearance != AppearanceLight || !settings.HasAPIKey {
 		t.Fatal("failed appearance save altered public settings")
 	}
-	if s.config.APIKey != "fixture-private-key" {
+	if s.connections.config.APIKey != "fixture-private-key" {
 		t.Fatal("failed appearance save altered credentials")
 	}
 	if err := os.Remove(path); err != nil {

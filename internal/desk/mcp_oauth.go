@@ -36,9 +36,13 @@ func (f mcpOAuthFile) Load() (*mcp.McpOAuthState, error) {
 	return &state, nil
 }
 func (f mcpOAuthFile) Save(state mcp.McpOAuthState) error { return f.files.WriteJSON(f.path, state) }
-func (s *Service) mcpOAuthStore(config savedMCP) mcpOAuthFile {
+func (c *Connections) mcpOAuthStore(config savedMCP, files localstore.Store) mcpOAuthFile {
 	key := sha256.Sum256([]byte(config.Name + "\x00" + config.URL))
-	return mcpOAuthFile{path: filepath.Join(s.dataDir, "mcp-auth", hex.EncodeToString(key[:])+".json"), files: s.files}
+	return mcpOAuthFile{path: filepath.Join(c.dataDir, "mcp-auth", hex.EncodeToString(key[:])+".json"), files: files}
+}
+
+func (s *Service) mcpOAuthStore(config savedMCP) mcpOAuthFile {
+	return s.connections.mcpOAuthStore(config, s.files)
 }
 
 const mcpCallbackURL = "http://127.0.0.1:54819/oauth/callback"
@@ -101,33 +105,37 @@ func (p *mcpTokenProvider) Token(ctx context.Context) (string, error) {
 }
 
 func (s *Service) StartMCPOAuth(name string) error {
-	s.mu.Lock()
-	if err := s.idleLocked(); err != nil {
-		s.mu.Unlock()
+	return s.connections.startMCPOAuth(name, s.files, s.idleLocked, s.changedLocked)
+}
+
+func (c *Connections) startMCPOAuth(name string, files localstore.Store, canStart func() error, changed func()) error {
+	c.mu.Lock()
+	if err := canStart(); err != nil {
+		c.mu.Unlock()
 		return err
 	}
 	var config savedMCP
-	for _, candidate := range s.mcpConfigs {
+	for _, candidate := range c.mcpConfigs {
 		if candidate.Name == name {
 			config = candidate
 		}
 	}
 	if config.Type != "http" || !config.OAuth {
-		s.mu.Unlock()
+		c.mu.Unlock()
 		return errors.New("Enable OAuth on this HTTP MCP connection first")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:54819")
 	if err != nil {
-		s.mu.Unlock()
+		c.mu.Unlock()
 		return errors.New("MCP sign-in callback port 54819 is busy")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s.loginCancel, s.loginDone = cancel, make(chan struct{})
-	id, done := newID(), s.loginDone
-	s.state.Login = &LoginStatus{ID: id, Provider: name, Phase: "working", Message: "Starting MCP sign-in…"}
-	store := s.mcpOAuthStore(config)
-	s.changedLocked()
-	s.mu.Unlock()
+	c.loginCancel, c.loginDone = cancel, make(chan struct{})
+	id, done := newID(), c.loginDone
+	c.Login = &LoginStatus{ID: id, Provider: name, Phase: "working", Message: "Starting MCP sign-in…"}
+	store := c.mcpOAuthStore(config, files)
+	changed()
+	c.mu.Unlock()
 	go func() {
 		defer close(done)
 		defer cancel()
@@ -137,10 +145,10 @@ func (s *Service) StartMCPOAuth(name string) error {
 			if safeLoginURL(url) == "" {
 				return errors.New("Authorization URL must use HTTPS")
 			}
-			s.mu.Lock()
-			s.state.Login.URL, s.state.Login.Message = url, "Open the sign-in page; this window will update after authorization."
-			s.changedLocked()
-			s.mu.Unlock()
+			c.mu.Lock()
+			c.Login.URL, c.Login.Message = url, "Open the sign-in page; this window will update after authorization."
+			changed()
+			c.mu.Unlock()
 			return nil
 		})
 		mux := http.NewServeMux()
@@ -174,16 +182,16 @@ func (s *Service) StartMCPOAuth(name string) error {
 				loginErr = ctx.Err()
 			}
 		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.state.Login.URL = ""
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.Login.URL = ""
 		if loginErr != nil || ctx.Err() != nil || result != mcp.OAuthFlowAuthorized {
-			s.state.Login.Phase, s.state.Login.Message = "error", "MCP sign-in did not finish. Check this server's OAuth support and retry."
+			c.Login.Phase, c.Login.Message = "error", "MCP sign-in did not finish. Check this server's OAuth support and retry."
 		} else {
-			s.state.Login.Phase, s.state.Login.Message = "complete", "MCP sign-in complete. Connect or reconnect this server to load its tools."
+			c.Login.Phase, c.Login.Message = "complete", "MCP sign-in complete. Connect or reconnect this server to load its tools."
 		}
-		s.loginCancel = nil
-		s.changedLocked()
+		c.loginCancel = nil
+		changed()
 	}()
 	return nil
 }
@@ -194,7 +202,7 @@ func (s *Service) LogoutMCPOAuth(name string) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
-	for _, config := range s.mcpConfigs {
+	for _, config := range s.connections.mcpConfigs {
 		if config.Name == name {
 			err := os.Remove(s.mcpOAuthStore(config).path)
 			if errors.Is(err, os.ErrNotExist) {

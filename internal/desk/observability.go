@@ -208,7 +208,7 @@ func (s *Service) TestConnection(ctx context.Context, input ConfigInput) (Connec
 		s.mu.Unlock()
 		return ConnectionTest{}, err
 	}
-	config, err := validatedConfig(input, s.config)
+	config, err := validatedConfig(input, s.connections.config)
 	if err != nil {
 		s.mu.Unlock()
 		return ConnectionTest{}, err
@@ -220,15 +220,19 @@ func (s *Service) TestConnection(ctx context.Context, input ConfigInput) (Connec
 
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	s.probeCancel, s.probeDone = cancel, done
+	s.connections.probeCancel, s.connections.probeDone = cancel, done
 	s.mu.Unlock()
 	defer func() {
 		cancel()
 		s.mu.Lock()
-		s.probeCancel, s.probeDone = nil, nil
+		s.connections.probeCancel, s.connections.probeDone = nil, nil
 		s.mu.Unlock()
 		close(done)
 	}()
+	return s.connections.probe(ctx, config)
+}
+
+func (c *Connections) probe(ctx context.Context, config savedConfig) (ConnectionTest, error) {
 	model, _ := resolveConfiguredModel(config)
 	started := time.Now()
 	// This budget is only for the tiny connectivity probe, not agent tasks.
@@ -240,7 +244,7 @@ func (s *Service) TestConnection(ctx context.Context, input ConfigInput) (Connec
 		Messages: []aitypes.Message{aitypes.NewUserMessageVariant(aitypes.NewUserMessage("Call connection_check with ok=true. Do not write an explanation.", float64(time.Now().UnixMilli())))},
 		Tools:    []aitypes.Tool{{Name: "connection_check", Description: "Confirm that tool calling works. This probe has no effects.", Input: aitypes.JSONSchemaToolInput(json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`))}},
 	})
-	streamFn, streamErr := streamForConfigWithAuthGate(ctx, config, s.modelAuthGate)
+	streamFn, streamErr := c.stream(ctx, config)
 	if streamErr != nil {
 		return ConnectionTest{}, streamErr
 	}
@@ -310,7 +314,7 @@ func (s *Service) Diagnostics() (string, error) {
 	if s.active.Failure != nil {
 		diagnostic.FailureKind = s.active.Failure.Kind
 	}
-	for _, c := range s.mcpConfigs {
+	for _, c := range s.connections.mcpConfigs {
 		if c.Enabled {
 			diagnostic.EnabledConnections++
 		}

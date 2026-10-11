@@ -171,15 +171,15 @@ func (s *Service) ConfigureProvider(input ProviderConnectionInput) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
-	in, err := connectionConfigInput(input, s.config)
+	in, err := connectionConfigInput(input, s.connections.config)
 	if err != nil {
 		return err
 	}
-	candidate, err := validatedConfig(in, s.config)
+	candidate, err := validatedConfig(in, s.connections.config)
 	if err != nil {
 		return err
 	}
-	next := s.config
+	next := s.connections.config
 	next.Connections = candidate.Connections
 	if candidate.Provider == next.Provider {
 		next.BaseURL, next.APIKey = candidate.BaseURL, candidate.APIKey
@@ -189,7 +189,7 @@ func (s *Service) ConfigureProvider(input ProviderConnectionInput) error {
 
 func (s *Service) TestProviderConnection(ctx context.Context, input ProviderConnectionInput) (ConnectionTest, error) {
 	s.mu.Lock()
-	in, err := connectionConfigInput(input, s.config)
+	in, err := connectionConfigInput(input, s.connections.config)
 	s.mu.Unlock()
 	if err != nil {
 		return ConnectionTest{}, err
@@ -241,7 +241,7 @@ func describeModel(model aitypes.Model) ModelChoice {
 func (s *Service) Models(providerID string) (ModelCatalog, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	runtime, err := runtimeForConfig(s.config)
+	runtime, err := runtimeForConfig(s.connections.config)
 	if err != nil {
 		return ModelCatalog{}, err
 	}
@@ -255,7 +255,7 @@ func (s *Service) Models(providerID string) (ModelCatalog, error) {
 		}
 		if !seen[id] {
 			seen[id] = true
-			choice := ProviderChoice{OAuth: provider.Auth().OAuth != nil, SignedIn: s.config.Connections[id].UseOAuth, HasSavedKey: s.config.Connections[id].APIKey != "", Custom: s.config.Connections[id].API != "", ID: id, Name: provider.Name(), BaseURL: provider.BaseURL(), Model: codingagent.DefaultModelPerProvider[id]}
+			choice := ProviderChoice{OAuth: provider.Auth().OAuth != nil, SignedIn: s.connections.config.Connections[id].UseOAuth, HasSavedKey: s.connections.config.Connections[id].APIKey != "", Custom: s.connections.config.Connections[id].API != "", ID: id, Name: provider.Name(), BaseURL: provider.BaseURL(), Model: codingagent.DefaultModelPerProvider[id]}
 			choice.APIKeySupported = provider.Auth().APIKey != nil || choice.Custom
 			if preferred := runtime.GetModel(id, choice.Model); preferred != nil {
 				choice.ThinkingLevel = string(ai.ClampThinkingLevel(*preferred, aitypes.ModelThinkingLevel(codingagent.DefaultThinkingLevel)))
@@ -263,13 +263,13 @@ func (s *Service) Models(providerID string) (ModelCatalog, error) {
 			if choice.BaseURL == "" {
 				choice.BaseURL = model.BaseUrl
 			}
-			if connection, ok := s.config.Connections[id]; ok {
+			if connection, ok := s.connections.config.Connections[id]; ok {
 				choice.BaseURL, choice.HasAPIKey = connection.BaseURL, connectionReady(connection)
 				choice.Model, choice.ThinkingLevel = connection.Model, connection.ThinkingLevel
 			}
-			if id == s.config.Provider {
-				choice.BaseURL, choice.HasAPIKey = s.config.BaseURL, connectionReady(s.config.Connections[id])
-				choice.Model, choice.ThinkingLevel = s.config.Model, s.config.ThinkingLevel
+			if id == s.connections.config.Provider {
+				choice.BaseURL, choice.HasAPIKey = s.connections.config.BaseURL, connectionReady(s.connections.config.Connections[id])
+				choice.Model, choice.ThinkingLevel = s.connections.config.Model, s.connections.config.ThinkingLevel
 			}
 			result.Providers = append(result.Providers, choice)
 		}
@@ -441,11 +441,11 @@ func (s *Service) SelectModel(provider, model, level string) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
-	connection, ok := s.config.Connections[provider]
+	connection, ok := s.connections.config.Connections[provider]
 	if !ok {
 		return errors.New("Configure this provider in Settings first")
 	}
-	next, err := validatedConfig(ConfigInput{Provider: provider, BaseURL: connection.BaseURL, Model: model, ThinkingLevel: level}, s.config)
+	next, err := validatedConfig(ConfigInput{Provider: provider, BaseURL: connection.BaseURL, Model: model, ThinkingLevel: level}, s.connections.config)
 	if err != nil {
 		return err
 	}

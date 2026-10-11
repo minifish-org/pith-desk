@@ -49,7 +49,7 @@ func (s *Service) QueueMessage(id, text, mode string, images ...aitypes.ImageCon
 	if mode != QueueSteer && mode != QueueFollowUp {
 		return errors.New("Choose steer or follow-up")
 	}
-	model, err := resolveConfiguredModel(s.config)
+	model, err := resolveConfiguredModel(s.connections.config)
 	if err != nil {
 		return err
 	}

@@ -90,7 +90,7 @@ func (s *Service) SaveCustomConnection(input CustomConnectionInput) error {
 			}
 		}
 	}
-	current := normalizedConfig(s.config)
+	current := normalizedConfig(s.connections.config)
 	previous := current.Connections[input.ID]
 	key := strings.TrimSpace(input.APIKey)
 	if key == "" && previous.BaseURL == strings.TrimRight(strings.TrimSpace(input.BaseURL), "/") && previous.API == input.API {
@@ -106,7 +106,7 @@ func (s *Service) SaveCustomConnection(input CustomConnectionInput) error {
 	if err != nil {
 		return err
 	}
-	next := s.config
+	next := s.connections.config
 	next.Connections = candidate.Connections
 	if next.Provider == input.ID {
 		next = candidate
@@ -120,10 +120,10 @@ func (s *Service) RemoveModelConnection(id string) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
-	if id == s.config.Provider {
+	if id == s.connections.config.Provider {
 		return errors.New("Select another model before removing its connection")
 	}
-	next := normalizedConfig(s.config)
+	next := normalizedConfig(s.connections.config)
 	delete(next.Connections, id)
 	return s.saveConfigLocked(next)
 }
@@ -139,6 +139,12 @@ func streamForConfigWithAuthGate(ctx context.Context, config savedConfig, gate c
 	if err != nil {
 		return nil, err
 	}
+	return streamForRuntimeWithAuthGate(ctx, config, runtime, gate)
+}
+
+// The adapter receives an explicit SDK runtime, so credential-file contention
+// and refresh faults can be verified without process-wide provider overrides.
+func streamForRuntimeWithAuthGate(ctx context.Context, config savedConfig, runtime *codingagent.ModelRuntime, gate chan struct{}) (func(*aitypes.Model, *aitypes.TranscriptContext, *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream, error) {
 	provider := runtime.GetProvider(config.Provider)
 	if provider == nil {
 		return nil, errors.New("The selected provider is unavailable")
@@ -190,7 +196,7 @@ func failedModelStream(message string) *aitypes.AssistantMessageEventStream {
 func (s *Service) CustomConnection(id string) (CustomConnectionInput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	connection, ok := s.config.Connections[id]
+	connection, ok := s.connections.config.Connections[id]
 	if !ok || connection.API == "" {
 		return CustomConnectionInput{}, errors.New("Custom connection not found")
 	}

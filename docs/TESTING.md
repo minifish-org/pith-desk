@@ -98,9 +98,12 @@ Instance-scoped filesystem faults cover mkdir/create, partial Write, Sync,
 Close and Rename. Tests verify old JSON commits and private permissions,
 application-state rollback, settings/receipt partial success, failed usage
 appends being unavailable, and root-confined draft cleanup. No global fault
-hooks affect other tasks. The existing MCP endpoint-change ordering is also
-explicitly characterized: old OAuth state is removed before configuration
-commit, so a failed save may leave the old configuration signed out.
+hooks affect other tasks. The batch-5 MCP update fix retains old OAuth across a failed configuration
+replacement. A private pending backup contains the unchanged OAuth payload
+and is bound to the old configuration fingerprint; restart restores it only
+when that configuration is still committed. A committed change invalidates
+the old token before reconnect. Connection removal retains its separately
+recorded original failure behavior.
 
 ```sh
 GOWORK=off CGO_ENABLED=0 go test ./internal/desk ./internal/localstore ./internal/workspacefs -run 'TestPersistence|TestAtomicJSON|TestStorageFailure|TestDraftPrune|TestCostLedger|TestRelative' -count=1
@@ -113,6 +116,25 @@ failure; these tests do not establish crash, power-loss or exactly-once guarante
 SDK Session/auth/durable writes remain owned by the pinned SDK. Workspace
 resource edits retain their separate os.Root/exclusive-create protocol and
 0644 permission rules instead of using the private JSON writer.
+
+## Connection ownership and auth contention (2026-10-12)
+
+Connections owns configuration, public settings/login projection, shared auth
+and probe gates, preview MCP state, token providers and stream/transport factories.
+Tasks take a configuration snapshot and release their own MCP transports. Service
+retains lifecycle admission and cross-module effects such as repairing a failure
+receipt after settings commit. JSON formats and endpoint isolation remain intact.
+
+`auth_refresh_test.go` uses two independent SDK runtimes sharing a real auth
+file and Desk's auth gate, plus an actual HTTP MCP OAuth server. Tests cover
+one refresh, canceled waiters, refresh rejection, failed file commits, later
+recovery and unrelated credentials. Existing concurrent-workspace/MCP tests
+verify separate connection release. These fixtures do not sign into live accounts.
+`mcp_commit_test.go` verifies four update types at Write/Sync/Close/Rename faults,
+retry/new authorization and both pending-backup recovery windows. The authorized
+update fix does not change the existing MCP removal failure semantics. Pending
+backup cleanup errors report partial success and can retry during startup; these
+checks establish process recovery, not power-loss durability or a global transaction.
 
 ## Drafts, approval diffs and file previews (2026-10-10)
 

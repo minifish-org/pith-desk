@@ -252,7 +252,7 @@ func TestMCPPrivateConfigurationPersistenceAndAtomicFailure(t *testing.T) {
 	if views := reopened.ListMCP(); len(views) != 2 || !views[1].HasBearerToken || len(views[0].EnvKeys) != 2 {
 		t.Fatalf("MCP settings lost across restart: %+v", views)
 	}
-	if reopened.mcpConfigs[0].Env["SERVICE_KEY"] != "private-stdio-value" {
+	if reopened.connections.mcpConfigs[0].Env["SERVICE_KEY"] != "private-stdio-value" {
 		t.Fatal("external map mutation or omitted update erased stored credentials")
 	}
 	if err := reopened.SaveMCP(MCPInput{Name: "local", Type: "stdio", Command: "offline-command", ClearEnv: true, Env: map[string]string{"NEW": "new-private-value"}}); err != nil {

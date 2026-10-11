@@ -106,7 +106,7 @@ func TestStoppedTaskTimingFreezes(t *testing.T) {
 
 func TestTaskOutputIncludesUnpricedRequestsAndSummaries(t *testing.T) {
 	s, _, conversation, _ := productFeatureService(t)
-	config := normalizedConfig(s.config)
+	config := normalizedConfig(s.connections.config)
 	config.BaseURL = "https://unpriced.example/v1"
 	model, err := resolveConfiguredModel(config)
 	if err != nil {

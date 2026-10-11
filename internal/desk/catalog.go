@@ -12,13 +12,6 @@ type Catalog struct {
 	path string
 }
 
-// applicationState contains only application display state. Index fields are
-// projected from Catalog; the public State DTO is never an internal owner.
-type applicationState struct {
-	Settings Settings
-	Login    *LoginStatus
-}
-
 func (c *Catalog) restore(files localstore.Store) (catalogState, error) {
 	var saved catalogState
 	if err := files.ReadJSON(c.path, &saved); err != nil {

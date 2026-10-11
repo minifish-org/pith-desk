@@ -145,7 +145,7 @@ func TestCompatibleLocalEndpointAcceptsAnEmptyKey(t *testing.T) {
 
 func TestUnknownPricesAreNotFreeAndOfficialEndpointIsKnown(t *testing.T) {
 	s, _, c, _ := productFeatureService(t)
-	config := normalizedConfig(s.config)
+	config := normalizedConfig(s.connections.config)
 	model, err := resolveConfiguredModel(config)
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +166,7 @@ func TestUnknownPricesAreNotFreeAndOfficialEndpointIsKnown(t *testing.T) {
 
 func TestInlineCostsRestoreFromLedgerWhenSwitchingConversations(t *testing.T) {
 	s, workspace, original, _ := productFeatureService(t)
-	config := normalizedConfig(s.config)
+	config := normalizedConfig(s.connections.config)
 	model, err := resolveConfiguredModel(config)
 	if err != nil {
 		t.Fatal(err)
@@ -470,12 +470,12 @@ func TestModelOAuthPromptsPersistCredentialsWithoutExposingThem(t *testing.T) {
 
 func TestDurableAdmissionQueueRecoveryPaginationAndDeletion(t *testing.T) {
 	s, w, c, dir := productFeatureService(t)
-	model, err := resolveConfiguredModel(s.config)
+	model, err := resolveConfiguredModel(s.connections.config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	journal, err := s.active.admitDurableLocked(c.ID, w, s.config, model, durableInput{Text: "Admitted but not started", RunID: "fixture"})
+	journal, err := s.active.admitDurableLocked(c.ID, w, s.connections.config, model, durableInput{Text: "Admitted but not started", RunID: "fixture"})
 	if err == nil {
 		s.active.durable = journal
 	}
@@ -538,7 +538,7 @@ func TestMCPOAuthTokensAreEndpointScopedAndRedacted(t *testing.T) {
 	if err := s.SaveMCP(input); err != nil {
 		t.Fatal(err)
 	}
-	config := s.mcpConfigs[0]
+	config := s.connections.mcpConfigs[0]
 	expiry := time.Now().Add(time.Hour).UnixMilli()
 	if err := s.mcpOAuthStore(config).Save(mcp.McpOAuthState{ServerURL: config.URL, Tokens: &mcp.OAuthTokens{AccessToken: "private-oauth-token", RefreshToken: "private-refresh"}, TokensExpireAt: &expiry}); err != nil {
 		t.Fatal(err)
@@ -635,13 +635,13 @@ func TestMCPOAuthSDKFlowValidatesCallbackAndCancels(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Completion notification can precede the callback server's deferred close.
-	<-s.loginDone
+	<-s.connections.loginDone
 	if err := s.StartMCPOAuth(input.Name); err != nil {
 		t.Fatal(err)
 	}
 	waitState(t, s, func(st State) bool { return st.Login.URL != "" || st.Login.Phase == "error" })
 	s.CancelOAuth()
-	<-s.loginDone
+	<-s.connections.loginDone
 	if s.Snapshot().Login.Phase != "error" || s.ListMCP()[0].SignedIn {
 		t.Fatal("Cancelled login retained credentials")
 	}

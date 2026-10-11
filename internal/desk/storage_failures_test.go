@@ -62,18 +62,16 @@ func TestStorageFailuresPreserveApplicationCommit(t *testing.T) {
 					t.Fatalf("failed operation replaced commit: %q, %v", actual, err)
 				}
 				if operation == "mcp" {
-					// Existing cross-file behavior: endpoint changes invalidate old
-					// OAuth state before mcp.json commits. Keep this explicit until
-					// Connections owns a reviewed multi-file protocol (batch 5).
-					oldMCP[0].SignedIn = false
-					if _, err := os.Stat(s.mcpOAuthStore(s.mcpConfigs[0]).path); !errors.Is(err, os.ErrNotExist) {
-						t.Fatalf("old endpoint auth invalidation changed: %v", err)
+					// Authorized batch-5 fix: a failed config replacement now
+					// retains the old endpoint's effective login as well.
+					if _, err := os.Stat(s.mcpOAuthStore(s.connections.mcpConfigs[0]).path); err != nil {
+						t.Fatalf("failed config save discarded old OAuth: %v", err)
 					}
 				}
 				if !reflect.DeepEqual(s.Snapshot(), state) || !reflect.DeepEqual(s.ListMCP(), oldMCP) {
 					t.Fatal("failed save changed public state")
 				}
-				if s.config.Appearance != AppearanceDark {
+				if s.connections.config.Appearance != AppearanceDark {
 					t.Fatal("failed save changed authoritative config")
 				}
 				if operation == "draft" {
@@ -114,7 +112,7 @@ func TestStorageFailureAfterSettingsCommitRemainsPartialSuccess(t *testing.T) {
 		t.Fatalf("partial commit not reported: %v", err)
 	}
 	var settings savedConfig
-	if err := readJSON(filepath.Join(dir, "settings.json"), &settings); err != nil || settings.APIKey != "fixture-repaired-key" || s.config.APIKey != settings.APIKey {
+	if err := readJSON(filepath.Join(dir, "settings.json"), &settings); err != nil || settings.APIKey != "fixture-repaired-key" || s.connections.config.APIKey != settings.APIKey {
 		t.Fatalf("settings commit lost: %+v, %v", settings, err)
 	}
 	actual, _ := os.ReadFile(s.receiptFile("fixture-conversation"))

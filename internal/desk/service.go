@@ -150,31 +150,18 @@ type catalogState struct {
 }
 
 type Service struct {
-	active           *conversationRuntime
-	runtimes         map[string]*conversationRuntime
-	loginCancel      context.CancelFunc
-	loginDone        chan struct{}
-	loginAnswer      chan string
-	mu               sync.Mutex
-	dataDir          string
-	files            localstore.Store
-	config           savedConfig
-	state            applicationState
-	catalog          Catalog
-	closed           bool
-	restarting       bool
-	changes          chan struct{}
-	dataLock         *flock.Flock
-	closeDone        chan struct{}
-	mcpGate          chan struct{}
-	mcpConfigs       []savedMCP
-	mcpRuntime       *codingagent.MCPRuntime
-	mcpConnecting    bool
-	mcpConnectCancel context.CancelFunc
-	probeCancel      context.CancelFunc
-	probeDone        chan struct{}
-	modelAuthGate    chan struct{}
-	mcpTokens        map[string]*mcpTokenProvider
+	connections Connections
+	active      *conversationRuntime
+	runtimes    map[string]*conversationRuntime
+	mu          sync.Mutex
+	dataDir     string
+	files       localstore.Store
+	catalog     Catalog
+	closed      bool
+	restarting  bool
+	changes     chan struct{}
+	dataLock    *flock.Flock
+	closeDone   chan struct{}
 }
 
 func New(dataDir string) (*Service, error) {
@@ -209,19 +196,12 @@ func New(dataDir string) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{dataDir: abs, changes: make(chan struct{}, 1), runtimes: map[string]*conversationRuntime{},
-		mcpGate: make(chan struct{}, 1), modelAuthGate: make(chan struct{}, 1), mcpTokens: map[string]*mcpTokenProvider{},
 		dataLock: dataLock, closeDone: make(chan struct{}),
-		config:  savedConfig{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", Appearance: AppearanceSystem},
 		catalog: Catalog{path: filepath.Join(abs, "catalog.json"), catalogState: catalogState{Workspaces: []Workspace{}, Conversations: []Conversation{}}}}
+	s.connections = newConnections(abs, &s.mu)
 	s.selectRuntimeLocked(s.newRuntimeLocked(""))
-	if err := s.files.ReadJSON(filepath.Join(abs, "settings.json"), &s.config); err != nil {
-		return nil, fmt.Errorf("load settings: %w", err)
-	}
-	s.config.AuthPath = filepath.Join(abs, "auth.json")
-	s.config.Appearance = normalizedAppearance(s.config.Appearance)
-	s.config = normalizedConfig(s.config)
-	if err := s.files.ReadJSON(filepath.Join(abs, "mcp.json"), &s.mcpConfigs); err != nil {
-		return nil, fmt.Errorf("load MCP settings: %w", err)
+	if err := s.connections.restore(s.files); err != nil {
+		return nil, err
 	}
 	saved, err := s.catalog.restore(s.files)
 	if err != nil {
@@ -260,7 +240,7 @@ func (s *Service) Snapshot() State {
 			phase: runtime.Runtime.Phase, running: runtime.Running, needsApproval: runtime.PendingApproval != nil}
 	}
 	return (SnapshotBuilder{}).build(snapshotSources{
-		settings: s.state.Settings, login: s.state.Login,
+		settings: s.connections.Settings, login: s.connections.Login,
 		workspaces: s.catalog.Workspaces, conversations: s.catalog.Conversations, activeID: s.catalog.ActiveID,
 		selected: *s.active.ConversationState, runStarted: s.active.runStarted, tasks: tasks,
 	}, time.Now())
@@ -272,7 +252,7 @@ func (s *Service) Configure(input ConfigInput) error {
 	if err := s.idleLocked(); err != nil {
 		return err
 	}
-	next, err := validatedConfig(input, s.config)
+	next, err := validatedConfig(input, s.connections.config)
 	if err != nil {
 		return err
 	}
@@ -280,12 +260,11 @@ func (s *Service) Configure(input ConfigInput) error {
 }
 
 func (s *Service) saveConfigLocked(next savedConfig) error {
-	affectsActive := s.config.Provider != next.Provider || s.config.Model != next.Model || s.config.ThinkingLevel != next.ThinkingLevel || s.config.BaseURL != next.BaseURL || s.config.APIKey != next.APIKey
+	affectsActive := s.connections.config.Provider != next.Provider || s.connections.config.Model != next.Model || s.connections.config.ThinkingLevel != next.ThinkingLevel || s.connections.config.BaseURL != next.BaseURL || s.connections.config.APIKey != next.APIKey
 	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
 		return err
 	}
-	s.config = next
-	s.refreshSettingsLocked()
+	s.connections.commitConfig(next)
 	s.active.Error = ""
 	if affectsActive && s.active.Failure != nil && !s.active.Failure.CanContinue {
 		previous := *s.active.Failure
@@ -423,10 +402,10 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	if err != nil || currentPath != workspace.Path {
 		return errors.New("The workspace has moved or is no longer available; add its current folder again")
 	}
-	if s.config.APIKey == "" && !s.config.Connections[s.config.Provider].UseOAuth && s.config.Connections[s.config.Provider].API == "" {
+	if s.connections.config.APIKey == "" && !s.connections.config.Connections[s.connections.config.Provider].UseOAuth && s.connections.config.Connections[s.connections.config.Provider].API == "" {
 		return errors.New("Save a model API key in Settings first")
 	}
-	model, err := resolveConfiguredModel(s.config)
+	model, err := resolveConfiguredModel(s.connections.config)
 	if err != nil {
 		return err
 	}
@@ -454,7 +433,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	r.Running = true
 	r.Failure = nil
 	r.Runtime.Phase, r.Runtime.Model, r.Runtime.ContextWindow = "starting", model.Id, model.ContextWindow
-	r.Runtime.Provider, r.Runtime.ThinkingLevel = s.config.Provider, s.config.ThinkingLevel
+	r.Runtime.Provider, r.Runtime.ThinkingLevel = s.connections.config.Provider, s.connections.config.ThinkingLevel
 	r.Runtime.RunID = newID()
 	r.runStarted = time.Now()
 	r.Runtime.Timing = TaskTiming{StartedAt: r.runStarted.UTC().Format(time.RFC3339Nano)}
@@ -474,7 +453,7 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 	r.Error = ""
 	s.changedLocked()
 	done := r.runDone
-	journal, err := r.admitDurableLocked(conversation.ID, workspace, s.config, model, durableInput{RunID: r.Runtime.RunID, Text: text, Images: images, Compact: compact})
+	journal, err := r.admitDurableLocked(conversation.ID, workspace, s.connections.taskConfig(), model, durableInput{RunID: r.Runtime.RunID, Text: text, Images: images, Compact: compact})
 	if err != nil {
 		r.Running = false
 		r.Runtime, r.Failure = previousRuntime, previousFailure
@@ -667,9 +646,9 @@ func (s *Service) Close() {
 		return
 	}
 	s.closed = true
-	mcpCancel := s.mcpConnectCancel
-	probeCancel, probeDone := s.probeCancel, s.probeDone
-	loginCancel, loginDone := s.loginCancel, s.loginDone
+	mcpCancel := s.connections.mcpConnectCancel
+	probeCancel, probeDone := s.connections.probeCancel, s.connections.probeDone
+	loginCancel, loginDone := s.connections.loginCancel, s.connections.loginDone
 	type closingRun struct {
 		journal *deskDurable
 		done    chan struct{}
@@ -816,7 +795,7 @@ func (r *conversationRuntime) run(ctx context.Context, id string, workspace Work
 	s.mu.Lock()
 	mode := r.permissionModeLocked()
 	s.mu.Unlock()
-	stream, streamErr := streamForConfigWithAuthGate(ctx, config, s.modelAuthGate)
+	stream, streamErr := s.connections.stream(ctx, config)
 	if streamErr != nil {
 		runErr = streamErr
 		return
@@ -1010,10 +989,10 @@ func (s *Service) availableLocked() error {
 	if s.closed {
 		return errors.New("Pith Desk has closed")
 	}
-	if s.loginCancel != nil {
+	if s.connections.loginCancel != nil {
 		return errors.New("Finish or cancel sign-in first")
 	}
-	if s.probeCancel != nil {
+	if s.connections.probeCancel != nil {
 		return errors.New("Wait for the connection test to finish or cancel it")
 	}
 	return nil
@@ -1023,18 +1002,7 @@ func (s *Service) workspaceLocked(id string) (Workspace, bool) { return s.catalo
 
 func (s *Service) conversationIndexLocked(id string) int { return s.catalog.conversationIndex(id) }
 
-func (s *Service) refreshSettingsLocked() {
-	model, _ := resolveConfiguredModel(s.config)
-	name := s.config.Model
-	if model != nil {
-		name = model.Name
-	}
-	hasConnections := false
-	for _, connection := range s.config.Connections {
-		hasConnections = hasConnections || connectionReady(connection)
-	}
-	s.state.Settings = Settings{HasConnections: hasConnections, Provider: s.config.Provider, ModelName: name, ThinkingLevel: s.config.ThinkingLevel, ThinkingLevels: thinkingLevels(model), BaseURL: s.config.BaseURL, Model: s.config.Model, HasAPIKey: connectionReady(s.config.Connections[s.config.Provider]), Appearance: s.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
-}
+func (s *Service) refreshSettingsLocked() { s.connections.refreshSettings() }
 
 func (s *Service) persistCatalogLocked() error { return s.catalog.persist(s.files) }
 

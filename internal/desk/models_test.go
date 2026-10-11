@@ -101,7 +101,7 @@ func TestProviderCredentialsSelectionAndEffortPersistIndependently(t *testing.T)
 	if err := s.SelectModel("deepseek", "deepseek-flash", "max"); err != nil {
 		t.Fatal(err)
 	}
-	if s.config.APIKey != "fixture-private-key" || s.config.ThinkingLevel != "max" {
+	if s.connections.config.APIKey != "fixture-private-key" || s.connections.config.ThinkingLevel != "max" {
 		t.Fatal("switch lost provider credential or thinking")
 	}
 	before, _ := os.ReadFile(filepath.Join(dataDir, "settings.json"))
@@ -124,16 +124,16 @@ func TestProviderCredentialsSelectionAndEffortPersistIndependently(t *testing.T)
 	if err := reopened.SelectModel("openai", model, "off"); err != nil {
 		t.Fatal(err)
 	}
-	if reopened.config.APIKey != "openai-fixture-key" {
+	if reopened.connections.config.APIKey != "openai-fixture-key" {
 		t.Fatal("saved provider key not restored")
 	}
 	if err := reopened.Configure(ConfigInput{Provider: "openai", BaseURL: "http://127.0.0.1:3/v1", Model: model}); err != nil {
 		t.Fatal(err)
 	}
-	if reopened.config.APIKey != "" {
+	if reopened.connections.config.APIKey != "" {
 		t.Fatal("key forwarded to a new endpoint")
 	}
-	next, err := validatedConfig(ConfigInput{Provider: "deepseek", BaseURL: "http://127.0.0.1:3/v1", Model: "deepseek-flash"}, reopened.config)
+	next, err := validatedConfig(ConfigInput{Provider: "deepseek", BaseURL: "http://127.0.0.1:3/v1", Model: "deepseek-flash"}, reopened.connections.config)
 	if err != nil || next.APIKey != "" {
 		t.Fatal("another provider inherited a saved key")
 	}
@@ -141,11 +141,11 @@ func TestProviderCredentialsSelectionAndEffortPersistIndependently(t *testing.T)
 
 func TestInvalidConfigDoesNotMutateProfilesAndFailedSelectionDoesNotLoseKeys(t *testing.T) {
 	s, _, dataDir := configuredService(t, "http://127.0.0.1:1")
-	before := mustJSON(t, s.config)
-	if _, err := validatedConfig(ConfigInput{Provider: "deepseek", BaseURL: "not-a-url", Model: "deepseek-flash"}, s.config); err == nil {
+	before := mustJSON(t, s.connections.config)
+	if _, err := validatedConfig(ConfigInput{Provider: "deepseek", BaseURL: "not-a-url", Model: "deepseek-flash"}, s.connections.config); err == nil {
 		t.Fatal("invalid URL accepted")
 	}
-	if !bytes.Equal(before, mustJSON(t, s.config)) {
+	if !bytes.Equal(before, mustJSON(t, s.connections.config)) {
 		t.Fatal("validation mutated current connections")
 	}
 	path := filepath.Join(dataDir, "settings.json")
@@ -158,7 +158,7 @@ func TestInvalidConfigDoesNotMutateProfilesAndFailedSelectionDoesNotLoseKeys(t *
 	if err := s.SelectModel("deepseek", "deepseek-flash", "max"); err == nil {
 		t.Fatal("failed save reported success")
 	}
-	if !bytes.Equal(before, mustJSON(t, s.config)) {
+	if !bytes.Equal(before, mustJSON(t, s.connections.config)) {
 		t.Fatal("failed save changed selection/keys")
 	}
 }
@@ -267,7 +267,7 @@ func TestNativeProvidersUsedForAgentProbeAndCompaction(t *testing.T) {
 			if st.Failure != nil || countText(st.Messages, "Native adapter works.") == 0 {
 				t.Fatalf("native agent failed: %+v", st)
 			}
-			model, err := resolveConfiguredModel(s.config)
+			model, err := resolveConfiguredModel(s.connections.config)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -437,13 +437,13 @@ func TestConfigureProviderKeepsSelectionAndSupportsFirstConnection(t *testing.T)
 	if err := s.ConfigureProvider(ProviderConnectionInput{Provider: "deepseek", APIKey: "second-provider-key"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.Snapshot().Settings; got.Provider != selected.Provider || got.Model != selected.Model || got.ThinkingLevel != selected.ThinkingLevel || s.config.APIKey != "new-provider-key" {
+	if got := s.Snapshot().Settings; got.Provider != selected.Provider || got.Model != selected.Model || got.ThinkingLevel != selected.ThinkingLevel || s.connections.config.APIKey != "new-provider-key" {
 		t.Fatal("adding a connection switched the active model")
 	}
 	if err := s.ConfigureProvider(ProviderConnectionInput{Provider: "openai", APIKey: "updated-key"}); err != nil {
 		t.Fatal(err)
 	}
-	if s.config.APIKey != "updated-key" || s.Snapshot().Settings.Model != selected.Model {
+	if s.connections.config.APIKey != "updated-key" || s.Snapshot().Settings.Model != selected.Model {
 		t.Fatal("active connection update did not preserve selection")
 	}
 	s.Close()
@@ -452,13 +452,13 @@ func TestConfigureProviderKeepsSelectionAndSupportsFirstConnection(t *testing.T)
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	if reopened.config.APIKey != "updated-key" || reopened.Snapshot().Settings.Model != selected.Model {
+	if reopened.connections.config.APIKey != "updated-key" || reopened.Snapshot().Settings.Model != selected.Model {
 		t.Fatal("connection and selection lost on restart")
 	}
 	if err := reopened.ConfigureProvider(ProviderConnectionInput{Provider: "deepseek", ClearAPIKey: true}); err != nil {
 		t.Fatal(err)
 	}
-	if reopened.config.APIKey != "updated-key" || reopened.config.Connections["deepseek"].APIKey != "" {
+	if reopened.connections.config.APIKey != "updated-key" || reopened.connections.config.Connections["deepseek"].APIKey != "" {
 		t.Fatal("removing another key changed the active credential")
 	}
 }

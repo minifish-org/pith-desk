@@ -35,12 +35,12 @@ func (s *Service) SetAppearance(mode AppearanceMode) error {
 	if !validAppearance(mode) {
 		return errors.New("Choose system, light, or dark appearance")
 	}
-	next := s.config
+	next := s.connections.config
 	next.Appearance = mode
 	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
 		return err
 	}
-	s.config = next
+	s.connections.config = next
 	s.refreshSettingsLocked()
 	s.changedLocked()
 	return nil

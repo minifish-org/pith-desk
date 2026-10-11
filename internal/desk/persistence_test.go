@@ -107,7 +107,7 @@ func fixedPersistenceService(t *testing.T) (*Service, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
-	authPath, err := filepath.Rel(s.dataDir, s.mcpOAuthStore(s.mcpConfigs[0]).path)
+	authPath, err := filepath.Rel(s.dataDir, s.mcpOAuthStore(s.connections.mcpConfigs[0]).path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestPersistenceServiceRestoresFixedData(t *testing.T) {
 	if len(views) != 1 || !views[0].SignedIn || !views[0].HasBearerToken || !reflect.DeepEqual(views[0].EnvKeys, []string{"FIXTURE_ENV"}) {
 		t.Fatalf("MCP persisted configuration: %+v", views)
 	}
-	store := s.mcpOAuthStore(s.mcpConfigs[0])
+	store := s.mcpOAuthStore(s.connections.mcpConfigs[0])
 	auth, err := store.Load()
 	if err != nil || auth.Tokens.RefreshToken != "fixture-refresh" {
 		t.Fatalf("MCP auth: %+v, %v", auth, err)
@@ -186,8 +186,8 @@ func TestPersistenceLegacySettingsAndSDKAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if s.config.Provider != "deepseek" || s.config.ThinkingLevel != "high" || s.config.Appearance != AppearanceSystem || s.config.Connections["deepseek"].APIKey != "fixture-legacy-key" {
-		t.Fatalf("legacy migration: %+v", s.config)
+	if s.connections.config.Provider != "deepseek" || s.connections.config.ThinkingLevel != "high" || s.connections.config.Appearance != AppearanceSystem || s.connections.config.Connections["deepseek"].APIKey != "fixture-legacy-key" {
+		t.Fatalf("legacy migration: %+v", s.connections.config)
 	}
 	if err := s.SetAppearance(AppearanceDark); err != nil {
 		t.Fatal(err)

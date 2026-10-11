@@ -24,7 +24,7 @@ func TestCostLedgerAppendFailuresRemainUnavailable(t *testing.T) {
 			before := s.Snapshot().Runtime.Cost
 			s.files = localstore.Store{FS: &filefault.FS{Step: stage}}
 			t.Cleanup(func() { s.files = localstore.Store{} })
-			s.recordCost("fixture-conversation", "fixture-run", "agent", &aitypes.Model{Id: "deepseek-flash", Provider: "deepseek", Cost: aitypes.ModelCost{Input: 1, Output: 2}}, s.config, aitypes.AssistantMessage{Usage: aitypes.Usage{Input: 1, Output: 1, TotalTokens: 2}})
+			s.recordCost("fixture-conversation", "fixture-run", "agent", &aitypes.Model{Id: "deepseek-flash", Provider: "deepseek", Cost: aitypes.ModelCost{Input: 1, Output: 2}}, s.connections.config, aitypes.AssistantMessage{Usage: aitypes.Usage{Input: 1, Output: 1, TotalTokens: 2}})
 			state := s.Snapshot()
 			if !state.Runtime.Cost.Unavailable || !strings.Contains(state.Error, "injected storage failure") || state.Runtime.Cost.RequestCount != before.RequestCount || state.Runtime.Cost.Total != before.Total {
 				t.Fatalf("failed append counted as successful/free: %+v", state.Runtime.Cost)

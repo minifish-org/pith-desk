@@ -31,55 +31,59 @@ type oauthLogin func(context.Context, authtypes.ProviderAuthInteraction) (*autht
 func (s *Service) StartOAuth(providerID string) error { return s.startOAuth(providerID, nil) }
 
 func (s *Service) startOAuth(providerID string, login oauthLogin) error {
-	s.mu.Lock()
-	if err := s.idleLocked(); err != nil {
-		s.mu.Unlock()
+	return s.connections.startOAuth(providerID, login, s.idleLocked, s.saveConfigLocked, s.changedLocked)
+}
+
+func (c *Connections) startOAuth(providerID string, login oauthLogin, canStart func() error, save func(savedConfig) error, changed func()) error {
+	c.mu.Lock()
+	if err := canStart(); err != nil {
+		c.mu.Unlock()
 		return err
 	}
-	runtime, err := runtimeForConfig(s.config)
+	runtime, err := runtimeForConfig(c.config)
 	if err != nil {
-		s.mu.Unlock()
+		c.mu.Unlock()
 		return err
 	}
 	provider := runtime.GetProvider(providerID)
 	if provider == nil || provider.Auth().OAuth == nil {
-		s.mu.Unlock()
+		c.mu.Unlock()
 		return errors.New("This provider does not support SDK OAuth login")
 	}
-	preferred, err := preferredProviderModel(providerID, s.config)
+	preferred, err := preferredProviderModel(providerID, c.config)
 	if err != nil {
-		s.mu.Unlock()
+		c.mu.Unlock()
 		return err
 	}
 	base := provider.BaseURL()
 	if base == "" {
 		base = preferred.BaseUrl
 	}
-	connection := s.config.Connections[providerID]
+	connection := c.config.Connections[providerID]
 	if connection.BaseURL != "" && connection.BaseURL != base && connection.BaseURL != preferred.BaseUrl {
-		s.mu.Unlock()
+		c.mu.Unlock()
 		return errors.New("Restore this provider's official endpoint before OAuth login")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s.loginCancel, s.loginDone = cancel, make(chan struct{})
-	s.loginAnswer = make(chan string, 1)
-	s.state.Login = &LoginStatus{ID: newID(), Provider: providerID, Phase: "working", Message: "Starting sign-in…"}
-	id, done := s.state.Login.ID, s.loginDone
-	authPath := s.config.AuthPath
-	s.changedLocked()
-	s.mu.Unlock()
+	c.loginCancel, c.loginDone = cancel, make(chan struct{})
+	c.loginAnswer = make(chan string, 1)
+	c.Login = &LoginStatus{ID: newID(), Provider: providerID, Phase: "working", Message: "Starting sign-in…"}
+	id, done := c.Login.ID, c.loginDone
+	authPath := c.config.AuthPath
+	changed()
+	c.mu.Unlock()
 	interaction := authtypes.NewInteraction(ctx, func(promptCtx context.Context, prompt authtypes.AuthPrompt) (string, error) {
-		s.mu.Lock()
-		s.state.Login.Prompt, s.state.Login.PromptType = prompt.Message, prompt.Type
-		s.state.Login.Options = nil
+		c.mu.Lock()
+		c.Login.Prompt, c.Login.PromptType = prompt.Message, prompt.Type
+		c.Login.Options = nil
 		for _, option := range prompt.Options {
-			s.state.Login.Options = append(s.state.Login.Options, LoginOption{option.ID, option.Label})
+			c.Login.Options = append(c.Login.Options, LoginOption{option.ID, option.Label})
 		}
-		s.state.Login.Phase = "prompt"
-		s.changedLocked()
-		s.mu.Unlock()
+		c.Login.Phase = "prompt"
+		changed()
+		c.mu.Unlock()
 		select {
-		case answer := <-s.loginAnswer:
+		case answer := <-c.loginAnswer:
 			return answer, nil
 		case <-promptCtx.Done():
 			return "", promptCtx.Err()
@@ -87,24 +91,24 @@ func (s *Service) startOAuth(providerID string, login oauthLogin) error {
 			return "", ctx.Err()
 		}
 	}, func(event authtypes.AuthEvent) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		if event.Message != nil {
-			s.state.Login.Message = *event.Message
+			c.Login.Message = *event.Message
 		}
 		if event.Instructions != nil {
-			s.state.Login.Message = *event.Instructions
+			c.Login.Message = *event.Instructions
 		}
 		if event.URL != nil {
-			s.state.Login.URL = safeLoginURL(*event.URL)
+			c.Login.URL = safeLoginURL(*event.URL)
 		}
 		if event.VerificationURI != nil {
-			s.state.Login.URL = safeLoginURL(*event.VerificationURI)
+			c.Login.URL = safeLoginURL(*event.VerificationURI)
 		}
 		if event.UserCode != nil {
-			s.state.Login.Code = *event.UserCode
+			c.Login.Code = *event.UserCode
 		}
-		s.changedLocked()
+		changed()
 	})
 	go func() {
 		defer close(done)
@@ -116,15 +120,15 @@ func (s *Service) startOAuth(providerID string, login oauthLogin) error {
 		if loginErr == nil && ctx.Err() == nil {
 			_, loginErr = codingagent.CreateAuthStorage(authPath).Modify(ctx, providerID, func(authtypes.Credential) (authtypes.Credential, error) { return credential, nil }, nil)
 		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if s.state.Login == nil || s.state.Login.ID != id {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.Login == nil || c.Login.ID != id {
 			return
 		}
 		if loginErr != nil || ctx.Err() != nil {
-			s.state.Login.Phase, s.state.Login.Message = "error", "Sign-in did not finish. Retry or use an API key."
+			c.Login.Phase, c.Login.Message = "error", "Sign-in did not finish. Retry or use an API key."
 		} else {
-			next := normalizedConfig(s.config)
+			next := normalizedConfig(c.config)
 			connection = next.Connections[providerID]
 			connection.UseOAuth, connection.BaseURL, connection.Model = true, base, preferred.Id
 			next.Connections[providerID] = connection
@@ -132,15 +136,15 @@ func (s *Service) startOAuth(providerID string, login oauthLogin) error {
 				next.BaseURL = base
 				next.APIKey = ""
 			}
-			if loginErr = s.saveConfigLocked(next); loginErr != nil {
-				s.state.Login.Phase, s.state.Login.Message = "error", "Sign-in succeeded but the connection could not be saved."
+			if loginErr = save(next); loginErr != nil {
+				c.Login.Phase, c.Login.Message = "error", "Sign-in succeeded but the connection could not be saved."
 			} else {
-				s.state.Login.Phase, s.state.Login.Message = "complete", "Signed in. Choose this provider's model beside the message box."
+				c.Login.Phase, c.Login.Message = "complete", "Signed in. Choose this provider's model beside the message box."
 			}
 		}
-		s.state.Login.URL, s.state.Login.Code, s.state.Login.Prompt = "", "", ""
-		s.loginCancel = nil
-		s.changedLocked()
+		c.Login.URL, c.Login.Code, c.Login.Prompt = "", "", ""
+		c.loginCancel = nil
+		changed()
 	}()
 	return nil
 }
@@ -156,13 +160,13 @@ func safeLoginURL(value string) string {
 func (s *Service) AnswerOAuth(id, answer string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Login == nil || s.state.Login.ID != id || s.state.Login.Phase != "prompt" {
+	if s.connections.Login == nil || s.connections.Login.ID != id || s.connections.Login.Phase != "prompt" {
 		return errors.New("This login prompt is no longer active")
 	}
 	select {
-	case s.loginAnswer <- answer:
-		s.state.Login.Prompt = ""
-		s.state.Login.Phase = "working"
+	case s.connections.loginAnswer <- answer:
+		s.connections.Login.Prompt = ""
+		s.connections.Login.Phase = "working"
 		s.changedLocked()
 		return nil
 	default:
@@ -172,7 +176,7 @@ func (s *Service) AnswerOAuth(id, answer string) error {
 
 func (s *Service) CancelOAuth() {
 	s.mu.Lock()
-	cancel := s.loginCancel
+	cancel := s.connections.loginCancel
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -188,7 +192,7 @@ func (s *Service) LogoutOAuth(provider string) error {
 	if err := codingagent.CreateAuthStorage(filepath.Join(s.dataDir, "auth.json")).Delete(context.Background(), provider, nil); err != nil {
 		return err
 	}
-	next := normalizedConfig(s.config)
+	next := normalizedConfig(s.connections.config)
 	connection := next.Connections[provider]
 	connection.UseOAuth = false
 	next.Connections[provider] = connection
