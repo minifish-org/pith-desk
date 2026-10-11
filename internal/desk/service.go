@@ -256,49 +256,19 @@ func (s *Service) Changes() <-chan struct{} { return s.changes }
 func (s *Service) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := s.state
-	out.ConversationState = *s.active.ConversationState
-	if !s.active.runStarted.IsZero() {
-		out.Runtime.Timing.ElapsedMs = time.Since(s.active.runStarted).Milliseconds()
-	}
-	out.Runs = []RunSummary{}
-	for _, entry := range s.state.Conversations {
-		if r := s.runtimes[entry.ID]; r != nil && r.Running {
-			out.Runs = append(out.Runs, RunSummary{ConversationID: r.id, WorkspaceID: r.workspace.ID, Phase: r.Runtime.Phase, NeedsApproval: r.PendingApproval != nil})
+	tasks := make(map[string]snapshotTask, len(s.runtimes))
+	for id, runtime := range s.runtimes {
+		if runtime == nil {
+			continue
 		}
+		tasks[id] = snapshotTask{conversationID: runtime.id, workspaceID: runtime.workspace.ID,
+			phase: runtime.Runtime.Phase, running: runtime.Running, needsApproval: runtime.PendingApproval != nil}
 	}
-	if out.Login != nil {
-		login := *out.Login
-		login.Options = append([]LoginOption{}, login.Options...)
-		out.Login = &login
-	}
-	out.Settings.ThinkingLevels = append([]string{}, s.state.Settings.ThinkingLevels...)
-	out.Workspaces = append([]Workspace{}, s.state.Workspaces...)
-	out.Conversations = append([]Conversation{}, s.state.Conversations...)
-	out.Messages = append([]Message{}, s.active.Messages...)
-	for i := range out.Messages {
-		out.Messages[i].Images = append([]MessageImage(nil), out.Messages[i].Images...)
-		out.Messages[i].Command = cloneCommandDetails(out.Messages[i].Command)
-	}
-	out.QueuedMessages = append([]QueuedMessage{}, s.active.QueuedMessages...)
-	for i := range out.QueuedMessages {
-		out.QueuedMessages[i].Images = append([]aitypes.ImageContent(nil), out.QueuedMessages[i].Images...)
-	}
-	if out.Failure != nil {
-		failure := *out.Failure
-		out.Failure = &failure
-	}
-	if out.PendingApproval != nil {
-		approval := *out.PendingApproval
-		approval.Args = append(json.RawMessage(nil), approval.Args...)
-		if approval.Preview != nil {
-			preview := *approval.Preview
-			approval.Preview = &preview
-		}
-		approval.fileReview = nil
-		out.PendingApproval = &approval
-	}
-	return out
+	return (SnapshotBuilder{}).build(snapshotSources{
+		settings: s.state.Settings, login: s.state.Login,
+		workspaces: s.state.Workspaces, conversations: s.state.Conversations, activeID: s.state.ActiveID,
+		selected: *s.active.ConversationState, runStarted: s.active.runStarted, tasks: tasks,
+	}, time.Now())
 }
 
 func (s *Service) Configure(input ConfigInput) error {

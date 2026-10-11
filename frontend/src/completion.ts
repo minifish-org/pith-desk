@@ -7,6 +7,7 @@ interface Notice { id: string; runID: string; title: string; workspace: string }
 export function createCompletionUI(deps: {
   state: () => CompletionState;
   request: ApiRequest;
+  confirmRead: (id: string, runID: string) => void;
   renderHistory: () => void;
   escape: (value: unknown) => string;
   icon: (name: string) => string;
@@ -36,8 +37,7 @@ export function createCompletionUI(deps: {
     const runID = entry.completedRunId;
     reading.add(runID);
     void deps.request('/api/read', { id: entry.id, runId: runID }).then(() => {
-      const current = deps.state().conversations.find((current) => current.id === entry.id);
-      if (current?.completedRunId === runID) current.unread = false;
+      deps.confirmRead(entry.id, runID);
       dismiss(runID);
       deps.renderHistory();
     }).catch(() => {

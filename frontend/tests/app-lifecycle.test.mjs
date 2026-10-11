@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { installAppLifecycle } from '../src/app-lifecycle.ts';
+
+test('native draft flush awaits its result, browser leave saves and lifecycle handlers detach', async (t) => {
+  const window = new EventTarget(), document = new EventTarget();
+  document.visibilityState = 'hidden';
+  globalThis.window = window;
+  globalThis.document = document;
+  let acknowledged = 0, leaves = 0, disposed = 0, release;
+  const remove = installAppLifecycle({ acknowledge: () => { acknowledged++; }, saveOnLeave: () => { leaves++; }, flushDrafts: () => new Promise((resolve) => { release = resolve; }), dispose: () => { disposed++; } });
+  t.after(() => { remove(); delete globalThis.window; delete globalThis.document; });
+  window.dispatchEvent(new Event('focus'));
+  document.dispatchEvent(new Event('visibilitychange'));
+  window.dispatchEvent(new Event('pagehide'));
+  assert.equal(acknowledged, 2);
+  assert.equal(leaves, 2);
+  let result;
+  const flush = new Event('pith:flush-drafts', { cancelable: true });
+  flush.detail = (saved) => { result = saved; };
+  window.dispatchEvent(flush);
+  assert.equal(flush.defaultPrevented, true);
+  assert.equal(result, undefined);
+  release(false);
+  await new Promise(setImmediate);
+  assert.equal(result, false);
+  window.dispatchEvent(new Event('beforeunload'));
+  assert.equal(disposed, 1);
+  remove();
+  window.dispatchEvent(new Event('beforeunload'));
+  assert.equal(disposed, 1);
+});

@@ -22,6 +22,31 @@ canonical session titles, deletion/recovery, Markdown exports, resource discover
 generated-file evidence, and authenticated native actions. Existing workspace
 and permission tests remain part of the suite.
 
+## Snapshot ownership and real Host transport (2026-10-12)
+
+Snapshot tests verify nested copy isolation and fixed public JSON samples.
+Frontend app tests cover the single snapshot owner, HTTP/WS ordering, reconnect
+without replaying commands, read acknowledgements, and lifecycle cleanup.
+
+`frontend/e2e/transport.spec.mjs` connects Chromium and WebKit to the actual Go
+Host, Service and pinned Pith SDK through the development UI proxy. Its helper
+uses private temporary data/workspaces and a local SSE provider; control messages
+travel over the helper's stdin, without adding production HTTP endpoints.
+Scenarios cover delayed state reads, two clients, committed commands followed by
+failed refreshes, reconnect, restart restoration, Markdown downloads and cancellation.
+The Host test exercises a deterministically stalled delivery queue alongside two
+real authenticated WS clients; it does not depend on saturating OS TCP buffers.
+
+```sh
+GOWORK=off npm run test:ui -- frontend/e2e/transport.spec.mjs
+GOWORK=off CGO_ENABLED=0 go test ./internal/host -run '^TestSlowDeliveryDoesNotBlockOtherSocketClients$' -count=1
+```
+
+These browser scenarios do not exercise a packaged native window, live accounts
+or process crashes. Native lifecycle checks remain separate below.
+The two `TestUsabilityNative` scenarios also passed on 2026-10-12 with the rebuilt
+embedded UI in an actual WKWebView, using isolated data and local providers.
+
 ## Drafts, approval diffs and file previews (2026-10-10)
 
 Tests verify independent conversation/workspace text drafts, mode-0600 storage,
