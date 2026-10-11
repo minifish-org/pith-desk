@@ -492,7 +492,7 @@ mark.find-current { background: var(--accent); color: white; }
 .connection-card { padding: 13px; border: 1px solid var(--border); border-radius: 9px; margin-bottom: 9px; }
 .connection-card-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .connection-card-heading strong { color: var(--text); font-size: 13px; font-weight: 500; }
-.connection-status { color: var(--muted); font-size: 11px; }
+.connection-status { color: var(--muted-tonal); font-size: 12px; line-height: 1.5; margin: 8px 0 12px; }
 .connection-status.is-error, .destructive-button { color: var(--error-text); }
 .connection-editor { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
 .feature-select, .modal textarea { display: block; width: 100%; border: 1px solid var(--border); border-radius: 7px; padding: 11px 12px; background: var(--surface-input); color: var(--text); font-size: 13px; }
