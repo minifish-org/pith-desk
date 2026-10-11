@@ -193,11 +193,14 @@ func (s *Service) RemoveMCP(name string) error {
 		return err
 	}
 	configs := make([]savedMCP, 0, len(s.connections.mcpConfigs))
+	var pending *pendingMCPAuth
 	found := false
 	for _, config := range s.connections.mcpConfigs {
 		if config.Name == name {
 			found = true
-			if err := os.Remove(s.mcpOAuthStore(config).path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			var err error
+			pending, err = s.connections.stageMCPAuth(config, s.files)
+			if err != nil {
 				s.mu.Unlock()
 				return err
 			}
@@ -210,13 +213,20 @@ func (s *Service) RemoveMCP(name string) error {
 		return errors.New("MCP server not found")
 	}
 	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "mcp.json"), configs); err != nil {
+		rollbackErr := pending.finish(false)
 		s.mu.Unlock()
-		return err
+		return errors.Join(err, rollbackErr)
 	}
+	// A restart restores staged credentials only while their configuration
+	// remains committed; a successful deletion must never resurrect a login.
+	cleanupErr := pending.finish(true)
 	old := s.connections.commitMCPConfigs(configs)
 	s.changedLocked()
 	s.mu.Unlock()
 	closeMCPRuntime(old)
+	if cleanupErr != nil {
+		return fmt.Errorf("MCP connection removed, but old OAuth cleanup failed: %w", cleanupErr)
+	}
 	return nil
 }
 

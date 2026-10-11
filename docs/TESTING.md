@@ -102,8 +102,9 @@ hooks affect other tasks. The batch-5 MCP update fix retains old OAuth across a 
 replacement. A private pending backup contains the unchanged OAuth payload
 and is bound to the old configuration fingerprint; restart restores it only
 when that configuration is still committed. A committed change invalidates
-the old token before reconnect. Connection removal retains its separately
-recorded original failure behavior.
+the old token before reconnect. Connection removal uses the same staging and
+recovery protocol: a failed configuration commit retains the old configuration
+and login; a committed deletion discards its credentials.
 
 ```sh
 GOWORK=off CGO_ENABLED=0 go test ./internal/desk ./internal/localstore ./internal/workspacefs -run 'TestPersistence|TestAtomicJSON|TestStorageFailure|TestDraftPrune|TestCostLedger|TestRelative' -count=1
@@ -131,10 +132,16 @@ one refresh, canceled waiters, refresh rejection, failed file commits, later
 recovery and unrelated credentials. Existing concurrent-workspace/MCP tests
 verify separate connection release. These fixtures do not sign into live accounts.
 `mcp_commit_test.go` verifies four update types at Write/Sync/Close/Rename faults,
-retry/new authorization and both pending-backup recovery windows. The authorized
-update fix does not change the existing MCP removal failure semantics. Pending
-backup cleanup errors report partial success and can retry during startup; these
-checks establish process recovery, not power-loss durability or a global transaction.
+retry/new authorization and both pending-backup recovery windows. Removal tests
+cover MkdirAll/CreateTemp/Write/Sync/Close/Rename failures with and without stored
+OAuth, preserving configuration, credential bytes, unrelated logins and cached
+providers. They also reopen the service, retry deletion, re-add the connection
+without its old login and verify fresh credentials. A real HTTP SDK preview stays
+usable after a failed removal and closes after success. Staged on-disk deletion
+windows verify startup restores credentials before the configuration commit and
+discards them after it. Pending backup cleanup errors report partial success and
+can retry during startup; these checks do not establish power-loss durability or
+a global transaction.
 
 ## Durable task lifecycle
 
