@@ -34,6 +34,6 @@ export function dialogHeading(title: string, id: string, dialogId: string, eyebr
 }
 
 export function showDialogError(owner: HTMLElement, message: string): void {
-  const error = owner.querySelector<HTMLElement>('[data-dialog-error], .form-error[role="alert"]');
+  const error = owner.querySelector<HTMLElement>('[data-dialog-error]') || owner.querySelector<HTMLElement>('.form-error[role="alert"]');
   if (error) { error.textContent = message; error.scrollIntoView({ block: 'nearest' }); }
 }

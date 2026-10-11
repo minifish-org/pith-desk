@@ -104,6 +104,14 @@ test('connection probes keep Save disabled across stream snapshots', async ({ pa
   await expect(page.locator('#save-settings')).toBeEnabled();
 });
 
+test('provider action errors stay with the provider form rather than Appearance', async ({ page }) => {
+  await page.evaluate(() => { window.review.models.providers[0].oauth = true; window.review.models.providers[0].apiKeySupported = true; window.review.failMutation = '/api/oauth/start'; });
+  await page.locator('#sidebar [data-action="settings"]').click();
+  await page.locator('[data-sdk="login"]').click();
+  await expect(page.locator('#settings-error')).toHaveText('Fixture action rejected');
+  await expect(page.locator('#appearance-error')).toHaveText('');
+});
+
 test('MCP and model connection removal share cancel-first confirmation', async ({ page }) => {
   await page.locator('[data-action="connections"]').click();
   await page.locator('[data-mcp-remove]').click();
