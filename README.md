@@ -2,6 +2,10 @@
 
 A local desktop workspace for getting things done with an AI agent. Bring your model connection, choose a folder, and work through conversations, files and reviewed tool actions.
 
+![Pith Desk on macOS in Light appearance, showing workspace conversations, a generated checklist and the model controls beside the composer](docs/images/pith-desk-macos.png)
+
+*Current macOS desktop in Light appearance. All screenshots use demonstration workspaces and conversation data.*
+
 - **Workspace conversations:** streamed replies, text and image drafts, searchable history, branches and concurrent tasks in separate folders.
 - **Review before changes:** file diffs and tool approvals, with permission settings for each conversation.
 - **Files beside the conversation:** preview Markdown, text and images; open, reveal, copy or save workspace files.
@@ -9,10 +13,6 @@ A local desktop workspace for getting things done with an AI agent. Bring your m
 - **Task visibility:** pending messages, timing, usage and cost estimates, with interrupted tasks saved for review.
 
 Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native macOS window, with a TypeScript interface. Agent behavior, provider adapters and model capabilities come from Pith. See [SDK integration](docs/SDK_FEATURES.md) for the reused capabilities and their boundaries.
-
-![Pith Desk on macOS in Light appearance, showing workspace conversations, a generated checklist and the model controls beside the composer](docs/images/pith-desk-macos.png)
-
-*Current macOS desktop in Light appearance. All screenshots use demonstration workspaces and conversation data.*
 
 ## Try it
 
