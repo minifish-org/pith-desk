@@ -1,12 +1,18 @@
 # Pith Desk
 
-A local desktop workspace for getting things done with an AI agent. Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native window. The interface is TypeScript. The product is a separate repository; agent behavior stays in the Pith SDK.
+A local desktop workspace for getting things done with an AI agent. Bring your model connection, choose a folder, and work through conversations, files and reviewed tool actions.
 
-This preview supports text and image conversations, workspace folders, streamed answers, guarded tools, instructions/skills/prompt templates, conversation branches, manual compression, deferred MCP discovery, Code mode, OAuth, durable task journals and request cost estimates. DeepSeek Flash is the default model. See [SDK integration](docs/SDK_FEATURES.md) for the reused capabilities and their boundaries. Provider selection, model capabilities, thinking levels and native request adapters come from Pith’s SDK. API-key connections include DeepSeek, OpenAI, Anthropic, Google, Mistral and compatible providers in its catalog.
+- **Workspace conversations:** streamed replies, text and image drafts, searchable history, branches and concurrent tasks in separate folders.
+- **Review before changes:** file diffs and tool approvals, with permission settings for each conversation.
+- **Files beside the conversation:** preview Markdown, text and images; open, reveal, copy or save workspace files.
+- **Your model connections:** provider API keys, supported OAuth flows, independent compatible endpoints and optional MCP tools. DeepSeek Flash is the default model.
+- **Task visibility:** pending messages, timing, usage and cost estimates, with interrupted tasks saved for review.
 
-![Pith Desk on macOS showing a workspace conversation, a tool result, and a generated Markdown file](docs/images/pith-desk-macos.png)
+Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go library and [MyGo](https://github.com/egoist/mygo) for the native macOS window, with a TypeScript interface. Agent behavior, provider adapters and model capabilities come from Pith. See [SDK integration](docs/SDK_FEATURES.md) for the reused capabilities and their boundaries.
 
-*The macOS desktop in Light appearance, using a demonstration workspace and conversation.*
+![Pith Desk on macOS in Light appearance, showing workspace conversations, a generated checklist and the model controls beside the composer](docs/images/pith-desk-macos.png)
+
+*Current macOS desktop in Light appearance. All screenshots use demonstration workspaces and conversation data.*
 
 ## Try it
 
@@ -65,6 +71,10 @@ Open **Settings → Appearance** to choose **Light**, **Dark**, or **Follow syst
 
 Appearance changes apply immediately, including during an agent task, and are saved in the local settings file for the next launch. Native window controls follow the same preference. Model settings and conversation permissions are independent of appearance.
 
+![Pith Desk in Dark appearance showing a file-edit diff awaiting approval](docs/images/pith-desk-dark-approval.png)
+
+*Dark appearance with a file change ready for review.*
+
 ### Conversation permissions
 
 Each new conversation starts with **Ask before changes**. Reads and searches can run without a prompt; file changes and commands need a decision.
@@ -102,28 +112,27 @@ Run metadata is saved beside the sessions. After an interrupted shutdown, the co
 
 The sidebar groups conversations under their workspace folders. Expand or collapse a folder, or use its new-conversation button to start a chat in that workspace. Search conversation titles across workspaces. Each conversation's `…` menu can rename, export or permanently delete that conversation without opening it first. Desktop exports open a native save dialog so you can choose the destination. Titles are recorded through Pith's session API; the desktop catalog indexes them.
 
-Text drafts are saved automatically in the private application data profile,
+Text and image drafts are saved automatically in the private application data profile,
 separately for each conversation. Switching conversations or restarting the
-app restores the text. A workspace with no conversation can retain its own
+app restores the draft. A workspace with no conversation can retain its own
 initial draft. Sending or queueing successfully clears only the submitted,
-unchanged text; a rejected request keeps it. Drafts are not sent to the model
+unchanged draft; a rejected request keeps it. Drafts are not sent to the model
 or added to the transcript until submitted. Removing a conversation or
 workspace also removes its drafts. Text drafts have an 8 MiB limit; image
-attachments retain their existing in-memory draft behavior.
+attachments use the upload limits described below.
 
-The rc.11 preview supports **concurrent tasks in separate workspace folders**. Add folders, create conversations and switch views while other tasks continue in the background. The sidebar marks each running conversation and shows when it needs approval. Stop, pending input, permissions and run statistics belong to that conversation. A workspace can run one task at a time; nested or overlapping workspace folders share that restriction. An occupied workspace offers **Open running conversation**. Global model, credential and MCP connection changes require all tasks to stop. See [workspace concurrency](docs/WORKSPACE_CONCURRENCY.md) for the execution contract and validation. Earlier previews retain the application-wide single-task restriction.
+Pith Desk supports **concurrent tasks in separate workspace folders**. Add folders, create conversations and switch views while other tasks continue in the background. The sidebar marks each running conversation and shows when it needs approval. Stop, pending input, permissions and run statistics belong to that conversation. A workspace can run one task at a time; nested or overlapping workspace folders share that restriction. An occupied workspace offers **Open running conversation**. Global model, credential and MCP connection changes require all tasks to stop. See [workspace concurrency](docs/WORKSPACE_CONCURRENCY.md) for the execution contract and validation.
 
-The rc.12 preview replaces the sidebar's text badges with a small blue spinning ring and an amber approval icon. The ring has a fixed gap and indicates activity, without estimating progress. A completed task leaves a blue unread dot until its conversation is viewed. Completion in another conversation shows an in-app notice; when the desktop app is in the background, it sends a silent macOS notification instead. Both offer navigation to the completed conversation. System notifications require OS permission and remain subject to Focus and screen-sharing rules. These indicators and notifications are not included in rc.11.
+The sidebar shows a small blue spinning ring for running tasks and an amber approval icon when a decision is needed. The ring indicates activity, without estimating progress. A completed task leaves a blue unread dot until its conversation is viewed. Completion in another conversation shows an in-app notice; when the desktop app is in the background, it sends a silent macOS notification instead. Both offer navigation to the completed conversation. System notifications require OS permission and remain subject to Focus and screen-sharing rules.
 
-The local source build retains notification targets across launches on macOS.
+The macOS app retains notification targets across launches.
 Clicking a valid older notification starts or activates the packaged app and
 opens its workspace conversation. Targets expire after 90 days, a newer
 completed run in the same conversation, or removal of the conversation/workspace;
 at most 512 are retained. An unavailable target shows a short explanation. macOS
 starts the normal application data profile; custom `--data-dir` profiles must be
 reopened with the same argument before clicking. The OS does not replay launch
-arguments. Linux and Windows notification backends support current-process
-clicks only.
+arguments.
 
 The native **File** menu provides **New Conversation** (`Cmd/Ctrl+N`),
 **Choose Workspace…** (`Cmd/Ctrl+O`) and **Export Current Conversation…**
@@ -167,6 +176,10 @@ text; smaller Markdown previews retain formatted rendering. HTML and SVG source
 appear as text; scripts and external images do not run in the preview. Use **Open** to view an animation or other
 file in its associated application. Preview reads the current recorded file
 through the same workspace checks as the existing file actions.
+
+![Pith Desk showing a rendered Markdown file in its file preview dialog](docs/images/pith-desk-file-preview.png)
+
+*Preview a generated file without leaving the conversation.*
 
 Drop existing files from the selected workspace into the message area to insert editable, workspace-relative paths. Multiple files, spaces and Chinese names are supported. These are plain Markdown path references; dropping them does not import or read their contents. Images keep their existing attachment behavior. Browser preview can validate complete local file URIs; when the browser hides the path, type the relative path or use the desktop app.
 
@@ -232,16 +245,12 @@ the selected model's image input.
 
 Accepted images are saved inside Pith's local session records, outside the
 workspace, and sent to your configured model provider. Unsent image attachments
-stay in memory and are cleared when you start or switch conversations; text
-drafts are saved separately. History previews
+are saved privately with the text draft and restored when you switch conversations
+or restart the app. History previews
 are fetched from the authenticated local service; image bytes are not included
 in every streaming state update. Guarded workspace image reading is also enabled
 for image-capable models. Markdown exports mark image attachments but do not
 embed their bytes.
-
-Download the
-[`v0.1.0-rc.15` Apple Silicon preview](https://github.com/minifish-org/pith-desk/releases/tag/v0.1.0-rc.15).
-
 
 ## Develop
 
@@ -280,8 +289,8 @@ The local build creates an application bundle under `build/`. It uses ad-hoc sig
 
 ```sh
 npm --prefix frontend run build
-CGO_ENABLED=0 go test ./...
-CGO_ENABLED=0 go vet ./...
+GOWORK=off CGO_ENABLED=0 go test ./...
+GOWORK=off CGO_ENABLED=0 go vet ./...
 ```
 
 Both Pith and MyGo are pinned in `go.mod`; applications build without a sibling checkout or a local Go replacement. Release checks use `GOWORK=off` to verify the versioned dependency. See [SDK dependency validation](docs/SDK_FEATURES.md#versioned-sdk-dependency). Node/npm are development tools only. The Mac window uses the system WKWebView, which may have its own helper processes.
@@ -301,7 +310,7 @@ See [testing and native smoke checks](docs/TESTING.md) for verification and a sh
 
 ## Current boundaries
 
-This is an experimental local desktop product. It has no computer-control tools, plugin marketplace, scheduled jobs, enterprise account system yet. Recovery requires user review and cannot roll back or deduplicate external effects.
+This is an experimental local desktop product. It has no built-in computer-control tools, plugin marketplace, scheduled jobs or enterprise account system yet. Recovery requires user review and cannot roll back or deduplicate external effects.
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 
