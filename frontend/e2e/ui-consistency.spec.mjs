@@ -7,6 +7,74 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => window.reviewSocket?.onmessage && !document.querySelector('#composer-input').readOnly);
 });
 
+test('connection actions use form buttons without submitting while resetting or revealing fields', async ({ page }) => {
+  await page.locator('[data-action="connections"]').click();
+  await page.locator('[data-mcp-edit]').click();
+  await expect(page.locator('#mcp-name')).toHaveAttribute('readonly', '');
+  const create = page.getByRole('button', { name: 'New connection', exact: true });
+  const styles = await create.evaluate(el => ({ height: el.getBoundingClientRect().height, decoration: getComputedStyle(el).textDecorationLine, background: getComputedStyle(el).backgroundColor, reference: getComputedStyle(document.querySelector('[data-action="refresh-mcp"]')).backgroundColor }));
+  expect(styles.height).toBe(40);
+  expect(styles.decoration).toBe('none');
+  expect(styles.background).toBe(styles.reference);
+  await create.press('Enter');
+  await expect(page.locator('#mcp-name')).toHaveValue('');
+  await expect(page.locator('#mcp-name')).toBeFocused();
+  await expect(page.locator('#mcp-form-title')).toHaveText('Add connection');
+  await expect(page.locator('#mcp-name')).not.toHaveAttribute('readonly', '');
+  await page.locator('#mcp-type').selectOption('stdio');
+  await page.locator('#mcp-env').fill('{"DEMO":"local example"}');
+  const visibility = page.locator('#mcp-env-visibility');
+  expect(await visibility.evaluate(el => document.querySelector('#mcp-env').getBoundingClientRect().top - el.getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(9);
+  await visibility.press('Space');
+  await expect(visibility).toHaveText('Hide');
+  await expect(visibility).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#mcp-env')).toHaveClass(/revealed/);
+  await visibility.press('Enter');
+  await expect(visibility).toHaveText('Show');
+  await expect(visibility).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#mcp-env')).toHaveValue('{"DEMO":"local example"}');
+  expect(await page.evaluate(() => window.review.requests.some(r => r.method === 'POST'))).toBe(false);
+});
+
+test('model removal uses the existing destructive button and only changes the unsaved form', async ({ page }) => {
+  await page.locator('#sidebar [data-action="settings"]').click();
+  await page.getByRole('button', { name: 'Add independent model connection', exact: true }).click();
+  await page.locator('#add-custom-model').click();
+  await expect(page.locator('#custom-models fieldset')).toHaveCount(2);
+  const remove = page.getByRole('button', { name: 'Remove model', exact: true }).first();
+  const styles = await remove.evaluate(el => ({ height: el.getBoundingClientRect().height, decoration: getComputedStyle(el).textDecorationLine, color: getComputedStyle(el).color, errorColor: getComputedStyle(document.querySelector('#sdk-error')).color }));
+  expect(styles.height).toBe(40);
+  expect(styles.decoration).toBe('none');
+  expect(styles.color).toBe(styles.errorColor);
+  expect(await remove.evaluate(el => el.getBoundingClientRect().top - el.previousElementSibling.getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(9);
+  await remove.press('Enter');
+  await expect(page.locator('#custom-models fieldset')).toHaveCount(1);
+  await expect(page.locator('#sdk-dialog')).toBeVisible();
+  expect(await page.evaluate(() => window.review.requests.some(r => r.method === 'POST'))).toBe(false);
+});
+
+test('workspace Change activates as a button while the logo keeps its style without an action or tab stop', async ({ page }) => {
+  await page.evaluate(() => { window.reviewState.messages = []; window.emitReview(); });
+  const change = page.getByRole('button', { name: 'Change', exact: true });
+  expect(await change.evaluate(el => getComputedStyle(el).textDecorationLine)).toBe('none');
+  await change.press('Space');
+  await expect(page.locator('#workspace-dialog')).toBeVisible();
+  await page.locator('#workspace-dialog [data-close]').first().click();
+  const logo = page.locator('.brand');
+  const appearance = await logo.evaluate(el => ({ background: getComputedStyle(el).backgroundColor, font: getComputedStyle(el).fontSize, align: getComputedStyle(el).textAlign, border: getComputedStyle(el).borderTopWidth }));
+  expect(appearance).toEqual({ background: 'rgba(0, 0, 0, 0)', font: '21px', align: 'start', border: '0px' });
+  const url = page.url();
+  expect(await logo.evaluate(el => el.tabIndex)).toBe(-1);
+  await page.locator('#history-search').focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(logo).not.toBeFocused();
+  await logo.click();
+  await expect(page.locator('#composer-input')).not.toBeFocused();
+  expect(page.url()).toBe(url);
+  expect(await page.evaluate(() => window.reviewState.activeId)).toBe('a');
+});
+
 test('long approval, runtime and queue panels keep the composer reachable in short windows', async ({ page }) => {
   for (const viewport of [{ width: 900, height: 568 }, { width: 1366, height: 736 }]) {
     await page.setViewportSize(viewport);

@@ -502,8 +502,8 @@ mark.find-current { background: var(--accent); color: var(--accent-foreground); 
 .modal textarea { resize: vertical; min-height: 65px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; }
 .modal textarea.secret-field { -webkit-text-security: disc; }
 .modal textarea.secret-field.revealed { -webkit-text-security: none; }
-.secret-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.secret-label .text-button { margin-top: 12px; }
+.secret-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 20px 0 var(--field-gap); }
+.secret-label .field-label { margin: 0; }
 .feature-select:focus, .modal textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus-ring); }
 .feature-select option { color: var(--text); background: var(--surface); }
 .checkbox-field { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 12px; margin-top: 17px; line-height: 1.6; }
@@ -625,6 +625,7 @@ mark.find-current { background: var(--accent); color: var(--accent-foreground); 
 .compact-action { gap: 6px; padding: 6px 8px; font-size: 12px; }
 .sdk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .custom-model { margin: 20px 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; }
+.custom-model > .destructive-button { margin-top: var(--field-gap); }
 .custom-model label { display: block; margin-bottom: 12px; font-size: 14px; color: var(--muted); }
 .custom-model input:not([type=checkbox]) { width: 100%; margin-top: 6px; }
 .modal textarea.resource-editor { width: 100%; min-height: 300px; padding: 14px; resize: vertical; font-family: ui-monospace, monospace; font-size: 14px; line-height: 1.6; color: var(--text); background: var(--surface-input); border: 1px solid var(--border); border-radius: 10px; }

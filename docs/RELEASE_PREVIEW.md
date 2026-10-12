@@ -1,6 +1,14 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.22:
+New in rc.23:
+
+- New connection, model removal, environment visibility and workspace changes
+  use the existing button styles. Model removal uses the existing destructive
+  action color; conversation navigation and genuine links are unchanged.
+- The sidebar logo keeps its existing appearance as a non-interactive brand
+  mark, without moving focus to the message box or adding a keyboard tab stop.
+
+Previous changes (rc.22):
 
 - Long approval, runtime and queued-message panels scroll within the main
   window, keeping the message box and Stop control reachable in short windows.

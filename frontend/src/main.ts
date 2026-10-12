@@ -67,7 +67,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getEl
 
 $('app').innerHTML = `
   <aside class="sidebar" id="sidebar">
-    <a class="brand" href="#" aria-label="Pith Desk home">${logo}<span>Pith<span class="brand-light"> Desk</span></span></a>
+    <div class="brand">${logo}<span>Pith<span class="brand-light"> Desk</span></span></div>
     <div class="sidebar-section-label">WORKSPACES <button class="quiet-icon" data-action="workspace" aria-label="Manage workspaces">${icon('plus')}</button></div>
     <label class="history-search">${icon('search')}<span class="sr-only">Search conversation titles</span><input id="history-search" type="search" placeholder="Search conversations" autocomplete="off" /></label>
     <nav id="history-list" class="history-list" aria-label="Workspaces and conversations"></nav>
@@ -305,7 +305,7 @@ document.addEventListener('click', async (event) => {
   if (files.artifactsOpen && !clicked.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
   if (clicked instanceof HTMLImageElement && clicked.matches('.history-image, .draft-image img, .file-preview-image')) { imageViewer.open(clicked); return; }
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
-  const target = (event.target as HTMLElement).closest<HTMLElement>('button, .brand, a[data-download-path]');
+  const target = (event.target as HTMLElement).closest<HTMLElement>('button, a[data-download-path]');
   if (!target) return;
   if (target.dataset.downloadPath && target.dataset.downloadConversation) {
     event.preventDefault();
@@ -350,7 +350,6 @@ document.addEventListener('click', async (event) => {
   if (target.dataset.removeImage) { if (!activity.busy && !composer.readingImages) { clearDraftImages(new Set([target.dataset.removeImage])); rememberDraft(); render(); } return; }
   if (target.dataset.close) { $<HTMLDialogElement>(target.dataset.close).close(); return; }
   if (target.dataset.previewPath && target.dataset.previewId) { await openArtifactPreview(target.dataset.previewId, target.dataset.previewPath); return; }
-  if (target.classList.contains('brand')) { event.preventDefault(); input.focus(); return; }
   if (target.dataset.fileKind && target.dataset.filePath && target.dataset.fileOwner) {
     if (activity.busy || (target.dataset.fileKind === 'resource' ? workspaceRun(target.dataset.fileOwner) : conversationRunning(target.dataset.fileOwner))) return;
     const kind = target.dataset.fileKind;
