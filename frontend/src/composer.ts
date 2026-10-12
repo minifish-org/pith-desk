@@ -151,7 +151,7 @@ export function createComposer(api: API) {
         if ((!text && !images.length) || activity.busy || draftLoading || readingImages || resolvingReferences)
             return;
         if (images.length && !app.state.settings.supportsImages) {
-            activity.error = 'Choose an image-capable model in Settings, or remove the attachments.';
+            activity.error = 'Choose an image-capable model beside the message box, or remove the attachments.';
             render();
             return;
         }
@@ -247,7 +247,7 @@ export function createComposer(api: API) {
         guidance.hidden = !draftImages.length;
         guidance.textContent = app.state.settings.supportsImages
             ? 'Images are saved with this conversation and sent to your configured model provider. Up to 50 MiB total per message.'
-            : 'This model does not support images. Choose an image-capable model in Settings, or remove the attachments.';
+            : 'This model does not support images. Choose an image-capable model beside the message box, or remove the attachments.';
     }
     function clearDraftImages(ids?: Set<string>): void {
         if (!ids)

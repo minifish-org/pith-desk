@@ -8,10 +8,20 @@ export function createSDKDialog(api: Pick<SDKFeatureAPI, 'mutate' | 'error'>) {
     const heading = sdkHeading;
     const open = (title: string, body: string) => {
         generation++;
-        $('sdk-content').onclick = null;
-        $('sdk-content').innerHTML = heading(title) + body + '<p id="sdk-error" data-dialog-error class="form-error" role="alert"></p>';
-        if (!$<HTMLDialogElement>('sdk-dialog').open)
-            $<HTMLDialogElement>('sdk-dialog').showModal();
+        const dialog = $<HTMLDialogElement>('sdk-dialog');
+        const content = $('sdk-content');
+        const active = document.activeElement;
+        const restoreFocus = dialog.open && !!active && (content.contains(active) || active === dialog || active === document.body);
+        const activeId = restoreFocus ? active?.id : '';
+        content.onclick = null;
+        content.innerHTML = heading(title) + body + '<p id="sdk-error" data-dialog-error class="form-error" role="alert"></p>';
+        if (!dialog.open)
+            dialog.showModal();
+        else if (restoreFocus) {
+            const previous = activeId ? document.getElementById(activeId) : null;
+            const target = previous && content.contains(previous) ? previous : content.querySelector<HTMLElement>('[data-close="sdk-dialog"]');
+            target?.focus({ preventScroll: true });
+        }
         return generation;
     };
     const fail = (message: string, owner: HTMLElement = $('sdk-content')) => showDialogError(owner, message);

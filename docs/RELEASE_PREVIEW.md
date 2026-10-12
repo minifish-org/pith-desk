@@ -1,6 +1,18 @@
 Pith Desk is a lightweight local Mac client for the Pith agent SDK.
 
-New in rc.21:
+New in rc.22:
+
+- Long approval, runtime and queued-message panels scroll within the main
+  window, keeping the message box and Stop control reachable in short windows.
+- Model selection shows its multi-row catalog instead of a single clipped row.
+  Current search matches use the appropriate foreground color in both themes.
+- Resource and history dialogs retain keyboard focus when loading finishes.
+  Image previews close on the outside backdrop, not on their internal padding.
+- Image capability guidance points to the model selector beside the message box.
+  Provider sign-in prompts have consistent action spacing and error feedback;
+  history summaries use the conversation text size and line height.
+
+Previous changes (rc.21):
 
 - Internal modules now have explicit owners for snapshots, frontend features,
   local storage, conversations, connections and task execution. The existing

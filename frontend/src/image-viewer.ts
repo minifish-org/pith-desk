@@ -42,7 +42,6 @@ export function installImageViewer(dialog: HTMLDialogElement) {
     source?.focus({ preventScroll: true });
     source = null;
   });
-  dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
   document.addEventListener('keydown', (event) => {
     if (!dialog.open || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === '+' || event.key === '=') { event.preventDefault(); resize(1.25); }

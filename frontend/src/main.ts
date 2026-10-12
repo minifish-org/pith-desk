@@ -98,11 +98,13 @@ $('app').innerHTML = `
       <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text"></div>
     </section><button id="back-to-latest" type="button" class="secondary-button back-to-latest" hidden>${icon('down')}<span>Back to latest</span></button></div>
     <div class="composer-region">
+      <div class="composer-panels">
       <div id="approval" class="approval-region"></div>
       <div id="workspace-busy" class="workspace-busy" hidden></div><div id="inline-error" class="inline-error" role="alert" hidden></div>
       <section id="task-failure" class="task-failure" role="status" hidden></section>
       <details id="run-status" class="run-status" hidden><summary id="run-status-summary"></summary><div id="run-status-details"><div id="runtime-values"></div><details id="cost-requests" class="cost-requests" hidden><summary>Request breakdown</summary><div id="cost-ledger"></div></details></div></details>
       <section id="queued-messages" class="queued-messages" aria-label="Pending messages" aria-live="polite" hidden></section>
+      </div>
       <form id="composer-form" class="composer">
         <div id="draft-images" class="draft-images" aria-label="Image attachments" hidden></div>
         <input id="image-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden />
