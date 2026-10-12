@@ -11,20 +11,56 @@ by this preview. Run all checks with `GOWORK=off` to verify that versioned libra
 without an ignored local workspace override. The CI workflows set this explicitly.
 See [the SDK dependency](SDK_FEATURES.md#versioned-sdk-dependency).
 
-## Local preview
+## Normal preview release
 
-After installing development dependencies:
+1. Validate the changed behavior locally. For UI changes, run the affected
+   browser tests and inspect the affected native screens once. Reuse that
+   evidence while the implementation is unchanged; do not also run the full
+   Go/race/Linux suite locally just to repeat CI.
+2. Commit only product code, necessary tests and release notes, then push to
+   `main`. **Check** owns the complete regular tests and browser regressions.
+   Go, dependency, build/release script or workflow changes also run race and
+   Linux compile checks. UI-only changes skip those two unrelated checks.
+   The comparison uses the last successful main Check, so an unvalidated Go
+   change cannot be hidden by a later UI-only push. An unavailable or unrelated
+   baseline runs the runtime checks conservatively.
+3. After Check succeeds for that exact commit, push the version tag. **Mac
+   release** requires that successful result and builds/packages the app once;
+   it does not rerun the test suite. A tag without a successful Check fails
+   before packaging or publication.
+4. Download the shared tar.gz and checksum once. Verify checksum, version/source
+   commit, architecture/CGO, pinned SDK, signature and package contents; the
+   provenance manifest is in the release job's `release-metadata` CI artifact.
+   Confirm the update feed version. Keep screenshots and process records local.
+
+Repeat downloaded-app cold launch and relevant native behavior only when host,
+SDK, startup, native integration or packaging changes affect them, or when
+explicitly requested. UI-only releases reuse their local native render check.
+Verify the archive's Ed25519 signature again when packaging, updater or feed
+publication changes; ordinary releases rely on the existing packager checks and
+tests for that unchanged path. Manual installation and self-updates use the
+same archive, so there is no second package to download or compare.
+
+## Manual installation
+
+Download `pith-desk-<release-version>-darwin-arm64.tar.gz`, double-click it in
+Finder, and move **Pith Desk.app** to Applications. macOS Archive Utility handles
+this format without additional software. Only Apple Silicon Macs are supported.
+The preview is ad-hoc signed and unnotarized. If macOS blocks it and you trust
+the source, follow [Apple's Open Anyway instructions](https://support.apple.com/en-us/102445)
+in System Settings → Privacy & Security. Do not disable Gatekeeper globally.
+
+## Optional local package
+
+For an independent local archive, after validating the affected change:
 
 ```sh
-GOWORK=off npm run check
-npx playwright install chromium webkit
-npm run test:ui
 GOWORK=off npm run release:preview
 ```
 
-The output is `build/releases/pith-desk-<release-version>-macos-arm64-preview.zip`,
-with a SHA-256 checksum, a signed updater tar.gz and update manifest, and a provenance manifest recording architecture, CGO and signing
-status. Packaging verifies the binary is ARM64 with `CGO_ENABLED=0` and checks
+The output is `build/releases/pith-desk-<release-version>-darwin-arm64.tar.gz`,
+with a SHA-256 checksum, update manifest and provenance manifest recording
+architecture, CGO and signing status. Packaging verifies the binary is ARM64 with `CGO_ENABLED=0` and checks
 the ad-hoc signature. The preview is **not Developer ID signed or notarized**.
 Do not advertise it as a Gatekeeper-approved distribution.
 
@@ -47,14 +83,20 @@ PITH_DESK_NOTARY_PROFILE=pith-desk-release npm run release:signed
 For a non-default keychain, also set `PITH_DESK_NOTARY_KEYCHAIN` to its path.
 The packager enables the hardened runtime, submits the app, requires Accepted
 status, staples and validates the ticket, and runs Gatekeeper assessment before
-making the final ZIP. Failed signing/notarization never falls back to a preview.
+making the final tar.gz. Its temporary notarization ZIP is not a release asset.
+Failed signing/notarization never falls back to a preview.
 The signed branch must be validated with real credentials before calling it a
 verified release process; it cannot be tested on a host without a certificate.
 
 ## GitHub releases
 
-The Mac release workflow runs for pushed `v*` tags, tests the exact tagged source,
-builds an ARM64 application and publishes the ZIP, checksum and manifest.
+The Mac release workflow runs for pushed `v*` tags, reuses the successful Check
+for the exact tagged source, builds an ARM64 application and publishes only the
+shared tar.gz and its checksum. Build provenance and the update manifest stay
+in the job's `release-metadata` CI artifact; the update manifest is also
+published to the existing update feed. Each release note contains only the
+current changes and brief download/preview guidance; previous releases retain
+their own history.
 Without signing secrets it explicitly publishes a **prerelease preview**.
 
 For a signed release configure these GitHub Actions secrets:
@@ -73,15 +115,11 @@ version. Packaging reads the complete version (including RC suffixes) from
 RELEASE_TAG, or PITH_DESK_RELEASE_VERSION locally. It must match that numeric
 version. The signed bundle carries pith-desk-release.json; the desktop uses
 its identity for updater comparisons and diagnostics. Local builds without a
-release tag receive a dev suffix. Before tagging, run automated checks and the native
-checks affected by the change. Reuse completed checks for unchanged code instead
-of repeating the full native checklist for a UI-only release. Changes to the
-host, SDK, providers or runtime require the applicable cold-launch, Settings
-connection, task execution, Stop, restart and save-dialog checks. Verify the
-downloaded archive's checksum, source revision, SDK dependency and signature;
-repeat its native launch when host or packaging changes affect startup. Only
-Apple Silicon Mac is supported; Intel Mac, Linux and Windows are outside the
-supported scope.
+release tag receive a dev suffix. Follow the normal release flow above rather
+than repeating the same checks locally, in Check and in Mac release. Changes to
+the host, SDK, providers or runtime still require their affected native behavior
+checks. Only Apple Silicon Mac is supported; Intel Mac, Linux and Windows are
+outside the supported scope.
 
 ## Click to update
 
@@ -110,8 +148,8 @@ Missing or mismatched keys fail release packaging.
 The key is independent of Apple Developer ID. Preview self-updates work with
 ad-hoc signing. A signed release still completes Developer ID signing,
 notarization and stapling before the updater archive is generated. The updater
-signature is Ed25519 over SHA-256 of the final tar.gz, as MyGo expects. The manual
-ZIP, updater archive, checksum and provenance all describe the same final app.
+signature is Ed25519 over SHA-256 of the final tar.gz, as MyGo expects. Manual
+installation and self-updates use this same final archive and checksum.
 
 CI uploads immutable assets to the version's GitHub Release, then updates
 `preview/update-darwin-arm64.json` on the metadata-only `updates` branch. This

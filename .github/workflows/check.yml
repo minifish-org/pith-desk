@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   mac:
@@ -17,6 +18,22 @@ jobs:
       GOMAXPROCS: "4"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select runtime checks
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runtime=true
+          base_sha="$(gh run list --workflow check.yml --branch main --event push --status success --limit 1 --json headSha --jq '.[0].headSha // empty')" || base_sha=
+          if [ -n "$base_sha" ] && git cat-file -e "$base_sha^{commit}" 2>/dev/null && git merge-base --is-ancestor "$base_sha" "$GITHUB_SHA"; then
+            files="$(git diff --name-only --no-renames "$base_sha" "$GITHUB_SHA")"
+            if ! printf '%s\n' "$files" | grep -Eq '\.go$|^go\.(mod|sum)$|^(package(-lock)?\.json|mygo\.config\.ts)$|^(scripts/|\.github/workflows/)'; then
+              runtime=false
+            fi
+          fi
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -42,15 +59,15 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
       - name: Check concurrency
+        if: steps.scope.outputs.runtime == 'true'
         # Packages each exercise their own concurrent execution. Run one
         # package at a time to avoid competing race-instrumented runtimes.
         run: go test -race -p 1 ./internal/...
         env:
           CGO_ENABLED: "1"
       - name: Check Linux compilation
+        if: steps.scope.outputs.runtime == 'true'
         # Compilation checks do not extend the supported desktop platforms.
         run: |
           GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-linux-amd64" ./cmd/pith-desk
           GOOS=linux GOARCH=arm64 go build -o "$RUNNER_TEMP/pith-desk-linux-arm64" ./cmd/pith-desk
-      - name: Build Apple Silicon app
-        run: npm run build:mac

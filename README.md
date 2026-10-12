@@ -10,7 +10,7 @@ This preview supports text and image conversations, workspace folders, streamed 
 
 ## Try it
 
-Download the Apple Silicon (ARM64) preview from [Releases](https://github.com/minifish-org/pith-desk/releases). New Mac releases target M-series Macs only; packages use `macos-arm64` in their names. The earlier `v0.1.0-rc.1` universal preview remains available unchanged. The current preview is ad-hoc signed and **not notarized**; see the release notes for macOS opening instructions and tested platforms. Building from source remains an option for development.
+Download the Apple Silicon (ARM64) preview from [Releases](https://github.com/minifish-org/pith-desk/releases). Open the `darwin-arm64.tar.gz` package and move **Pith Desk.app** to Applications; the same package serves automatic updates. New Mac releases target M-series Macs only. The earlier `v0.1.0-rc.1` universal preview remains available unchanged. The current preview is ad-hoc signed and **not notarized**; see [opening instructions](docs/RELEASING.md#manual-installation). Building from source remains an option for development.
 
 The preview includes the Pith Desk icon in Finder and the Dock, with a matching
 favicon for the browser preview.

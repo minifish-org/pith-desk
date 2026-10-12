@@ -25,7 +25,7 @@ export function loadUpdateKey(root: string) {
 }
 
 // Sign the final app, after Developer ID signing and notarization/stapling.
-// MyGo consumes a tar.gz with Ed25519(SHA256(archive)), not the manual ZIP.
+// One tar.gz serves manual installation and MyGo's Ed25519(SHA256(archive)) updater.
 export function packageUpdate(root: string, appParent: string, output: string, version: string, key: ReturnType<typeof loadUpdateKey>, notes: string) {
   const filename = `pith-desk-${version}-darwin-arm64.tar.gz`;
   const archive = join(output, filename);
@@ -35,6 +35,7 @@ export function packageUpdate(root: string, appParent: string, output: string, v
   if (result.error || result.status !== 0) throw new Error(`Update archive failed: ${result.stderr || result.error}`);
   const bytes = readFileSync(archive);
   const digest = createHash('sha256').update(bytes).digest();
+  writeFileSync(join(output, `${filename}.sha256`), `${digest.toString('hex')}  ${filename}\n`);
   const manifest = {
     version, notes, date: new Date().toISOString(),
     url: `https://github.com/minifish-org/pith-desk/releases/download/v${version}/${filename}`,

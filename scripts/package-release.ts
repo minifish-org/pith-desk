@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, basename } from 'node:path';
 import { loadUpdateKey, packageUpdate, releaseVersion } from './update-release.ts';
 
 const signed = process.argv.includes('--signed');
@@ -54,12 +54,10 @@ if (signed) {
 }
 run('codesign', ['--verify', '--deep', '--strict', app]);
 if (!run('go', ['version', '-m', binary], true).includes('CGO_ENABLED=0')) throw new Error('The release binary was built with CGO enabled.');
-const filename = `pith-desk-${version}-macos-arm64${signed ? '' : '-preview'}.zip`;
+const manifest = packageUpdate(root, join(root, 'build/release/darwin-arm64'), output, version, updateKey, readFileSync(join(root, 'docs/RELEASE_PREVIEW.md'), 'utf8'));
+const filename = basename(new URL(manifest.url).pathname);
 const archive = join(output, filename);
-run('ditto', ['-c', '-k', '--keepParent', app, archive]);
 const checksum = createHash('sha256').update(readFileSync(archive)).digest('hex');
-writeFileSync(join(output, `${filename}.sha256`), `${checksum}  ${filename}\n`);
 writeFileSync(join(output, `${filename}.json`), JSON.stringify({ version, file: filename, sha256: checksum, sourceCommit, sourceDirty, sourceURL: `https://github.com/minifish-org/pith-desk/tree/${sourceCommit}`, architectures, cgo: false, developerIDSigned: signed, notarized: signed }, null, 2)+'\n');
-packageUpdate(root, join(root, 'build/release/darwin-arm64'), output, version, updateKey, readFileSync(join(root, 'docs/RELEASE_PREVIEW.md'), 'utf8'));
 console.log(`Created ${archive}`);
 console.log(signed ? 'Developer ID signed, notarized and stapled.' : 'Ad-hoc signed preview: Gatekeeper may block this download. This is not a notarized release.');

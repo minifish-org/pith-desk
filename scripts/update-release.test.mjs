@@ -33,6 +33,7 @@ test('final app archive has a valid signature, executable permissions and immuta
     assert.equal(archive.length, manifest.size);
     assert.equal(manifest.url, 'https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.20/pith-desk-0.1.0-rc.20-darwin-arm64.tar.gz');
     const digest = createHash('sha256').update(archive).digest();
+    assert.equal(readFileSync(join(output, 'pith-desk-0.1.0-rc.20-darwin-arm64.tar.gz.sha256'), 'utf8'), `${digest.toString('hex')}  pith-desk-0.1.0-rc.20-darwin-arm64.tar.gz\n`);
     assert.ok(verify(null, digest, publicKey, Buffer.from(manifest.signature, 'base64')));
     assert.equal(verify(null, Buffer.alloc(32), publicKey, Buffer.from(manifest.signature, 'base64')), false);
     const extracted = join(root, 'extracted'); mkdirSync(extracted);

@@ -19,7 +19,7 @@ const body = process.argv.includes('--input') ? JSON.parse(fs.readFileSync(0, 'u
 fs.appendFileSync('calls.jsonl', JSON.stringify({ path, method, body }) + '\\n');
 const mode = ${JSON.stringify(mode)};
 let result;
-if (path.startsWith('releases/tags/')) result = { draft: mode === 'draft', assets: [{ browser_download_url: ${JSON.stringify(manifest.url)} }, ...(mode === 'missing' ? [] : [{ name: 'update-darwin-arm64.json' }])] };
+if (path.startsWith('releases/tags/')) result = { draft: mode === 'draft', assets: mode === 'missing' ? [] : [{ browser_download_url: ${JSON.stringify(manifest.url)} + (mode === 'wrong-archive' ? '.other' : '') }] };
 else if (path === 'git/ref/heads/updates') {
   if (mode === 'first') { process.stderr.write('HTTP 404'); process.exit(1); }
   result = { object: { sha: 'previous-commit' } };
@@ -40,12 +40,12 @@ process.stdout.write(JSON.stringify(result));
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
-test('feed appears only after both published assets exist and cannot move backward', () => {
-  for (const mode of ['missing', 'draft']) {
+test('feed requires the published archive, rejects drafts and cannot move backward', () => {
+  for (const mode of ['missing', 'wrong-archive', 'draft']) {
     const result = publish(mode);
     assert.notEqual(result.status, 0);
     assert.equal(result.calls.length, 1);
-    assert.match(result.stderr, /Publish the release and update assets/);
+    assert.match(result.stderr, /Publish the release and update archive/);
   }
   const mismatch = publish('first', '0.1.0-rc.20', 'v0.1.0-rc.19');
   assert.notEqual(mismatch.status, 0);
@@ -55,7 +55,7 @@ test('feed appears only after both published assets exist and cannot move backwa
   assert.equal(older.calls.some(call => call.method !== 'GET'), false);
 });
 
-test('feed creates the initial metadata branch and advances existing history without forcing', () => {
+test('feed publishes its manifest without a release JSON attachment and never forces history', () => {
   for (const mode of ['first', 'advance']) {
     const result = publish(mode);
     assert.equal(result.status, 0, result.stderr);

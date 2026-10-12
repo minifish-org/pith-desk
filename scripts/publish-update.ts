@@ -20,11 +20,10 @@ function api(path: string, method = 'GET', body?: unknown, optional = false): an
   return result.stdout ? JSON.parse(result.stdout) : null;
 }
 
-// Verify the release and both assets exist before exposing the feed.
+// Verify the shared installation/update archive exists before exposing the feed.
 const release = api(`releases/tags/${process.env.RELEASE_TAG}`);
-if (release.draft || !release.assets.some((asset: any) => asset.browser_download_url === manifest.url)
-    || !release.assets.some((asset: any) => asset.name === 'update-darwin-arm64.json')) {
-  throw new Error('Publish the release and update assets before the update feed.');
+if (release.draft || !release.assets.some((asset: any) => asset.browser_download_url === manifest.url)) {
+  throw new Error('Publish the release and update archive before the update feed.');
 }
 const ref = api('git/ref/heads/updates', 'GET', undefined, true);
 let baseTree: string | undefined;

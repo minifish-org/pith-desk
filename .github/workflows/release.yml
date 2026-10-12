@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: pith-desk-release
@@ -21,6 +22,16 @@ jobs:
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+      - name: Require checked source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          check_run="$(gh run list --workflow check.yml --commit "$GITHUB_SHA" --branch main --event push --status success --limit 1 --json url --jq '.[0].url // empty')"
+          if [ -z "$check_run" ]; then
+            echo "::error::Wait for Check to pass on this source commit before publishing its tag."
+            exit 1
+          fi
+          printf 'Reusing successful Check: %s\n' "$check_run"
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -33,8 +44,8 @@ jobs:
             frontend/package-lock.json
       - run: npm ci
       - run: npm --prefix frontend ci
-      - run: npm run check
       - name: Package preview or signed release
+        id: package
         env:
           MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
           MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
@@ -46,6 +57,7 @@ jobs:
         run: |
           if [ -z "$MAC_CERTIFICATE_P12$MAC_CERTIFICATE_PASSWORD$PITH_DESK_SIGNING_IDENTITY$APPLE_ID$APPLE_TEAM_ID$APPLE_APP_PASSWORD" ]; then
             npm run release:preview
+            echo "preview=true" >> "$GITHUB_OUTPUT"
           else
             : "${MAC_CERTIFICATE_P12:?Missing signing certificate}"
             : "${MAC_CERTIFICATE_PASSWORD:?Missing certificate password}"
@@ -68,16 +80,27 @@ jobs:
             export PITH_DESK_NOTARY_PROFILE=pith-desk-release
             export PITH_DESK_NOTARY_KEYCHAIN="$SIGNING_KEYCHAIN"
             npm run release:signed
+            echo "preview=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Keep release metadata in CI
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: |
+            build/releases/*.tar.gz.json
+            build/releases/update-darwin-arm64.json
+          if-no-files-found: error
       - name: Publish tagged build
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
+          PREVIEW: ${{ steps.package.outputs.preview }}
         run: |
-          if ls build/releases/pith-desk-*-macos-arm64-preview.zip >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" build/releases/pith-desk-*-macos-arm64* build/releases/pith-desk-*-darwin-arm64.tar.gz build/releases/update-darwin-arm64.json --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon preview)" --notes-file docs/RELEASE_PREVIEW.md
+          archive="build/releases/pith-desk-${RELEASE_TAG#v}-darwin-arm64.tar.gz"
+          if [ "$PREVIEW" = true ]; then
+            gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon preview)" --notes-file docs/RELEASE_PREVIEW.md
           else
-            gh release create "$RELEASE_TAG" build/releases/pith-desk-*-macos-arm64* build/releases/pith-desk-*-darwin-arm64.tar.gz build/releases/update-darwin-arm64.json --verify-tag --generate-notes
+            gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" --verify-tag --generate-notes
           fi
       - name: Publish update feed after release assets
         env:
