@@ -1,7 +1,7 @@
-New in rc.24:
+New in rc.25:
 
-- User messages have Copy and Edit actions. Send again replaces the message and its following replies in the active branch, retains image attachments and keeps the original version in history.
-- User and agent messages show their recorded time in your local timezone, with the full date and time on hover.
+- Restore Copy response under each agent message, including progress updates. Each button copies that message's complete text and Markdown.
+- Highlight failed tool statuses in red so failures are easier to spot.
 
 Apple Silicon preview. Open the `.tar.gz` and move **Pith Desk.app** to Applications.
 Ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
