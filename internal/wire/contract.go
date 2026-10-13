@@ -62,6 +62,12 @@ type QueueInput struct {
 	Mode   string                 `json:"mode,omitempty"`
 	Images []aitypes.ImageContent `json:"images,omitempty"`
 }
+type EditMessageInput struct {
+	ID                    string `json:"id"`
+	MessageID             string `json:"messageId"`
+	ExpectedLastMessageID string `json:"expectedLastMessageId"`
+	Text                  string `json:"text"`
+}
 type QueueMutationInput struct {
 	ID        string `json:"id"`
 	MessageID string `json:"messageId"`
@@ -212,6 +218,7 @@ var Endpoints = []Endpoint{
 	post[IDInput, OKResponse]("/api/open"),
 	post[ReadInput, OKResponse]("/api/read"),
 	post[SendInput, OKResponse]("/api/send"),
+	post[EditMessageInput, OKResponse]("/api/edit-message"),
 	post[IDInput, OKResponse]("/api/abort"),
 	post[ApprovalInput, OKResponse]("/api/approval"),
 	post[PermissionsInput, OKResponse]("/api/permissions"),

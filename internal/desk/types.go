@@ -77,6 +77,7 @@ type Message struct {
 	ID           string          `json:"id"`
 	Role         string          `json:"role"`
 	Text         string          `json:"text"`
+	Timestamp    float64         `json:"timestamp,omitempty"`
 	ToolName     string          `json:"toolName,omitempty"`
 	ToolCallID   string          `json:"toolCallId,omitempty"`
 	Status       string          `json:"status,omitempty"`

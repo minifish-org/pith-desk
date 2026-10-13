@@ -339,6 +339,11 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			return s.serveConversationFile(w, r, in)
 		}
+	case "/api/edit-message":
+		var in wire.EditMessageInput
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
+			err = s.service.EditMessage(in.ID, in.MessageID, in.ExpectedLastMessageID, in.Text)
+		}
 	case "/api/queue":
 		var in wire.QueueInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {

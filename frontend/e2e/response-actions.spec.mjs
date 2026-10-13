@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
 
 test('a finished tool round has one action pair and copies the entire final response', async ({ page }, testInfo) => {
   await page.evaluate(messages => { window.reviewState.messages = messages; window.emitReview(); }, finishedMessages);
-  await expect(page.locator('#messages [data-copy-message]')).toHaveCount(1);
+  await expect(page.locator('#messages .assistant-message [data-copy-message]')).toHaveCount(1);
   await expect(page.locator('#messages [data-sdk="branch"]')).toHaveCount(1);
   const final = page.locator('[data-reading-id="final"]');
   await expect(final.locator('.message-actions button')).toHaveCount(2);
@@ -45,24 +45,24 @@ test('current actions stay hidden while streaming, awaiting approval, and settli
     window.reviewState.running = true;
     window.emitReview();
   }, finishedMessages);
-  await expect(page.locator('#messages .message-actions')).toHaveCount(0);
+  await expect(page.locator('#messages .assistant-message .message-actions')).toHaveCount(0);
   await page.evaluate(() => {
     window.reviewState.messages.pop();
     window.reviewState.pendingApproval = { id: 'approval', toolName: 'write_file', args: { path: 'SKILL.md', content: 'skill' } };
     window.emitReview();
   });
   await expect(page.locator('#approval')).toContainText('Pith needs your permission');
-  await expect(page.locator('#messages .message-actions')).toHaveCount(0);
+  await expect(page.locator('#messages .assistant-message .message-actions')).toHaveCount(0);
   await page.evaluate(message => {
     window.reviewState.pendingApproval = null;
     window.reviewState.messages.push(message);
     window.emitReview();
   }, finishedMessages.at(-1));
   await expect(page.locator('[data-reading-id="final"]')).toContainText('Installed the skill.');
-  await expect(page.locator('#messages .message-actions')).toHaveCount(0);
+  await expect(page.locator('#messages .assistant-message .message-actions')).toHaveCount(0);
   // Only running changes: rendering must refresh actions even when the saved message is unchanged.
   await page.evaluate(() => { window.reviewState.running = false; window.emitReview(); });
-  await expect(page.locator('#messages .message-actions')).toHaveCount(1);
+  await expect(page.locator('#messages .assistant-message .message-actions')).toHaveCount(1);
   await expect(page.locator('[data-reading-id="final"] .message-actions button')).toHaveCount(2);
 });
 
@@ -76,7 +76,7 @@ test('completed historical rounds retain their action pairs during the next roun
     window.reviewState.running = true;
     window.emitReview();
   }, finishedMessages);
-  await expect(page.locator('#messages .message-actions')).toHaveCount(1);
+  await expect(page.locator('#messages .assistant-message .message-actions')).toHaveCount(1);
   await expect(page.locator('[data-reading-id="final"] .message-actions button')).toHaveCount(2);
   await page.evaluate(() => {
     window.reviewState.messages.at(-1).status = 'done';
@@ -84,7 +84,7 @@ test('completed historical rounds retain their action pairs during the next roun
     window.reviewState.running = false;
     window.emitReview();
   });
-  await expect(page.locator('#messages .message-actions')).toHaveCount(2);
+  await expect(page.locator('#messages .assistant-message .message-actions')).toHaveCount(2);
   await expect(page.locator('[data-reading-id="next-final"] .message-actions button')).toHaveCount(2);
   await page.locator('[data-copy-message="next-final"]').click();
   expect(await page.evaluate(() => window.copiedResponses)).toEqual(['Say: Use the i-have-adhd skill.']);
@@ -99,5 +99,5 @@ test('an interrupted response does not expose completed-response actions', async
     window.emitReview();
   });
   await expect(page.locator('.message-error-label')).toHaveText('Response interrupted');
-  await expect(page.locator('#messages .message-actions')).toHaveCount(0);
+  await expect(page.locator('#messages .assistant-message .message-actions')).toHaveCount(0);
 });

@@ -258,7 +258,10 @@ button { transition: background .16s, color .16s, border-color .16s, opacity .16
 .user-message { justify-content: flex-end; }
 .user-message .message-content { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: 0 1 auto; max-width: 82%; }
 .user-message .message-images { justify-content: flex-end; max-width: 100%; margin-top: 0; }
-.message-actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.message-footer { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.message-time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.user-message .message-footer { margin-top: 0; }
+.message-actions { display: flex; align-items: center; gap: 6px; }
 .message-action { width: 28px; height: 28px; }
 .message-action .icon { width: 16px; height: 16px; }
 .message-action:disabled { opacity: .35; cursor: not-allowed; }

@@ -142,10 +142,12 @@ func messagesFrom(manager *codingagent.SessionManager) []Message {
 		out := Message{ID: entry.ID, Role: msg.Role}
 		switch {
 		case msg.User != nil:
+			out.Timestamp = msg.User.Timestamp
 			out.Text = msg.User.Content.Text + blockText(msg.User.Content.Blocks)
 			out.Images = messageImages(msg.User.Content.Blocks)
 			out.BranchNodeID = entry.ID
 		case msg.Assistant != nil:
+			out.Timestamp = msg.Assistant.Timestamp
 			out.Text = blockText(msg.Assistant.Content)
 			out.BranchNodeID = entry.ID
 			for _, block := range msg.Assistant.Content {

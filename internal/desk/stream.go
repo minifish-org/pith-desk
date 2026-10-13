@@ -2,6 +2,7 @@ package desk
 
 import (
 	"context"
+	"time"
 
 	agenttypes "github.com/minifish-org/pith/packages/agent/types"
 	aitypes "github.com/minifish-org/pith/packages/ai/types"
@@ -18,7 +19,7 @@ func (r *RunExecution) appendAssistantText(event aitypes.AssistantMessageEvent) 
 	defer s.mu.Unlock()
 	last := len(r.Messages) - 1
 	if last < 0 || r.Messages[last].Status != "streaming" {
-		r.Messages = append(r.Messages, Message{ID: newID(), Role: "assistant", Status: "streaming"})
+		r.Messages = append(r.Messages, Message{ID: newID(), Role: "assistant", Status: "streaming", Timestamp: float64(time.Now().UnixMilli())})
 		last++
 	}
 	r.Messages[last].Text += *event.Delta

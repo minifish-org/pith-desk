@@ -11,6 +11,7 @@ import type { UIActivity } from './feature-api';
 import { createFilesUI } from './files';
 import { installImageViewer } from './image-viewer';
 import { createMessagesUI } from './messages';
+import { createMessageEditor } from './message-editor';
 import { createMutations } from './mutations';
 import { installNativeMenu } from './native-menu';
 import { createSDKUI } from './sdk-features';
@@ -130,6 +131,7 @@ $('app').innerHTML = `
   <dialog id="delete-dialog" class="modal" aria-labelledby="delete-title"><div id="delete-content"></div></dialog>
   <dialog id="rename-dialog" class="modal" aria-labelledby="rename-title"><div id="rename-content"></div></dialog>
   <dialog id="queue-edit-dialog" class="modal" aria-labelledby="queue-edit-title"><div id="queue-edit-content"></div></dialog>
+  <dialog id="message-edit-dialog" class="modal" aria-labelledby="message-edit-title"><div id="message-edit-content"></div></dialog>
   <dialog id="resources-dialog" class="modal feature-modal" aria-labelledby="resources-title"><div id="resources-content"></div></dialog>
   <dialog id="connections-dialog" class="modal feature-modal" aria-labelledby="connections-title"><div id="connections-content"></div></dialog>
   <dialog id="preview-dialog" class="modal file-preview-modal" aria-labelledby="preview-title"><div id="preview-content"></div></dialog>
@@ -162,6 +164,7 @@ const sdkUI = createSDKUI({
 const messages = createMessagesUI({ view: app, download, logo, disposed: () => disposed });
 const tasks = createTaskControls({ view: app, activity, request, download, mutate, render, selectedWorkspace: () => conversations.selectedWorkspace(), renderCosts: () => costUI.render() });
 const { clearHistoryImages } = messages;
+const messageEditor = createMessageEditor({ view: app, activity, mutate, showDialog, followLatest: () => messages.followLatest() });
 const { activePermissionMode, renderRuntime, exportDiagnostics, renderApproval, renderPermissions, confirmFullAccess } = tasks;
 const composer = createComposer({ view: app, activity, input, request, mutate, refresh, render, selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), openSettings: () => settings.openSettings(), showDialog, followLatest: () => messages.followLatest(), disposed: () => disposed });
 const files = createFilesUI({ view: app, activity, request, download, render, selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), conversationRunning, showDialog, nativeClipboard, resourceActions: (...args) => sdkUI.resourceActions(...args) });
@@ -195,6 +198,7 @@ function render(): void {
   if ((!menuConversation && !menuWorkspace) || activity.busy) closeConversationMenu();
 
   messages.renderMessages(workspace);
+  messageEditor.render();
 
   renderApproval();
   renderArtifacts();
@@ -320,14 +324,19 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (target.dataset.copyMessage) {
-    const message = app.state.messages.find((entry) => entry.id === target.dataset.copyMessage && entry.role === 'assistant');
+    const message = app.state.messages.find((entry) => entry.id === target.dataset.copyMessage && (entry.role === 'assistant' || entry.role === 'user'));
     if (message?.text && message.status !== 'streaming' && !(target as HTMLButtonElement).disabled) {
-      await copyWithFeedback(target as HTMLButtonElement, () => copyText(message.text), 'Response copied.');
+      await copyWithFeedback(target as HTMLButtonElement, () => copyText(message.text), message.role === 'user' ? 'Message copied.' : 'Response copied.');
     }
     return;
   }
   if (target.dataset.dismissCompletion) {
     dismissCompletion(target.dataset.dismissCompletion);
+    return;
+  }
+  if (target.dataset.editMessage) {
+    const message = app.state.messages.find(entry => entry.id === target.dataset.editMessage && entry.role === 'user');
+    if (message && !(target as HTMLButtonElement).disabled) messageEditor.open(message);
     return;
   }
   if (target.dataset.queueAction && target.dataset.queuedMessage) {
@@ -487,6 +496,7 @@ for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
     if (dialog.id === 'preview-dialog' && !dialog.open) clearFilePreview();
     acknowledgeViewedCompletion();
     if (dialog.id === 'queue-edit-dialog') composer.closeQueueEditor();
+    if (dialog.id === 'message-edit-dialog') messageEditor.close();
     if (dialog.id === 'settings-dialog') settings.closeSettings();
     if (dialog.id === 'connections-dialog') settings.closeConnections();
     if (dialog.id === 'resources-dialog') files.closeResources();

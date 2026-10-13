@@ -24,6 +24,7 @@ POST json /api/conversations
 POST json /api/open
 POST json /api/read
 POST json /api/send
+POST json /api/edit-message
 POST json /api/abort
 POST json /api/approval
 POST json /api/permissions

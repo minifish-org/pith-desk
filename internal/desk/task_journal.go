@@ -26,10 +26,11 @@ type deskDurable struct {
 }
 
 type durableInput struct {
-	RunID   string                 `json:"runId"`
-	Text    string                 `json:"text"`
-	Images  []aitypes.ImageContent `json:"images,omitempty"`
-	Compact bool                   `json:"compact"`
+	RunID         string                 `json:"runId"`
+	Text          string                 `json:"text"`
+	Images        []aitypes.ImageContent `json:"images,omitempty"`
+	Compact       bool                   `json:"compact"`
+	EditMessageID string                 `json:"editMessageId,omitempty"`
 }
 
 type TaskJournal struct {
@@ -82,7 +83,7 @@ func (r *RunExecution) admitDurableWithQueueLocked(id string, workspace Workspac
 		if _, err = runtime.Memo(ctx, "execution-admitted", json.RawMessage(`true`)); err != nil {
 			return err
 		}
-		r.run(ctx, id, workspace, config, model, input.Text, input.Images, input.Compact)
+		r.run(ctx, id, workspace, config, model, input.Text, input.Images, input.Compact, input.EditMessageID)
 		s.mu.Lock()
 		phase := r.Runtime.Phase
 		closed := *s.closed

@@ -243,6 +243,10 @@ func (s *Service) startTaskLocked(text string, images []aitypes.ImageContent, co
 }
 
 func (s *Service) startTaskWithQueueLocked(text string, images []aitypes.ImageContent, compact bool, pending []QueuedMessage) error {
+	return s.startTaskInputLocked(text, images, compact, pending, "")
+}
+
+func (s *Service) startTaskInputLocked(text string, images []aitypes.ImageContent, compact bool, pending []QueuedMessage, editMessageID string) error {
 	if s.restarting {
 		return errors.New("Pith Desk is updating; try again after restart")
 	}
@@ -297,7 +301,7 @@ func (s *Service) startTaskWithQueueLocked(text string, images []aitypes.ImageCo
 	if err := s.catalog.update(index, next, s.files); err != nil {
 		return err
 	}
-	return r.admitAndStartLocked(workspace, s.connections.taskConfig(), model, text, images, compact, pending, func(runErr error) {
+	return r.admitAndStartLocked(workspace, s.connections.taskConfig(), model, text, images, compact, pending, editMessageID, func(runErr error) {
 		if !s.closed && runErr == nil && r.Runtime.Phase == "complete" {
 			if err := s.completeConversationLocked(r.id, r.Runtime.RunID); err != nil {
 				r.Error = "Task completed, but its unread status could not be saved: " + err.Error()

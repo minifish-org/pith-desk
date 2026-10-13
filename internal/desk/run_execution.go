@@ -42,7 +42,7 @@ type RunExecution struct {
 	journalRecoveryNeeded bool
 }
 
-func (r *RunExecution) run(ctx context.Context, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool) {
+func (r *RunExecution) run(ctx context.Context, id string, workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool, editMessageID string) {
 	s := r.dependencies
 	var manager *codingagent.SessionManager
 	var session *codingagent.AgentSession
@@ -160,6 +160,15 @@ func (r *RunExecution) run(ctx context.Context, id string, workspace Workspace, 
 		}
 		return "agent"
 	}, r.appendAssistantText, s.recordCost)
+	if editMessageID != "" {
+		if runErr = branchSession(manager, editMessageID, true); runErr != nil {
+			return
+		}
+		s.mu.Lock()
+		r.Messages = messagesFrom(manager)
+		s.changedLocked()
+		s.mu.Unlock()
+	}
 	session, runErr = codingagent.CreateAgentSession(codingagent.SessionOptions{
 		Cwd: workspace.Path, Manager: manager, Tools: registry,
 		Model: codingagent.ModelOptions{Model: model, ThinkingLevel: thinking, StreamFn: stream,
@@ -347,7 +356,7 @@ func (r *RunExecution) startDurable(journal *deskDurable, settled func(error)) {
 	}()
 }
 
-func (r *RunExecution) admitAndStartLocked(workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool, pending []QueuedMessage, settled func(error)) error {
+func (r *RunExecution) admitAndStartLocked(workspace Workspace, config savedConfig, model *aitypes.Model, text string, images []aitypes.ImageContent, compact bool, pending []QueuedMessage, editMessageID string, settled func(error)) error {
 	s := r.dependencies
 	previousRuntime, previousFailure := r.Runtime, r.Failure
 	previousQueue := r.QueuedMessages
@@ -374,7 +383,7 @@ func (r *RunExecution) admitAndStartLocked(workspace Workspace, config savedConf
 	r.queueClosing = false
 	r.Error = ""
 	s.changedLocked()
-	journal, err := r.admitDurableWithQueueLocked(r.id, workspace, config, model, durableInput{RunID: r.Runtime.RunID, Text: text, Images: images, Compact: compact}, pending)
+	journal, err := r.admitDurableWithQueueLocked(r.id, workspace, config, model, durableInput{RunID: r.Runtime.RunID, Text: text, Images: images, Compact: compact, EditMessageID: editMessageID}, pending)
 	if err != nil {
 		r.Running = false
 		r.Runtime, r.Failure = previousRuntime, previousFailure

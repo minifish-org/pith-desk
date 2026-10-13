@@ -76,7 +76,7 @@ func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
 	}
-	for _, path := range []string{"/api/export", "/api/draft", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
+	for _, path := range []string{"/api/export", "/api/draft", "/api/edit-message", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/test-connection", "/api/continue", "/api/diagnostics"} {
 		if status, _, _ := featureRequest(t, s, "POST", path, map[string]any{}, false); status != 401 {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}

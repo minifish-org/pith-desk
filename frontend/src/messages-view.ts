@@ -53,9 +53,14 @@ function renderMessage(conversationId: string, message: Message, expanded = fals
   const text = message.text ?? '';
   const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${conversationId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" role="button" tabindex="0" title="Click to enlarge" loading="lazy" />`).join('');
   const gallery = images ? `<div class="message-images">${images}</div>` : '';
-  const copy = showActions && text ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="Copy response" aria-label="Copy response">${icon('copy')}</button>` : '';
+  const copyLabel = message.role === 'user' ? 'Copy message' : 'Copy response';
+  const copy = (message.role === 'user' || showActions) && text ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="${copyLabel}" aria-label="${copyLabel}">${icon('copy')}</button>` : '';
+  const edit = message.role === 'user' ? `<button type="button" class="quiet-icon message-action" data-edit-message="${escape(message.id)}" data-idle-action title="Edit message" aria-label="Edit message">${icon('edit')}</button>` : '';
   const branch = showActions ? `<button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId!)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button>` : '';
-  const actions = copy || branch ? `<div class="message-actions">${copy}${branch}</div>` : '';
+  const actions = copy || edit || branch ? `<div class="message-actions">${copy}${edit}${branch}</div>` : '';
+  const date = new Date(message.timestamp || NaN);
+  const time = Number.isFinite(date.getTime()) ? `<time class="message-time" datetime="${date.toISOString()}" title="${escape(date.toLocaleString())}">${escape(date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time>` : '';
+  const footer = time || actions ? `<div class="message-footer">${time}${actions}</div>` : '';
   if (message.role === 'tool') {
     const command = message.command;
     const details = command ? `<div class="command-details"><span class="tool-field-label">Command</span><pre class="command-text">${escape(command.text)}</pre><div class="command-directory"><span class="tool-field-label">Directory</span><code>${escape(command.cwd)}</code></div></div>` : '';
@@ -64,7 +69,7 @@ function renderMessage(conversationId: string, message: Message, expanded = fals
     const output = command ? `<div class="command-output"><span class="tool-field-label">Output</span><pre>${escape(text)}</pre></div>` : `<pre>${escape(text)}</pre>`;
     return `<details class="tool-message" data-reading-id="${escape(message.id)}" data-tool-fold="${escape(foldKey)}" ${expanded ? 'open' : ''}><summary>${icon('terminal')}<span>${command ? 'Command' : escape(message.toolName || 'Tool result')}</span><span class="tool-status">${escape(status + exit)}</span>${icon('down')}</summary>${details}${output}${gallery}</details>`;
   }
-  if (message.role === 'user') return `<article class="message user-message" data-reading-id="${escape(message.id)}" aria-label="Your message"><div class="message-content">${gallery}${text ? `<div class="user-text">${escape(text)}</div>` : ''}</div></article>`;
+  if (message.role === 'user') return `<article class="message user-message" data-reading-id="${escape(message.id)}" aria-label="Your message"><div class="message-content">${gallery}${text ? `<div class="user-text">${escape(text)}</div>` : ''}${footer}</div></article>`;
   if (message.role === 'system') return `<div class="system-message" data-reading-id="${escape(message.id)}">${escape(text)}</div>`;
-  return `<article class="message assistant-message" data-reading-id="${escape(message.id)}" aria-label="Agent response"><div class="message-content"><div class="markdown">${renderMarkdown(text, conversationId)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}${actions}</div></article>`;
+  return `<article class="message assistant-message" data-reading-id="${escape(message.id)}" aria-label="Agent response"><div class="message-content"><div class="markdown">${renderMarkdown(text, conversationId)}</div>${message.status === 'error' ? '<span class="message-error-label">Response interrupted</span>' : ''}${footer}</div></article>`;
 }
