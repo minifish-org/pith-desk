@@ -5,27 +5,36 @@ import { reconcileViews, clearViews, type View } from './views.ts';
 
 export function createMessageView(container: HTMLElement) {
   let activeId = '';
-  function update(id: string, messages: Message[], working: boolean, folds: Map<string, boolean>): void {
+  function update(id: string, messages: Message[], running: boolean, folds: Map<string, boolean>, showWorking = running): void {
     if (id !== activeId) { clearViews(container); activeId = id; }
     const views: View[] = [];
-    const messageView = (message: Message, key = message.id, foldKey = ''): View => ({
-      key, signature: JSON.stringify(message), html: () => renderMessage(id, message, folds.get(foldKey), foldKey),
+    // A saved final message can arrive before the run settles. Keep historical
+    // response actions, but wait for completion before exposing the current turn.
+    const currentTurnStart = messages.map((message) => message.role).lastIndexOf('user');
+    const messageView = (message: Message, key = message.id, foldKey = '', showActions = false): View => ({
+      key, signature: JSON.stringify([message, showActions]), html: () => renderMessage(id, message, folds.get(foldKey), foldKey, showActions),
     });
     let groupIndex = 0;
     for (let index = 0; index < messages.length;) {
-      if (messages[index].role !== 'tool') { views.push(messageView(messages[index++])); continue; }
+      if (messages[index].role !== 'tool') {
+        const message = messages[index];
+        const showActions = message.role === 'assistant' && !!message.branchNodeId && message.status !== 'streaming' && message.status !== 'error' && !(running && index > currentTurnStart);
+        views.push(messageView(message, message.id, '', showActions));
+        index++;
+        continue;
+      }
       const start = index;
       while (index < messages.length && messages[index].role === 'tool') index++;
       const tools = messages.slice(start, index), key = `group-${groupIndex++}`;
-      const running = tools.filter((tool) => tool.status === 'running').length;
+      const runningTools = tools.filter((tool) => tool.status === 'running').length;
       const failed = tools.filter((tool) => tool.status === 'error').length;
       const label = toolGroupLabel(tools);
-      views.push({ key, signature: JSON.stringify([label, tools.length, failed, running]),
-        html: () => `<details class="tool-group" data-tool-fold="${key}" ${folds.get(key) ? 'open' : ''}><summary>${icon('terminal')}<span class="tool-group-label">${label}</span><span class="tool-group-count">${tools.length} ${tools.length === 1 ? 'call' : 'calls'}</span>${failed ? `<span class="tool-group-failed">${failed} failed</span>` : ''}${running ? `<span class="tool-group-running">${running} running</span>` : ''}${icon('down')}</summary><div class="tool-group-content" data-view-children></div></details>`,
+      views.push({ key, signature: JSON.stringify([label, tools.length, failed, runningTools]),
+        html: () => `<details class="tool-group" data-tool-fold="${key}" ${folds.get(key) ? 'open' : ''}><summary>${icon('terminal')}<span class="tool-group-label">${label}</span><span class="tool-group-count">${tools.length} ${tools.length === 1 ? 'call' : 'calls'}</span>${failed ? `<span class="tool-group-failed">${failed} failed</span>` : ''}${runningTools ? `<span class="tool-group-running">${runningTools} running</span>` : ''}${icon('down')}</summary><div class="tool-group-content" data-view-children></div></details>`,
         children: tools.map((tool) => { const toolKey = `${key}-tool-${tool.toolCallId || tool.id}`; return messageView(tool, toolKey, toolKey); }),
       });
     }
-    if (working) views.push({ key: 'working', signature: 'working', html: () => '<div class="agent-working" role="status"><span class="working-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Working…</span></div>' });
+    if (showWorking) views.push({ key: 'working', signature: 'working', html: () => '<div class="agent-working" role="status"><span class="working-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Working…</span></div>' });
     reconcileViews(container, views);
   }
   return { update };
@@ -40,12 +49,12 @@ function toolGroupLabel(tools: Message[]): string {
   return 'Used tools';
 }
 
-function renderMessage(conversationId: string, message: Message, expanded = false, foldKey = ''): string {
+function renderMessage(conversationId: string, message: Message, expanded = false, foldKey = '', showActions = false): string {
   const text = message.text ?? '';
   const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${conversationId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" role="button" tabindex="0" title="Click to enlarge" loading="lazy" />`).join('');
   const gallery = images ? `<div class="message-images">${images}</div>` : '';
-  const copy = message.role === 'assistant' && text && message.status !== 'streaming' ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="Copy response" aria-label="Copy response">${icon('copy')}</button>` : '';
-  const branch = message.role === 'assistant' && message.branchNodeId ? `<button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button>` : '';
+  const copy = showActions && text ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="Copy response" aria-label="Copy response">${icon('copy')}</button>` : '';
+  const branch = showActions ? `<button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId!)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button>` : '';
   const actions = copy || branch ? `<div class="message-actions">${copy}${branch}</div>` : '';
   if (message.role === 'tool') {
     const command = message.command;

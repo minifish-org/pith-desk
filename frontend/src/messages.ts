@@ -81,7 +81,7 @@ export function createMessagesUI(api: API) {
             if (renderedActiveId)
                 conversationFolds.set(renderedActiveId, currentFolds);
             const folds = changedConversation ? conversationFolds.get(app.state.activeId || '') || new Map<string, boolean>() : currentFolds;
-            messageView.update(app.state.activeId || '', app.state.messages, app.state.running && !app.state.pendingApproval, folds);
+            messageView.update(app.state.activeId || '', app.state.messages, app.state.running, folds, app.state.running && !app.state.pendingApproval);
             messagesSignature = signature;
             renderedActiveId = app.state.activeId;
             loadHistoryImages();
