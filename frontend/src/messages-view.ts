@@ -5,36 +5,27 @@ import { reconcileViews, clearViews, type View } from './views.ts';
 
 export function createMessageView(container: HTMLElement) {
   let activeId = '';
-  function update(id: string, messages: Message[], running: boolean, folds: Map<string, boolean>, showWorking = running): void {
+  function update(id: string, messages: Message[], working: boolean, folds: Map<string, boolean>): void {
     if (id !== activeId) { clearViews(container); activeId = id; }
     const views: View[] = [];
-    // A saved final message can arrive before the run settles. Keep historical
-    // response actions, but wait for completion before exposing the current turn.
-    const currentTurnStart = messages.map((message) => message.role).lastIndexOf('user');
-    const messageView = (message: Message, key = message.id, foldKey = '', showActions = false): View => ({
-      key, signature: JSON.stringify([message, showActions]), html: () => renderMessage(id, message, folds.get(foldKey), foldKey, showActions),
+    const messageView = (message: Message, key = message.id, foldKey = ''): View => ({
+      key, signature: JSON.stringify(message), html: () => renderMessage(id, message, folds.get(foldKey), foldKey),
     });
     let groupIndex = 0;
     for (let index = 0; index < messages.length;) {
-      if (messages[index].role !== 'tool') {
-        const message = messages[index];
-        const showActions = message.role === 'assistant' && !!message.branchNodeId && message.status !== 'streaming' && message.status !== 'error' && !(running && index > currentTurnStart);
-        views.push(messageView(message, message.id, '', showActions));
-        index++;
-        continue;
-      }
+      if (messages[index].role !== 'tool') { views.push(messageView(messages[index++])); continue; }
       const start = index;
       while (index < messages.length && messages[index].role === 'tool') index++;
       const tools = messages.slice(start, index), key = `group-${groupIndex++}`;
-      const runningTools = tools.filter((tool) => tool.status === 'running').length;
+      const running = tools.filter((tool) => tool.status === 'running').length;
       const failed = tools.filter((tool) => tool.status === 'error').length;
       const label = toolGroupLabel(tools);
-      views.push({ key, signature: JSON.stringify([label, tools.length, failed, runningTools]),
-        html: () => `<details class="tool-group" data-tool-fold="${key}" ${folds.get(key) ? 'open' : ''}><summary>${icon('terminal')}<span class="tool-group-label">${label}</span><span class="tool-group-count">${tools.length} ${tools.length === 1 ? 'call' : 'calls'}</span>${failed ? `<span class="tool-group-failed">${failed} failed</span>` : ''}${runningTools ? `<span class="tool-group-running">${runningTools} running</span>` : ''}${icon('down')}</summary><div class="tool-group-content" data-view-children></div></details>`,
+      views.push({ key, signature: JSON.stringify([label, tools.length, failed, running]),
+        html: () => `<details class="tool-group" data-tool-fold="${key}" ${folds.get(key) ? 'open' : ''}><summary>${icon('terminal')}<span class="tool-group-label">${label}</span><span class="tool-group-count">${tools.length} ${tools.length === 1 ? 'call' : 'calls'}</span>${failed ? `<span class="tool-group-failed">${failed} failed</span>` : ''}${running ? `<span class="tool-group-running">${running} running</span>` : ''}${icon('down')}</summary><div class="tool-group-content" data-view-children></div></details>`,
         children: tools.map((tool) => { const toolKey = `${key}-tool-${tool.toolCallId || tool.id}`; return messageView(tool, toolKey, toolKey); }),
       });
     }
-    if (showWorking) views.push({ key: 'working', signature: 'working', html: () => '<div class="agent-working" role="status"><span class="working-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Working…</span></div>' });
+    if (working) views.push({ key: 'working', signature: 'working', html: () => '<div class="agent-working" role="status"><span class="working-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Working…</span></div>' });
     reconcileViews(container, views);
   }
   return { update };
@@ -49,14 +40,14 @@ function toolGroupLabel(tools: Message[]): string {
   return 'Used tools';
 }
 
-function renderMessage(conversationId: string, message: Message, expanded = false, foldKey = '', showActions = false): string {
+function renderMessage(conversationId: string, message: Message, expanded = false, foldKey = ''): string {
   const text = message.text ?? '';
   const images = (message.images || []).map((image) => `<img class="history-image" data-image-key="${escape(`${conversationId}/${message.id}/${image.index}`)}" data-message-id="${escape(message.id)}" data-image-index="${image.index}" alt="Image ${image.index + 1}" role="button" tabindex="0" title="Click to enlarge" loading="lazy" />`).join('');
   const gallery = images ? `<div class="message-images">${images}</div>` : '';
   const copyLabel = message.role === 'user' ? 'Copy message' : 'Copy response';
-  const copy = (message.role === 'user' || showActions) && text ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="${copyLabel}" aria-label="${copyLabel}">${icon('copy')}</button>` : '';
+  const copy = (message.role === 'user' || (message.role === 'assistant' && message.status !== 'streaming')) && text ? `<button type="button" class="quiet-icon message-action" data-copy-message="${escape(message.id)}" title="${copyLabel}" aria-label="${copyLabel}">${icon('copy')}</button>` : '';
   const edit = message.role === 'user' ? `<button type="button" class="quiet-icon message-action" data-edit-message="${escape(message.id)}" data-idle-action title="Edit message" aria-label="Edit message">${icon('edit')}</button>` : '';
-  const branch = showActions ? `<button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId!)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button>` : '';
+  const branch = message.role === 'assistant' && message.branchNodeId ? `<button type="button" class="quiet-icon message-action" data-sdk="branch" data-sdk-idle data-node="${escape(message.branchNodeId)}" title="Branch from this message" aria-label="Branch from this message">${icon('branch')}</button>` : '';
   const actions = copy || edit || branch ? `<div class="message-actions">${copy}${edit}${branch}</div>` : '';
   const date = new Date(message.timestamp || NaN);
   const time = Number.isFinite(date.getTime()) ? `<time class="message-time" datetime="${date.toISOString()}" title="${escape(date.toLocaleString())}">${escape(date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time>` : '';

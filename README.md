@@ -149,8 +149,9 @@ Deletion intent is saved before the catalog changes. If cleanup is interrupted, 
 
 Press `⌘N` to start a conversation in the current workspace.
 
-After an agent turn completes, **Copy response** and the branch action appear
-under its final reply. Copy includes the complete reply's original text and Markdown.
+**Copy response** appears under each agent message once that message stops
+streaming. Copy includes that message's complete original text and Markdown.
+The branch action appears under completed agent replies.
 User messages have **Copy message** and **Edit message** actions. Edit a message
 and choose **Send again** to replace it and its following replies in the active
 branch. Attached images are retained, and the original version remains in
