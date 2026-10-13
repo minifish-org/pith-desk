@@ -332,6 +332,7 @@ mark.find-current { background: var(--accent); color: var(--accent-foreground); 
 .tool-message summary .icon { width: 14px; height: 14px; color: var(--muted-tonal); }
 .tool-message summary .icon:last-child { margin-left: 4px; width: 10px; height: 10px; }
 .tool-status { margin-left: auto; font-size: 11px; color: var(--muted-tonal); }
+.tool-status-error { color: var(--error-text); }
 .tool-message pre { margin: 0; padding: 14px; border-top: 1px solid var(--border); max-height: 270px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted-tonal); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .command-details { padding: 12px 14px; border-top: 1px solid var(--border); }
 .tool-field-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; }
