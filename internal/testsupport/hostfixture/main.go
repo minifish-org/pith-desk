@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,6 +25,7 @@ func main() {
 		panic("test root is required")
 	}
 	var requests, canceled atomic.Int32
+	var lastRequest atomic.Value
 	var hold atomic.Bool
 	release := make(chan struct{}, 1)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,10 +33,12 @@ func main() {
 			http.Error(w, "invalid fixture credential", http.StatusUnauthorized)
 			return
 		}
-		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+		var body json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid fixture request", http.StatusBadRequest)
 			return
 		}
+		lastRequest.Store(body)
 		requests.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -120,7 +122,7 @@ func main() {
 	}
 	output := json.NewEncoder(os.Stdout)
 	respond := func(err error) {
-		result := map[string]any{"requests": requests.Load(), "canceled": canceled.Load()}
+		result := map[string]any{"requests": requests.Load(), "canceled": canceled.Load(), "lastRequest": lastRequest.Load()}
 		if err != nil {
 			result["error"] = err.Error()
 		}

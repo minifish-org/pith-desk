@@ -1,0 +1,44 @@
+import { expect } from '@playwright/test';
+import { test } from './host-fixture.mjs';
+
+test('edit and resend replaces the active suffix, sends revised context once, and survives restart', async ({ page, host }) => {
+  test.setTimeout(60000);
+  await page.goto(host.url);
+  const composer = page.getByRole('textbox', { name: 'Message Pith' });
+  await expect(composer).toBeEditable();
+  for (const text of ['Original question', 'Later follow-up']) {
+    await composer.fill(text);
+    await page.getByRole('button', { name: 'Send message', exact: true }).click();
+    await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
+  }
+  const before = (await host.command('state')).state;
+  expect(before.messages).toHaveLength(4);
+  const original = before.messages[0];
+  await page.locator(`[data-edit-message="${original.id}"]`).click();
+  await page.locator('#message-edit-text').fill('Revised question 中文');
+  await page.getByRole('button', { name: 'Send again', exact: true }).click();
+  await expect(page.locator('#message-edit-dialog')).not.toBeVisible();
+  await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
+  const finished = await host.command('state');
+  expect(finished.requests).toBe(3);
+  expect(finished.state.messages.map(message => message.text)).toEqual(['Revised question 中文', 'Fixture answer']);
+  expect(finished.state.messages.map(message => message.id)).not.toContain(original.id);
+  const context = JSON.stringify(finished.lastRequest.messages);
+  expect(context).toContain('Revised question 中文');
+  expect(context).not.toContain('Original question');
+  expect(context).not.toContain('Later follow-up');
+  expect(context).not.toContain('Fixture answer');
+  const savedTimes = finished.state.messages.map(message => message.timestamp);
+  expect(savedTimes.every(value => value > 0)).toBe(true);
+  await expect(page.locator('#messages time')).toHaveCount(2);
+  const restarted = await host.command('restart');
+  await page.goto(restarted.url);
+  await expect(composer).toBeEditable();
+  expect(restarted.state.messages.map(message => message.timestamp)).toEqual(savedTimes);
+  await expect(page.locator('#messages')).toContainText('Revised question 中文');
+  await expect(page.locator('#messages')).not.toContainText('Original question');
+  await page.locator(`[data-conversation-menu="${before.activeId}"]`).click();
+  await page.getByRole('menuitem', { name: 'Conversation branches' }).click();
+  await expect(page.locator('#sdk-dialog')).toContainText('Original question');
+  await expect(page.locator('#sdk-dialog')).toContainText('Later follow-up');
+});
