@@ -149,7 +149,14 @@ Deletion intent is saved before the catalog changes. If cleanup is interrupted, 
 
 Press `⌘N` to start a conversation in the current workspace.
 
-After a reply stops streaming, **Copy response** copies its original text and Markdown.
+After an agent turn completes, **Copy response** and the branch action appear
+under its final reply. Copy includes the complete reply's original text and Markdown.
+User messages have **Copy message** and **Edit message** actions. Edit a message
+and choose **Send again** to replace it and its following replies in the active
+branch. Attached images are retained, and the original version remains in
+conversation history. Editing is available while the conversation is idle.
+User and agent messages show their recorded time in your local timezone; hover
+over the time to see the full date and time.
 Each fenced code block also has **Copy**, which copies only that block's literal
 code, including its line breaks. This is available in Markdown file previews too.
 
