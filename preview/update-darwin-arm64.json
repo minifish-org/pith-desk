@@ -1,8 +1,8 @@
 {
-  "version": "0.1.0-rc.24",
-  "notes": "New in rc.24:\n\n- Copy response and branch actions appear together after a completed agent turn. Copy response includes the complete final reply, with its Markdown and code.\n- User messages have Copy and Edit actions. Send again replaces the message and its following replies in the active branch, retains image attachments and keeps the original version in history.\n- User and agent messages show their recorded time in your local timezone, with the full date and time on hover.\n\nApple Silicon preview. Open the `.tar.gz` and move **Pith Desk.app** to Applications.\nAd-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n",
-  "date": "2026-10-13T14:46:03.216Z",
-  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.24/pith-desk-0.1.0-rc.24-darwin-arm64.tar.gz",
-  "size": 9579826,
-  "signature": "CFRMXe0mV0UckQEOIVYFdB4tFFTRwnHOXWS6h7s4+yCasaD5Z5hINyUhClcDvpmutsjQ6hrAymcC3VKvhsbnDA=="
+  "version": "0.1.0-rc.25",
+  "notes": "New in rc.25:\n\n- Restore Copy response under each agent message, including progress updates. Each button copies that message's complete text and Markdown.\n- Highlight failed tool statuses in red so failures are easier to spot.\n\nApple Silicon preview. Open the `.tar.gz` and move **Pith Desk.app** to Applications.\nAd-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n",
+  "date": "2026-10-13T16:22:26.268Z",
+  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.25/pith-desk-0.1.0-rc.25-darwin-arm64.tar.gz",
+  "size": 9579713,
+  "signature": "RIiVEOHf+KW2pfhPpMJR3Da3AY2YxsgqRi2RneZzsPc5V7h4qg6v/Gv9gKbDTZLWtI7IxEonAV7LoVZmP4izCQ=="
 }
