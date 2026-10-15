@@ -1,6 +1,7 @@
 import type { Conversation } from './contract.generated';
 import type { State } from './app-state';
 import type { ApiRequest } from './api';
+import { createCompletionNotices, historyStatusMarkup } from 'pith-ui';
 type CompletionState = Pick<State, 'activeId' | 'conversations' | 'workspaces' | 'runs'>;
 interface Notice { id: string; runID: string; title: string; workspace: string }
 
@@ -12,6 +13,7 @@ export function createCompletionUI(deps: {
   escape: (value: unknown) => string;
   icon: (name: string) => string;
 }) {
+  const panel = createCompletionNotices({ container: document.getElementById('completion-notices')! });
   const seen = new Set<string>();
   const reading = new Set<string>();
   let notices: Notice[] = [];
@@ -23,7 +25,7 @@ export function createCompletionUI(deps: {
     const signature = JSON.stringify(notices);
     if (signature === noticeSignature) return;
     noticeSignature = signature;
-    document.getElementById('completion-notices')!.innerHTML = notices.map((notice) => `<article class="completion-notice"><span class="completion-check" aria-hidden="true">${deps.icon('check')}</span><div class="completion-content"><strong>Task completed</strong><p>${deps.escape(notice.workspace)} · ${deps.escape(notice.title)}</p><button class="text-button" type="button" data-conversation="${deps.escape(notice.id)}">Open conversation</button></div><button class="quiet-icon completion-dismiss" type="button" data-dismiss-completion="${deps.escape(notice.runID)}" aria-label="Dismiss completion notification">${deps.icon('close')}</button></article>`).join('');
+    panel.update(notices);
   }
 
   function dismiss(runID: string): void {
@@ -63,11 +65,8 @@ export function createCompletionUI(deps: {
 
   function historyStatus(entry: Conversation): string {
     const run = deps.state().runs.find((run) => run.conversationId === entry.id);
-    if (run?.needsApproval) return '<span class="history-status needs-approval" role="img" aria-label="Waiting for approval" title="Waiting for approval"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/></svg></span>';
-    if (run) return '<span class="history-status" role="img" aria-label="Running" title="Running"><i class="history-spinner" aria-hidden="true"></i></span>';
-    if (entry.unread) return '<span class="history-status" role="img" aria-label="Completed, unread" title="Completed, unread"><i class="history-unread" aria-hidden="true"></i></span>';
-    return '<span class="history-status" aria-hidden="true"></span>';
+    return historyStatusMarkup(run?.needsApproval ? 'approval' : run ? 'running' : entry.unread ? 'unread' : 'idle');
   }
 
-  return { observe, acknowledgeViewed, dismiss, historyStatus };
+  return { observe, acknowledgeViewed, dismiss, historyStatus, destroy: panel.destroy };
 }

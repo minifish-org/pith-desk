@@ -1,27 +1,17 @@
 import type { ApiRequest } from './api';
 import type { UpdateStatus } from './contract.generated';
+import { createUpdatePanel } from 'pith-ui';
 
 export function mountUpdates(root: HTMLElement, request: ApiRequest): { check: () => Promise<void>; dispose: () => void } {
-  const version = root.querySelector<HTMLElement>('[data-update-version]')!;
-  const message = root.querySelector<HTMLElement>('[data-update-message]')!;
-  const checkButton = root.querySelector<HTMLButtonElement>('[data-update-check]')!;
-  const installButton = root.querySelector<HTMLButtonElement>('[data-update-install]')!;
-  const progress = root.querySelector<HTMLProgressElement>('progress')!;
+  const panel = createUpdatePanel({ container: root, productName: 'Pith Desk', onCheck: () => { void act('check'); }, onInstall: () => { void act('install'); } });
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let submitting = false;
   let generation = 0;
 
   function render(state: UpdateStatus): void {
-    version.textContent = `Pith Desk ${state.version}`;
-    message.textContent = state.message;
+    panel.update(state);
     const busy = ['checking', 'installing', 'restarting'].includes(state.phase);
-    checkButton.disabled = !state.enabled || busy || submitting;
-    installButton.hidden = !state.availableVersion;
-    installButton.disabled = busy || submitting;
-    installButton.textContent = 'Update and restart';
-    progress.hidden = state.phase !== 'installing';
-    progress.value = state.progress;
     if (busy && !disposed) timer = setTimeout(() => { void refresh(); }, 500);
   }
 
@@ -33,7 +23,7 @@ export function mountUpdates(root: HTMLElement, request: ApiRequest): { check: (
       const state = await request('/api/update');
       if (!disposed && current === generation) render(state);
     } catch (error) {
-      if (!disposed && current === generation) { message.textContent = String(error); checkButton.disabled = false; }
+      if (!disposed && current === generation) { panel.setError(String(error), { allowCheckRetry: true }); }
     }
   }
 
@@ -41,20 +31,19 @@ export function mountUpdates(root: HTMLElement, request: ApiRequest): { check: (
     if (disposed || submitting) return;
     generation++;
     submitting = true;
-    checkButton.disabled = installButton.disabled = true;
+    panel.setPending(true);
     let failure = '';
     try { await request('/api/update', { action }); }
     catch (error) { failure = String(error); }
     finally { submitting = false; }
     await refresh();
-    if (!disposed && failure) message.textContent = failure;
+    panel.setPending(false);
+    if (!disposed && failure) panel.setError(failure);
   }
 
-  checkButton.addEventListener('click', () => { void act('check'); });
-  installButton.addEventListener('click', () => { void act('install'); });
   void refresh();
   return {
     check: () => act('check'),
-    dispose: () => { disposed = true; if (timer !== undefined) clearTimeout(timer); },
+    dispose: () => { disposed = true; if (timer !== undefined) clearTimeout(timer); panel.destroy(); },
   };
 }

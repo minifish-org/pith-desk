@@ -3,7 +3,7 @@ import type { Workspace } from './contract.generated.ts';
 import { installConversationReader } from './conversation-reader.ts';
 import type { AppView } from './feature-api.ts';
 import { createMessageView } from './messages-view.ts';
-import { escape, icon } from './ui.ts';
+import { createWelcomeView } from 'pith-ui';
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 type API = {
     view: AppView;
@@ -20,21 +20,12 @@ export function createMessagesUI(api: API) {
     let imageGeneration = 0;
     const reader = installConversationReader($('chat-scroll'), $('messages'), $('conversation-find'), $<HTMLButtonElement>('back-to-latest'));
     const messageView = createMessageView($('messages'));
+    const logoTemplate = document.createElement('template');
+    logoTemplate.innerHTML = logo;
+    const welcome = createWelcomeView({ container: $('welcome'), logo: logoTemplate.content });
     function renderWelcome(workspace?: Workspace): void {
-        const ready = !!workspace && app.state.settings.hasApiKey;
-        $('welcome').innerHTML = `
-    <div class="welcome-mark">${logo}</div>
-    <p class="eyebrow">YOUR LOCAL WORK COMPANION</p>
-    <h1>${ready ? 'What are we working on?' : 'Your work. A little more possible.'}</h1>
-    <p class="welcome-description">An agent that works alongside you, with your files<br class="desktop-break"> and the tools you choose.</p>
-    ${!ready ? `<div class="setup-card">
-      <div class="setup-card-heading">Make yourself at home <span>Two quick steps</span></div>
-      <button class="setup-step" data-action="${app.state.settings.hasConnections ? 'model' : 'settings'}"><span class="step-number ${app.state.settings.hasApiKey ? 'complete' : ''}">${app.state.settings.hasApiKey ? icon('check') : '1'}</span><span><strong>${app.state.settings.hasApiKey ? 'Model selected' : app.state.settings.hasConnections ? 'Choose a model' : 'Connect a provider'}</strong><small>${app.state.settings.hasApiKey ? escape(app.state.settings.modelName || app.state.settings.model) : app.state.settings.hasConnections ? 'Your provider connection is ready' : 'Bring your provider API key'}</small></span>${icon('chevron')}</button>
-      <button class="setup-step" data-action="workspace"><span class="step-number ${workspace ? 'complete' : ''}">${workspace ? icon('check') : '2'}</span><span><strong>${workspace ? escape(workspace.name) : 'Choose a workspace'}</strong><small>${workspace ? escape(workspace.path) : 'A folder Pith can help you work in'}</small></span>${icon('chevron')}</button>
-    </div>` : `<div class="welcome-workspace">${icon('folder')}<span>Working in <strong>${escape(workspace.name)}</strong></span><button class="secondary-button" type="button" data-action="workspace">Change</button></div>
-    <div class="suggestions"><button data-prompt="Explore this workspace and give me a concise overview of its files.">${icon('file')}Explore my workspace</button><button data-prompt="Help me plan a task. Start by asking what I want to accomplish.">${icon('chat')}Think through a task</button><button data-prompt="I'd like help creating a document in this workspace. Ask me what it should cover.">${icon('plus')}Create something</button></div>`}
-    <div class="welcome-footnote">${icon('shield')}Local workspace. Your choice of model.</div>
-  `;
+        welcome.update({ workspace, hasApiKey: app.state.settings.hasApiKey, hasConnections: app.state.settings.hasConnections, modelName: app.state.settings.modelName || app.state.settings.model });
+        for (const button of welcome.element.querySelectorAll<HTMLElement>('[data-welcome-action]')) button.dataset.action = button.dataset.welcomeAction;
     }
     function clearHistoryImages(): void {
         imageGeneration++;
@@ -65,7 +56,7 @@ export function createMessagesUI(api: API) {
             void value.then((url) => { if (image.isConnected)
                 image.src = url; }).catch(() => { if (image.isConnected) {
                 image.alt = 'Image unavailable';
-                image.classList.add('image-unavailable');
+                image.classList.add('pui-image-unavailable');
             } });
         }
     }
@@ -94,5 +85,8 @@ export function createMessagesUI(api: API) {
         if (!hasMessages)
             renderWelcome(workspace);
     }
-    return { renderMessages, clearHistoryImages, followLatest: reader.followLatest };
+    return {
+        renderMessages, clearHistoryImages, followLatest: reader.followLatest,
+        destroy(): void { clearHistoryImages(); reader.destroy(); messageView.destroy(); welcome.destroy(); },
+    };
 }

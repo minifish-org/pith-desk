@@ -1,8 +1,9 @@
+import { createSettingsPanel, createMCPConnectionsPanel, createMCPConnectionList, createModelPicker, createModelEditor, thinkingLabel } from 'pith-ui';
 import type { ApiMutate, ApiRequest } from './api.ts';
 import type { AppearanceMode, MCPServerView as MCPConnection, ModelCatalog, ProviderChoice } from './contract.generated.ts';
 import { setControlPending } from './controls.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
-import { dialogHeading, escape, icon } from './ui.ts';
+import { escape } from './ui.ts';
 import { mountUpdates } from './updates.ts';
 type API = {
     view: AppView;
@@ -21,6 +22,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getEl
 export function createSettingsUI(api: API) {
     const { view: app, activity, request, mutate, render, closeSidebar, showDialog, anyRunning, appearanceMode, applyAppearance } = api;
     const sdkUI = { providerActions: api.providerActions };
+    let settingsPanel: ReturnType<typeof createSettingsPanel> | undefined;
+    let connectionsPanel: ReturnType<typeof createMCPConnectionsPanel> | undefined;
+    let connectionsList: ReturnType<typeof createMCPConnectionList> | undefined;
+    let modelPicker: ReturnType<typeof createModelPicker> | undefined;
+    let modelEditor: ReturnType<typeof createModelEditor> | undefined;
     let settingsUpdates: ReturnType<typeof mountUpdates> | undefined;
     let connectionProbe: AbortController | null = null;
     let refreshSettingsAuth: ((provider: string) => void) | null = null;
@@ -37,21 +43,17 @@ export function createSettingsUI(api: API) {
         }
     }
     function openConnections(): void {
-        $('connections-content').innerHTML = `${dialogHeading('Connections', 'connections-title', 'connections-dialog', 'EXTERNAL TOOLS')}<p class="modal-description">Add an MCP server to give Pith access to its tools. Enabled connections connect automatically when a task starts. Disable a connection to stop using it in tasks. External tools require approval unless this conversation has full access.</p><div class="feature-toolbar"><button class="secondary-button" data-action="refresh-mcp">Refresh</button></div><div id="mcp-list"><p class="feature-hint">Loading connections…</p></div><div id="mcp-error" data-dialog-error class="form-error" role="alert"></div><section class="connection-editor"><div class="section-heading"><span id="mcp-form-title">Add connection</span><button type="button" class="secondary-button" data-action="new-mcp">New connection</button></div><form id="mcp-form"><label class="field-label" for="mcp-name">Name</label><input id="mcp-name" name="name" required autocomplete="off" placeholder="my-tools" /><label class="field-label" for="mcp-type">Connection type</label><select id="mcp-type" name="type" class="feature-select"><option value="http">HTTP</option><option value="stdio">Local command (stdio)</option></select><div id="mcp-http-fields"><label class="field-label" for="mcp-url">Server URL</label><input id="mcp-url" name="url" type="url" placeholder="https://example.com/mcp" autocomplete="off" /><label class="checkbox-field"><input id="mcp-oauth" type="checkbox" />Sign in with OAuth</label><details class="provider-advanced"><summary>OAuth settings (optional)</summary><label class="field-label">Registered client ID<input id="mcp-oauth-client" /></label><label class="field-label">Scopes<input id="mcp-oauth-scope" /></label><p class="field-hint">Uses the server’s OAuth discovery and PKCE. The temporary callback listens on 127.0.0.1:54819.</p></details><label class="field-label" for="mcp-token">Bearer token (optional)</label><input id="mcp-token" name="bearerToken" type="password" autocomplete="new-password" placeholder="Optional token" /><label class="checkbox-field" id="mcp-clear-token-row" hidden><input id="mcp-clear-token" type="checkbox" />Remove saved bearer token</label><p class="field-hint">Saved tokens are never returned to this page. Leave this field blank to keep an existing token.</p></div><div id="mcp-stdio-fields" hidden><label class="field-label" for="mcp-command">Installed executable</label><input id="mcp-command" name="command" placeholder="/path/to/mcp-server" autocomplete="off" /><label class="field-label" for="mcp-args">Arguments (JSON array)</label><textarea id="mcp-args" name="args" rows="3" spellcheck="false">[]</textarea><p class="field-hint">The executable and any runtime it needs must already be installed on your computer. Pith Desk does not bundle external runtimes or a marketplace.</p><div class="secret-label"><label class="field-label" for="mcp-env">Environment overrides (JSON object, optional)</label><button class="secondary-button" type="button" id="mcp-env-visibility" data-action="toggle-env" aria-controls="mcp-env" aria-pressed="false">Show</button></div><textarea id="mcp-env" class="secret-field" name="env" rows="3" spellcheck="false" autocomplete="off" aria-describedby="mcp-env-hint" placeholder='{"API_KEY":"…"}'></textarea><p id="mcp-env-hint" class="field-hint">Values stay private. Leave blank to keep saved overrides. Add a JSON object of string keys and values to set or replace individual overrides.</p><p id="mcp-env-keys" class="field-hint" hidden></p><label class="checkbox-field" id="mcp-clear-env-row" hidden><input id="mcp-clear-env" type="checkbox" />Clear saved environment overrides</label></div><label class="checkbox-field"><input id="mcp-enabled" name="enabled" type="checkbox" checked />Enable this connection</label><div id="mcp-form-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="connections-dialog">Close</button><button class="primary-button" type="submit" data-idle-action data-global-idle>Save connection</button></div></form></section>`;
+        connectionsList?.destroy(); connectionsList = undefined;
+        connectionsPanel?.destroy();
+        connectionsPanel = createMCPConnectionsPanel({}, {idPrefix: ''});
+        $('connections-content').replaceChildren(connectionsPanel.element);
         showDialog('connections-dialog');
-        $<HTMLSelectElement>('mcp-type').addEventListener('change', renderMCPType);
         $('mcp-form').addEventListener('submit', (event) => { event.preventDefault(); void saveMCP(); });
         renderMCPType();
         render();
         void loadMCP();
     }
-    function renderMCPType(): void {
-        const http = $<HTMLSelectElement>('mcp-type').value === 'http';
-        $('mcp-http-fields').hidden = !http;
-        $('mcp-stdio-fields').hidden = http;
-        $<HTMLInputElement>('mcp-url').required = http;
-        $<HTMLInputElement>('mcp-command').required = !http;
-    }
+    function renderMCPType(): void { connectionsPanel?.renderType(); }
     async function loadMCP(): Promise<void> {
         const sequence = ++mcpRequest;
         $('mcp-error').textContent = '';
@@ -80,34 +82,12 @@ export function createSettingsUI(api: API) {
         return 'Connects automatically when a task starts';
     }
     function renderMCPList(): void {
-        $('mcp-list').innerHTML = mcpConnections.map((entry) => `<article class="connection-card"><div class="connection-card-heading"><strong>${escape(entry.name)}</strong></div><p class="file-path">${escape(entry.type === 'http' ? entry.url : [entry.command, ...(entry.args || [])].join(' '))}</p><p class="feature-hint">${entry.enabled ? 'Enabled' : 'Disabled'}${entry.hasBearerToken ? ' · Token configured' : ''}</p><p class="connection-status ${entry.enabled && entry.status === 'error' ? 'is-error' : ''}" role="status">${escape(mcpStatusLabel(entry))}</p>${entry.envKeys?.length ? `<p class="feature-hint">Saved environment keys: ${escape(entry.envKeys.join(', '))}</p>` : ''}${entry.error ? `<p class="form-error">${escape(entry.error)}</p>` : ''}<div class="file-actions">${entry.oauth ? `<button class="secondary-button" data-sdk="mcp-login" data-id="${escape(entry.name)}">${entry.signedIn ? 'Sign in again' : 'Sign in'}</button>${entry.signedIn ? `<button class="secondary-button" data-sdk="mcp-logout" data-id="${escape(entry.name)}">Sign out</button>` : ''}` : ''}<button class="secondary-button" data-mcp-edit="${escape(entry.name)}">Edit</button><button class="secondary-button" data-mcp-toggle="${escape(entry.name)}" data-global-idle data-idle-action>${entry.enabled ? 'Disable' : 'Enable'}</button><button class="secondary-button destructive-button" data-mcp-remove="${escape(entry.name)}" data-global-idle data-idle-action>Delete</button></div></article>`).join('') || '<p class="feature-hint">No connections yet. Add an HTTP server or an installed local MCP command below. Tools are discovered on demand using tool search and Codemode.</p>';
-    }
+        const state = {entries: mcpConnections.map((entry) => ({...entry, args: entry.args || [], envKeys: entry.envKeys || [], statusLabel: mcpStatusLabel(entry)}))};
+        if (connectionsList) connectionsList.update(state);
+        else {connectionsList = createMCPConnectionList(state); $('mcp-list').replaceChildren(connectionsList.element);}    }
     function editMCP(entry?: MCPConnection): void {
         mcpEditorGeneration++;
-        $<HTMLFormElement>('mcp-form').reset();
-        $<HTMLTextAreaElement>('mcp-env').classList.remove('revealed');
-        $('mcp-env-visibility').setAttribute('aria-pressed', 'false');
-        $('mcp-env-visibility').textContent = 'Show';
-        $('mcp-form-title').textContent = entry ? `Edit ${entry.name}` : 'Add connection';
-        $<HTMLInputElement>('mcp-name').value = entry?.name || '';
-        $<HTMLInputElement>('mcp-name').readOnly = !!entry;
-        $<HTMLSelectElement>('mcp-type').value = entry?.type || 'http';
-        $<HTMLInputElement>('mcp-url').value = entry?.url || '';
-        $<HTMLInputElement>('mcp-oauth').checked = entry?.oauth || false;
-        $<HTMLInputElement>('mcp-oauth-client').value = entry?.oauthClientId || '';
-        $<HTMLInputElement>('mcp-oauth-scope').value = entry?.oauthScope || '';
-        $<HTMLInputElement>('mcp-command').value = entry?.command || '';
-        $<HTMLTextAreaElement>('mcp-args').value = JSON.stringify(entry?.args || [], null, 2);
-        $<HTMLInputElement>('mcp-enabled').checked = entry?.enabled ?? true;
-        $<HTMLInputElement>('mcp-token').placeholder = entry?.hasBearerToken ? 'Leave blank to keep your saved token' : 'Optional token';
-        $('mcp-clear-token-row').hidden = !entry?.hasBearerToken;
-        const envKeys = entry?.envKeys || [];
-        $('mcp-clear-env-row').hidden = !envKeys.length;
-        $('mcp-env-keys').hidden = !envKeys.length;
-        $('mcp-env-keys').textContent = `Saved environment keys: ${envKeys.join(', ')}`;
-        $('mcp-form-error').textContent = '';
-        renderMCPType();
-        $<HTMLInputElement>(entry ? entry.type === 'stdio' ? 'mcp-command' : 'mcp-url' : 'mcp-name').focus();
+        connectionsPanel?.edit(entry ? {...entry, args: entry.args || [], envKeys: entry.envKeys || []} : undefined);
     }
     function parseConnectionJSON(value: string, label: string): unknown {
         try {
@@ -154,12 +134,6 @@ export function createSettingsUI(api: API) {
                 $('mcp-form-error').textContent = error instanceof Error ? error.message : String(error);
         }
     }
-    function thinkingLabel(level: string): string {
-        return level === 'off' ? 'Thinking off' : `Thinking: ${level === 'xhigh' ? 'extra high' : level}`;
-    }
-    function modelEditorMarkup(prefix: string): string {
-        return `<label class="field-label" for="${prefix}-provider">Provider</label><select class="feature-select" id="${prefix}-provider" required disabled><option value="">Loading providers…</option></select><label class="field-label" for="${prefix}-search">Model</label><input id="${prefix}-search" type="search" placeholder="Search by model name or ID" autocomplete="off" /><label class="sr-only" for="${prefix}-model">Choose model</label><select id="${prefix}-model" class="model-list" size="6" required disabled></select><p id="${prefix}-capabilities" class="field-hint" aria-live="polite"></p><label class="field-label" id="${prefix}-thinking-label" for="${prefix}-thinking">Thinking effort</label><select id="${prefix}-thinking" class="feature-select" aria-describedby="${prefix}-capabilities" required></select><p class="field-hint">Built-in models come from the Pith SDK catalog. Custom models use your saved definitions. Availability depends on your endpoint and account.</p>`;
-    }
     function modelFormSelection(prefix: string): {
         provider: string;
         model: string;
@@ -168,48 +142,8 @@ export function createSettingsUI(api: API) {
         return { provider: $<HTMLSelectElement>(`${prefix}-provider`).value, model: $<HTMLSelectElement>(`${prefix}-model`).value, thinkingLevel: $<HTMLSelectElement>(`${prefix}-thinking`).value };
     }
     function setupModelEditor(prefix: string, catalog: ModelCatalog, configuredOnly: boolean): void {
-        const providers = configuredOnly ? (catalog.providers || []).filter((entry) => entry.hasApiKey) : (catalog.providers || []);
-        const providerSelect = $<HTMLSelectElement>(`${prefix}-provider`);
-        const modelSelect = $<HTMLSelectElement>(`${prefix}-model`);
-        const search = $<HTMLInputElement>(`${prefix}-search`);
-        const effort = $<HTMLSelectElement>(`${prefix}-thinking`);
-        providerSelect.innerHTML = providers.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)}</option>`).join('');
-        providerSelect.disabled = providers.length === 0;
-        providerSelect.value = providers.some((entry) => entry.id === app.state.settings.provider) ? app.state.settings.provider! : providers[0]?.id || '';
-        let selected = '';
-        const capabilities = () => {
-            selected = modelSelect.value;
-            const model = (catalog.models || []).find((entry) => entry.provider === providerSelect.value && entry.id === selected);
-            const previous = effort.value;
-            const levels = model?.thinkingLevels || ['off'];
-            effort.innerHTML = levels.map((level) => `<option value="${escape(level)}">${escape(thinkingLabel(level))}</option>`).join('');
-            effort.value = levels.includes(previous) ? previous : levels.includes('high') ? 'high' : levels.includes('medium') ? 'medium' : levels[0];
-            effort.disabled = levels.length < 2;
-            effort.hidden = levels.length < 2;
-            $(`${prefix}-thinking-label`).hidden = levels.length < 2;
-            $(`${prefix}-capabilities`).textContent = model ? `${model.supportsImages ? 'Text + images' : 'Text only'} · ${new Intl.NumberFormat('en').format(model.contextWindow)} context tokens · ${new Intl.NumberFormat('en').format(model.maxTokens)} max output tokens` : 'No matching models.';
-        };
-        const renderModels = () => {
-            const query = search.value.trim().toLowerCase();
-            const models = (catalog.models || []).filter((entry) => entry.provider === providerSelect.value && (entry.id === selected || `${entry.name} ${entry.id}`.toLowerCase().includes(query)));
-            modelSelect.innerHTML = models.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.name)} — ${escape(entry.id)}</option>`).join('');
-            modelSelect.disabled = models.length === 0;
-            modelSelect.value = models.some((entry) => entry.id === selected) ? selected : models[0]?.id || '';
-            capabilities();
-        };
-        const chooseProvider = () => {
-            const provider = providers.find((entry) => entry.id === providerSelect.value);
-            if (!provider)
-                return;
-            search.value = '';
-            selected = provider.model || (provider.id === app.state.settings.provider ? app.state.settings.model : '');
-            effort.innerHTML = `<option value="${escape(provider.thinkingLevel || app.state.settings.thinkingLevel || 'high')}"></option>`;
-            renderModels();
-        };
-        providerSelect.addEventListener('change', chooseProvider);
-        modelSelect.addEventListener('change', capabilities);
-        search.addEventListener('input', renderModels);
-        chooseProvider();
+        modelEditor?.destroy();
+        modelEditor = createModelEditor({providers: configuredOnly ? (catalog.providers || []).filter((entry) => entry.hasApiKey) : catalog.providers, models: catalog.models, selection: {provider: app.state.settings.provider, model: app.state.settings.model, thinkingLevel: app.state.settings.thinkingLevel}}, {prefix, element: modelPicker!.element});
     }
     async function openModelPicker(): Promise<void> {
         if (anyRunning() || activity.busy)
@@ -218,7 +152,10 @@ export function createSettingsUI(api: API) {
             openSettings();
             return;
         }
-        $('model-content').innerHTML = `${dialogHeading('Choose a model', 'model-title', 'model-dialog', 'PITH MODEL CATALOG')}<form id="model-form">${modelEditorMarkup('picker')}<div id="model-error" class="form-error" role="alert"></div><div class="modal-footer"><button type="button" class="secondary-button" data-close="model-dialog">Cancel</button><button type="submit" class="primary-button" id="choose-model" data-global-idle data-control-pending="true" disabled>Use model</button></div></form>`;
+        modelEditor?.destroy();
+        modelPicker?.destroy();
+        modelPicker = createModelPicker({}, {idPrefix: ''});
+        $('model-content').replaceChildren(modelPicker.element);
         showDialog('model-dialog');
         const form = $<HTMLFormElement>('model-form');
         const isCurrent = () => $<HTMLDialogElement>('model-dialog').open && $('model-form') === form;
@@ -255,60 +192,9 @@ export function createSettingsUI(api: API) {
         closeSidebar();
         connectionProbe?.abort();
         connectionProbe = null;
-        $('settings-content').innerHTML = `
-    ${dialogHeading('Settings', 'settings-title', 'settings-dialog', 'MAKE IT YOURS')}
-    <section class="settings-section appearance-settings" aria-labelledby="appearance-title">
-      <h3 id="appearance-title">Appearance</h3>
-      <p class="appearance-hint" id="appearance-hint">A bright white workspace or a calm dark one, both with a blue accent. Follow system matches your computer.</p>
-      <label class="sr-only" for="appearance-mode">Appearance</label>
-      <select id="appearance-mode" class="appearance-select" aria-describedby="appearance-hint"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select>
-      <div id="appearance-error" class="form-error" role="alert"></div>
-    </section>
-    <section id="update-settings" class="settings-section update-settings" aria-labelledby="update-title">
-      <h3 id="update-title">Updates</h3>
-      <div class="settings-copy">
-        <p class="field-hint" data-update-version></p>
-        <p class="field-hint" role="status" aria-live="polite" data-update-message>Loading update status…</p>
-      </div>
-      <progress max="100" value="0" aria-label="Update progress" hidden></progress>
-      <div class="settings-actions"><button class="secondary-button" type="button" data-update-check disabled>Check for updates</button><button class="primary-button" type="button" data-update-install hidden>Update and restart</button></div>
-    </section>
-    <form id="settings-form">
-      <section class="settings-section" aria-labelledby="provider-title">
-        <h3 id="provider-title">Model providers</h3>
-        <p class="modal-description">Connect your model providers here. Choose models and thinking effort beside the message box.</p>
-        <div class="settings-actions"><button class="secondary-button" type="button" data-sdk="custom">Add independent model connection</button></div>
-        <div class="settings-field">
-          <label class="field-label" for="settings-provider">Provider</label>
-          <select id="settings-provider" class="feature-select" required disabled><option value="">Loading providers…</option></select>
-          <div id="provider-actions" hidden></div>
-          <p id="provider-auth-hint" class="field-hint" hidden></p>
-        </div>
-        <details id="provider-advanced" class="provider-advanced">
-          <summary>Advanced connection settings</summary>
-          <label class="field-label" for="base-url">API base URL</label>
-          <div class="input-with-icon">${icon('globe')}<input id="base-url" name="baseUrl" type="url" required value="${escape(app.state.settings.baseUrl)}" autocomplete="off" /></div>
-          <p class="field-hint">The provider’s endpoint is filled in automatically. Change it only for a proxy or custom service.</p>
-        </details>
-        <div id="provider-api-key" class="settings-field">
-          <label class="field-label" for="api-key">API key <span id="key-status" class="configured-badge"></span></label>
-          <input id="api-key" name="apiKey" type="password" placeholder="${app.state.settings.hasApiKey ? 'Leave blank to keep your current key' : 'Paste your API key'}" autocomplete="new-password" ${app.state.settings.hasApiKey ? '' : 'required'} />
-          <p class="field-hint">The saved key is never returned to this page. Model requests go to your configured provider.</p>
-          <button class="secondary-button destructive-button" id="remove-key" type="button" hidden>Remove saved API key</button>
-        </div>
-      </section>
-      <section class="settings-section connection-test">
-        <p class="field-hint">Uses this provider’s last selected model, or Pith’s default, to check streaming and tool calling. Does not save settings or access files.</p>
-        <div class="settings-actions"><button type="button" class="secondary-button" id="test-connection" data-control-pending="true" disabled data-global-idle data-idle-action>Test connection</button></div>
-        <div id="connection-test-result" role="status" aria-live="polite"></div>
-      </section>
-      <div id="settings-error" data-dialog-error class="form-error" role="alert"></div>
-      <section class="settings-section diagnostics-setting">
-        <p class="field-hint">Version, usage and failure category only; no conversation, file contents, paths or credentials.</p>
-        <div class="settings-actions"><button type="button" class="secondary-button" data-action="diagnostics">Save diagnostics</button></div>
-      </section>
-      <div class="modal-footer"><button class="secondary-button" type="button" data-close="settings-dialog">Cancel</button><button class="primary-button" id="save-settings" data-control-pending="true" disabled data-global-idle type="submit">Save settings</button></div>
-    </form>`;
+        settingsPanel?.destroy();
+        settingsPanel = createSettingsPanel({baseUrl: app.state.settings.baseUrl, hasApiKey: app.state.settings.hasApiKey}, {idPrefix: ''});
+        $('settings-content').replaceChildren(settingsPanel.element);
         renderAppearance();
         $<HTMLDialogElement>('settings-dialog').showModal();
         settingsUpdates = mountUpdates($('update-settings'), request);
@@ -413,12 +299,12 @@ export function createSettingsUI(api: API) {
                 if (!isCurrent() || connectionProbe !== controller)
                     return;
                 $('connection-test-result').textContent = result.message;
-                $('connection-test-result').className = result.ok ? 'test-success' : 'form-error';
+                $('connection-test-result').className = result.ok ? 'pui-test-success' : 'pui-form-error';
             }
             catch (error) {
                 if (isCurrent() && connectionProbe === controller) {
                     $('connection-test-result').textContent = controller.signal.aborted ? 'Test cancelled.' : error instanceof Error ? error.message : String(error);
-                    $('connection-test-result').className = 'form-error';
+                    $('connection-test-result').className = 'pui-form-error';
                 }
             }
             finally {

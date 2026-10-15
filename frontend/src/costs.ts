@@ -1,21 +1,9 @@
 import type { State } from './app-state';
 
-import type { CostSummary, CostReport } from './contract.generated';
+import { createCostLedger } from 'pith-ui';
+export { formatCost } from 'pith-ui';
 import type { ApiRequest } from './api';
 export type { CostSummary } from './contract.generated';
-
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 });
-const numbers = new Intl.NumberFormat();
-const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-
-export function formatCost(cost: CostSummary | undefined, latestTask = false): string {
-  if (cost?.unavailable) return 'Unavailable';
-  const count = latestTask ? cost?.runRequests : cost?.requestCount;
-  const unknown = (latestTask ? cost?.runUnknownRequests : cost?.unknownRequests) || 0;
-  if (!count) return 'Not recorded';
-  if (count === unknown) return 'Unknown';
-  return `~${currency.format((latestTask ? cost?.runTotal : cost?.total) || 0)}${unknown ? ' (partial)' : ''}`;
-}
 
 // The snapshot carries only totals. Read the ledger when its inline disclosure
 // is open, once per saved-request revision rather than on every streamed token.
@@ -30,11 +18,7 @@ export function createCostUI(api: { state: () => State; request: ApiRequest }) {
   let loaded = false;
   let failed = false;
 
-  function show(report: CostReport) {
-    const expanded = new Set(Array.from(content.querySelectorAll<HTMLDetailsElement>('details[data-cost-id][open]'), (row) => row.dataset.costId));
-    const n = (value: number) => numbers.format(value || 0);
-    content.innerHTML = `<p class="cost-note">USD estimates for recorded requests, not a provider bill. Prices are saved per request; retries and context summaries are included when usage is reported. ${report.unknownRequests ? `${report.unknownRequests} request(s) have unknown prices or usage and are excluded. ` : ''}Older requests made before recording began are not reconstructed.</p><div class="cost-table"><table><thead><tr><th>Request</th><th>Input</th><th>Output</th><th>Cache read / write</th><th>Estimate</th></tr></thead><tbody>${(report.requests || []).map((r) => `<tr><td><strong>${escape(r.purpose)} · ${escape(r.status)}</strong><br>${escape(r.providerName || r.provider)} / ${escape(r.modelName || r.model)}<br><small>${escape(r.time)}</small><details data-cost-id="${escape(r.id)}" ${expanded.has(r.id) ? 'open' : ''}><summary>Price source and rates (USD / million tokens)</summary><p>${escape(r.source)}</p><pre>${escape(JSON.stringify(r.price, null, 2))}</pre>${r.usage.reasoning != null ? `<p>Reasoning tokens: ${n(r.usage.reasoning)} (included in output)</p>` : ''}</details></td><td>${n(r.usage.input)}</td><td>${n(r.usage.output)}</td><td>${n(r.usage.cacheRead)} / ${n(r.usage.cacheWrite)}</td><td>${r.known ? currency.format(r.usage.cost.total) : 'Unknown'}</td></tr>`).join('') || '<tr><td colspan="5">No recorded requests yet.</td></tr>'}</tbody></table></div>`;
-  }
+  const ledger = createCostLedger({ container: content });
 
   function render() {
     const state = api.state();
@@ -42,7 +26,7 @@ export function createCostUI(api: { state: () => State; request: ApiRequest }) {
     if (conversationId !== state.activeId) {
       conversationId = state.activeId;
       section.open = false;
-      content.replaceChildren();
+      ledger.clear();
     }
     const nextKey = JSON.stringify([state.activeId, state.runtime?.runId, cost?.requestCount, cost?.unavailable]);
     if (key !== nextKey) {
@@ -54,20 +38,21 @@ export function createCostUI(api: { state: () => State; request: ApiRequest }) {
     if (section.hidden || !section.open || !runtime.open || loading || loaded) return;
     loading = true;
     const seq = generation;
-    if (!content.childElementCount) content.textContent = 'Loading request breakdown…';
+    ledger.loading();
     void api.request('/api/costs', { query: { id: state.activeId } }).then((report) => {
       if (seq !== generation) return;
-      show(report);
+      ledger.update(report);
     }).catch(() => {
       if (seq !== generation) return;
       failed = true;
-      content.textContent = 'Request breakdown could not be loaded. Reopen this section to retry.';
+      ledger.setError('Request breakdown could not be loaded. Reopen this section to retry.');
     }).finally(() => {
       if (seq === generation) { loading = false; loaded = true; }
     });
   }
 
-  section.addEventListener('toggle', () => { if (!section.open && failed) loaded = false; render(); });
+  const toggle = () => { if (!section.open && failed) loaded = false; render(); };
+  section.addEventListener('toggle', toggle);
   runtime.addEventListener('toggle', render);
-  return { render };
+  return { render, destroy(): void { generation++; section.removeEventListener('toggle', toggle); runtime.removeEventListener('toggle', render); ledger.destroy(); } };
 }

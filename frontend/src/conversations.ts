@@ -1,8 +1,9 @@
+import { createWorkspaceNavigation, createContextMenu, createRenameConversation, createWorkspacePicker, type ContextMenuItem } from 'pith-ui';
 import type { ApiDownload, ApiMutate, ApiRequest } from './api.ts';
 import type { Confirmation } from './confirmation.ts';
 import type { Conversation, RunSummary, Workspace } from './contract.generated.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
-import { dialogHeading, escape, icon } from './ui.ts';
+import { escape } from './ui.ts';
 type API = {
     view: AppView;
     activity: UIActivity;
@@ -33,6 +34,10 @@ export function createConversationsUI(api: API) {
     let historyActiveId: string | null | undefined;
     let menuConversationId: string | null = null;
     let menuWorkspaceId: string | null = null;
+    const navigation = createWorkspaceNavigation({groups: [], empty: null}, {element: $('history-list'), idPrefix: ''});
+    const contextMenu = createContextMenu({element: $('conversation-menu'), onDismiss: (restoreFocus) => closeConversationMenu(restoreFocus)});
+    let renameEditor: ReturnType<typeof createRenameConversation> | undefined;
+    let workspacePicker: ReturnType<typeof createWorkspacePicker> | undefined;
     function selectedWorkspace(): Workspace | undefined {
         const conversation = app.state.conversations.find((entry) => entry.id === app.state.activeId);
         return app.state.workspaces.find((entry) => entry.id === (conversation?.workspaceId || selectedWorkspaceId)) ?? app.state.workspaces[0];
@@ -57,21 +62,17 @@ export function createConversationsUI(api: API) {
         if (signature === historySignature)
             return;
         historySignature = signature;
-        const disabled = activity.busy ? 'disabled' : '';
-        $('history-list').innerHTML = app.state.workspaces.map((workspace) => {
-            const children = conversations.filter((entry) => entry.workspaceId === workspace.id);
-            if (search && !children.length)
-                return '';
-            const expanded = expandedWorkspaces.has(workspace.id);
-            const selected = workspace.id === selectedWorkspace()?.id;
-            return `<section class="workspace-group" aria-label="${escape(workspace.name)}"><div class="workspace-heading ${selected ? 'selected' : ''}"><button class="workspace-toggle" data-toggle-workspace="${escape(workspace.id)}" aria-expanded="${expanded}" aria-controls="workspace-children-${escape(workspace.id)}" title="${escape(workspace.path)}">${icon('chevron', 'workspace-chevron')}${icon('folder')}<span>${escape(workspace.name)}</span></button><button id="workspace-actions-${escape(workspace.id)}" class="quiet-icon workspace-more" data-workspace-menu="${escape(workspace.id)}" aria-label="Actions for workspace ${escape(workspace.name)}" aria-haspopup="menu" aria-expanded="${workspace.id === menuWorkspaceId}" ${disabled}>${icon('more')}</button><button class="quiet-icon workspace-new" data-new-workspace="${escape(workspace.id)}" aria-label="New conversation in ${escape(workspace.name)}" title="New conversation" ${disabled}>${icon('compose')}</button></div><div class="workspace-children" id="workspace-children-${escape(workspace.id)}" ${expanded ? '' : 'hidden'}>${children.map((entry) => `<div class="history-row ${entry.id === app.state.activeId ? 'active' : ''}"><button class="history-item" data-conversation="${escape(entry.id)}" ${entry.id === app.state.activeId ? 'aria-current="page"' : ''} title="${escape(entry.title || 'Untitled conversation')}" ${disabled}><span>${escape(entry.title || 'Untitled conversation')}</span>${historyStatus(entry)}</button><button id="conversation-actions-${escape(entry.id)}" class="quiet-icon history-more" data-conversation-menu="${escape(entry.id)}" aria-label="Actions for ${escape(entry.title || 'Untitled conversation')}" aria-haspopup="menu" aria-expanded="${entry.id === menuConversationId}" ${disabled}>${icon('more')}</button></div>`).join('') || `<p class="workspace-empty">No conversations yet</p>`}</div></section>`;
-        }).join('') + (!app.state.workspaces.length ? `<button class="workspace-item empty-workspace" data-action="workspace">${icon('folder')}<span>Add a workspace</span></button>` : search && !conversations.length ? '<p class="history-empty">No matching conversations.</p>' : '');
+        navigation.update({groups: app.state.workspaces.map((workspace) => ({...workspace, expanded: expandedWorkspaces.has(workspace.id), selected: workspace.id === selectedWorkspace()?.id, menuOpen: workspace.id === menuWorkspaceId, children: conversations.filter((entry) => entry.workspaceId === workspace.id).map((entry) => {
+            const status = document.createElement('template'); status.innerHTML = historyStatus(entry);
+            return {...entry, active: entry.id === app.state.activeId, menuOpen: entry.id === menuConversationId, status: status.content};
+        })})).filter((workspace) => !search || workspace.children.length > 0), empty: !app.state.workspaces.length ? 'workspaces' : search && !conversations.length ? 'search' : null, disabled: activity.busy});
     }
+
     function closeConversationMenu(restoreFocus = false): void {
         const triggerID = menuConversationId ? `conversation-actions-${menuConversationId}` : menuWorkspaceId ? `workspace-actions-${menuWorkspaceId}` : '';
         menuConversationId = null;
         menuWorkspaceId = null;
-        $('conversation-menu').hidden = true;
+        contextMenu.close(restoreFocus);
         if (triggerID) {
             const trigger = document.getElementById(triggerID);
             trigger?.setAttribute('aria-expanded', 'false');
@@ -91,12 +92,14 @@ export function createConversationsUI(api: API) {
             return;
         menuConversationId = id;
         trigger.setAttribute('aria-expanded', 'true');
-        const menu = $('conversation-menu');
-        menu.setAttribute('aria-label', 'Conversation actions');
-        const idleAction = `data-idle-action data-idle-conversation="${escape(id)}" ${conversationRunning(id) ? 'disabled' : ''}`;
-        menu.innerHTML = `<button role="menuitem" data-action="rename" ${idleAction}>Rename</button>${id === app.state.activeId && !conversationRunning(id) ? '<button role="menuitem" data-sdk="history" data-action="close-conversation-menu">Conversation branches</button>' : ''}<button role="menuitem" data-action="export" ${idleAction}>Export Markdown</button><button role="menuitem" class="destructive-menu-item" data-action="delete-conversation" ${idleAction}>Delete conversation</button>`;
-        positionContextMenu(trigger);
+        const idle = {conversationId: id};
+        const disabled = conversationRunning(id);
+        const items: ContextMenuItem[] = [{label: 'Rename', action: 'rename', idle, disabled}];
+        if (id === app.state.activeId && !conversationRunning(id)) items.push({label: 'Conversation branches', sdkAction: 'history', action: 'close-conversation-menu'});
+        items.push({label: 'Export Markdown', action: 'export', idle, disabled}, {label: 'Delete conversation', action: 'delete-conversation', danger: true, idle, disabled});
+        contextMenu.open(trigger, {label: 'Conversation actions', items});
     }
+
     function openWorkspaceMenu(id: string, trigger: HTMLElement): void {
         if (activity.busy || !app.state.workspaces.some((entry) => entry.id === id))
             return;
@@ -106,18 +109,7 @@ export function createConversationsUI(api: API) {
             return;
         menuWorkspaceId = id;
         trigger.setAttribute('aria-expanded', 'true');
-        const menu = $('conversation-menu');
-        menu.setAttribute('aria-label', 'Workspace actions');
-        menu.innerHTML = `<button role="menuitem" class="destructive-menu-item" data-action="remove-workspace" data-idle-action data-idle-workspace="${escape(id)}" ${workspaceRun(id) ? 'disabled' : ''}>Remove workspace</button>`;
-        positionContextMenu(trigger);
-    }
-    function positionContextMenu(trigger: HTMLElement): void {
-        const menu = $('conversation-menu');
-        menu.hidden = false;
-        const rect = trigger.getBoundingClientRect();
-        menu.style.left = `${Math.max(8, Math.min(rect.right, window.innerWidth - menu.offsetWidth - 8))}px`;
-        menu.style.top = `${Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8))}px`;
-        menu.querySelector<HTMLButtonElement>('button')?.focus();
+        contextMenu.open(trigger, {label: 'Workspace actions', items: [{label: 'Remove workspace', action: 'remove-workspace', danger: true, idle: {workspaceId: id}, disabled: !!workspaceRun(id)}]});
     }
     function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
         const busy = () => kind === 'workspace' ? !!workspaceRun(id) : conversationRunning(id);
@@ -174,7 +166,9 @@ export function createConversationsUI(api: API) {
         const conversation = app.state.conversations.find((entry) => entry.id === id);
         if (!conversation || conversationRunning(id))
             return;
-        $('rename-content').innerHTML = `${dialogHeading('Rename conversation', 'rename-title', 'rename-dialog', 'CONVERSATION')}<form id="rename-form"><label class="field-label" for="conversation-title">Title</label><input id="conversation-title" name="title" value="${escape(conversation.title || '')}" required autocomplete="off" /><div id="rename-error" class="form-error" role="alert"></div><div class="modal-footer"><button type="button" class="secondary-button" data-close="rename-dialog">Cancel</button><button type="submit" class="primary-button" data-idle-action data-idle-conversation="${escape(id)}">Save title</button></div></form>`;
+        renameEditor?.destroy();
+        renameEditor = createRenameConversation({id: id!, title: conversation.title || ''}, {idPrefix: ''});
+        $('rename-content').replaceChildren(renameEditor.element);
         showDialog('rename-dialog');
         $<HTMLInputElement>('conversation-title').select();
         $('rename-form').addEventListener('submit', async (event) => {
@@ -222,7 +216,9 @@ export function createConversationsUI(api: API) {
     }
     function openWorkspace(): void {
         closeSidebar();
-        $('workspace-content').innerHTML = `${dialogHeading('Workspaces', 'workspace-title', 'workspace-dialog', 'A PLACE TO WORK')}<p class="modal-description">Choose a local folder. Conversations belong to a workspace, so Pith knows where to read and create files.</p><div class="modal-workspaces">${app.state.workspaces.map((entry) => `<button class="modal-workspace" data-modal-workspace="${escape(entry.id)}">${icon('folder')}<span><strong>${escape(entry.name)}</strong><small>${escape(entry.path)}</small></span>${icon('chevron')}</button>`).join('')}</div><div class="workspace-add"><button class="picker-button" id="pick-folder" type="button">${icon('folder')}Choose a folder…</button><div class="path-divider"><span>or enter a folder path</span></div><form id="workspace-form"><label class="sr-only" for="workspace-path">Absolute folder path</label><input id="workspace-path" name="path" placeholder="/Users/you/Documents/my-work" required autocomplete="off" spellcheck="false" /><p class="field-hint">Use an existing folder on this computer. Pith will work inside it.</p><div id="workspace-error" class="form-error" role="alert"></div><div class="modal-footer"><button class="secondary-button" type="button" data-close="workspace-dialog">Cancel</button><button class="primary-button" id="add-workspace" type="submit">Add workspace</button></div></form></div>`;
+        workspacePicker?.destroy();
+        workspacePicker = createWorkspacePicker({workspaces: app.state.workspaces}, {idPrefix: ''});
+        $('workspace-content').replaceChildren(workspacePicker.element);
         $<HTMLDialogElement>('workspace-dialog').showModal();
         $('workspace-form').addEventListener('submit', async (event) => {
             event.preventDefault();

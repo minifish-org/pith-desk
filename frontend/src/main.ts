@@ -1,3 +1,4 @@
+import { createWorkspaceShell, setAppearance } from 'pith-ui';
 import { createApp,readAppBootstrap } from './app';
 import { installAppLifecycle } from './app-lifecycle';
 import type { State } from './app-state';
@@ -44,6 +45,7 @@ const appearanceMode = (value: unknown): AppearanceMode => value === 'light' || 
 const initialAppearance = appearanceMode(document.documentElement.dataset.appearance);
 
 function applyAppearance(mode: AppearanceMode): void {
+  setAppearance(document.documentElement, mode);
   document.documentElement.dataset.appearance = mode;
   document.documentElement.dataset.theme = mode === 'system' ? (systemAppearance.matches ? 'dark' : 'light') : mode;
 }
@@ -62,85 +64,16 @@ let nativeMenu: ReturnType<typeof installNativeMenu> | undefined;
 
 let disposed = false;
 
-const logo = '<span class="logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
+const logo = '<span class="pui-logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
-$('app').innerHTML = `
-  <aside class="sidebar" id="sidebar">
-    <div class="brand">${logo}<span>Pith<span class="brand-light"> Desk</span></span></div>
-    <div class="sidebar-section-label">WORKSPACES <button class="quiet-icon" data-action="workspace" aria-label="Manage workspaces">${icon('plus')}</button></div>
-    <label class="history-search">${icon('search')}<span class="sr-only">Search conversation titles</span><input id="history-search" type="search" placeholder="Search conversations" autocomplete="off" /></label>
-    <nav id="history-list" class="history-list" aria-label="Workspaces and conversations"></nav>
-    <div class="sidebar-bottom">
-      <button class="settings-button" data-action="resources">${icon('file')}<span>Workspace resources</span></button>
-      <button class="settings-button" data-action="connections">${icon('plug')}<span>Connections</span></button>
-      <button class="settings-button" data-action="settings">${icon('settings')}<span>Settings</span></button>
-      <div id="connection-status" class="local-status" role="status" hidden><span class="status-dot reconnecting" aria-hidden="true"></span><span>Reconnecting…</span></div>
-    </div>
-  </aside>
-  <div id="conversation-menu" class="sidebar-conversation-menu" role="menu" hidden></div>
-  <div class="sidebar-scrim" id="sidebar-scrim"></div>
-  <main class="main">
-    <header class="topbar">
-      <button class="quiet-icon mobile-menu" data-action="menu" aria-label="Open sidebar">${icon('menu')}</button>
-      <div class="breadcrumb">${icon('folder')}<span id="workspace-label">No workspace</span>${icon('chevron', 'breadcrumb-chevron')}<span class="breadcrumb-current" id="conversation-label">New conversation</span></div>
-      <div class="conversation-actions"><button class="quiet-icon compact-action" data-sdk="compact" data-sdk-idle title="Compress context by summarizing older messages" aria-label="Compress context">${icon('compress')}<span>Compact</span></button><div id="artifacts-control" class="artifacts-control" hidden><button id="artifacts-toggle" type="button" class="quiet-icon artifacts-toggle" aria-label="Conversation files" title="Conversation files" aria-expanded="false" aria-controls="artifacts">${icon('file')}<span id="artifacts-count" class="artifacts-count" aria-hidden="true"></span></button><section id="artifacts" class="artifacts-panel" aria-labelledby="artifacts-title" tabindex="-1" hidden></section></div></div>
-    </header>
-    <section id="conversation-find" class="conversation-find" aria-label="Find in conversation" hidden>
-      <input type="search" aria-label="Find in this conversation" placeholder="Find in this conversation" autocomplete="off" />
-      <span data-find-count role="status" aria-live="polite"></span>
-      <button type="button" class="quiet-icon find-previous" data-find-previous aria-label="Previous match" title="Previous match (Shift+Enter)">${icon('down')}</button>
-      <button type="button" class="quiet-icon" data-find-next aria-label="Next match" title="Next match (Enter)">${icon('down')}</button>
-      <button type="button" class="quiet-icon" data-find-close aria-label="Close search" title="Close (Esc)">${icon('close')}</button>
-    </section>
-    <div class="conversation-region"><section id="chat-scroll" class="chat-scroll" aria-label="Conversation" tabindex="-1">
-      <div id="welcome" class="welcome"></div>
-      <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text"></div>
-    </section><button id="back-to-latest" type="button" class="secondary-button back-to-latest" hidden>${icon('down')}<span>Back to latest</span></button></div>
-    <div class="composer-region">
-      <div class="composer-panels">
-      <div id="approval" class="approval-region"></div>
-      <div id="workspace-busy" class="workspace-busy" hidden></div><div id="inline-error" class="inline-error" role="alert" hidden></div>
-      <section id="task-failure" class="task-failure" role="status" hidden></section>
-      <details id="run-status" class="run-status" hidden><summary id="run-status-summary"></summary><div id="run-status-details"><div id="runtime-values"></div><details id="cost-requests" class="cost-requests" hidden><summary>Request breakdown</summary><div id="cost-ledger"></div></details></div></details>
-      <section id="queued-messages" class="queued-messages" aria-label="Pending messages" aria-live="polite" hidden></section>
-      </div>
-      <form id="composer-form" class="composer">
-        <div id="draft-images" class="draft-images" aria-label="Image attachments" hidden></div>
-        <input id="image-picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden />
-        <textarea id="composer-input" rows="1" placeholder="Ask Pith to help with your work…" aria-label="Message Pith"></textarea>
-        <div class="composer-toolbar">
-          <div class="composer-context">
-            <button id="attach-images" type="button" class="quiet-icon attach-images" data-action="attach-images" aria-label="Attach images" title="Attach images">${icon('image')}</button>
-            <label class="permission-control" id="permission-control">${icon('shield')}<span class="sr-only">Conversation permissions</span><select id="permission-mode" aria-describedby="permission-description"><option value="ask">Ask before changes</option><option value="workspace-write">Allow workspace changes</option><option value="full-access">Full access</option></select>${icon('down')}</label>
-          </div>
-          <div class="composer-actions"><button id="composer-model" type="button" class="composer-model" data-action="model" data-idle-action data-global-idle aria-label="Choose model">Choose model</button><label class="composer-thinking"><span class="sr-only">Thinking effort</span><select id="composer-thinking" aria-label="Thinking effort"></select></label><button id="send-button" class="send-button" type="submit" aria-label="Send message">${icon('arrow')}</button></div>
-        </div>
-      </form>
-      <p id="image-guidance" class="composer-note image-guidance" hidden></p>
-      <p class="composer-note" id="permission-description">Pith can read workspace files. Changes and commands require your approval.</p>
-    </div>
-  </main>
-  <section id="completion-notices" class="completion-notices" aria-label="Completed tasks" aria-live="polite"></section>
-  <span id="copy-status" class="sr-only" role="status" aria-live="polite"></span>
-  <dialog id="model-dialog" class="modal model-modal" aria-labelledby="model-title"><div id="model-content"></div></dialog>
-  <dialog id="settings-dialog" class="modal" aria-labelledby="settings-title"><div id="settings-content"></div></dialog>
-  <dialog id="workspace-dialog" class="modal" aria-labelledby="workspace-title"><div id="workspace-content"></div></dialog>
-  <dialog id="permissions-dialog" class="modal permission-modal" aria-labelledby="full-access-title"><div id="permissions-content"></div></dialog>
-  <dialog id="delete-dialog" class="modal" aria-labelledby="delete-title"><div id="delete-content"></div></dialog>
-  <dialog id="rename-dialog" class="modal" aria-labelledby="rename-title"><div id="rename-content"></div></dialog>
-  <dialog id="queue-edit-dialog" class="modal" aria-labelledby="queue-edit-title"><div id="queue-edit-content"></div></dialog>
-  <dialog id="message-edit-dialog" class="modal" aria-labelledby="message-edit-title"><div id="message-edit-content"></div></dialog>
-  <dialog id="resources-dialog" class="modal feature-modal" aria-labelledby="resources-title"><div id="resources-content"></div></dialog>
-  <dialog id="connections-dialog" class="modal feature-modal" aria-labelledby="connections-title"><div id="connections-content"></div></dialog>
-  <dialog id="preview-dialog" class="modal file-preview-modal" aria-labelledby="preview-title"><div id="preview-content"></div></dialog>
-  <dialog id="image-dialog" class="modal image-viewer" aria-labelledby="image-viewer-title">
-    <div class="modal-heading"><h2 id="image-viewer-title">Image</h2><button type="button" class="quiet-icon" data-image-close aria-label="Close image">${icon('close')}</button></div>
-    <div class="image-viewer-viewport"><img alt="" /></div>
-    <div class="image-viewer-toolbar"><span data-image-scale role="status"></span><div><button type="button" class="secondary-button" data-image-out aria-label="Zoom out">−</button><button type="button" class="secondary-button" data-image-in aria-label="Zoom in">+</button><button type="button" class="secondary-button" data-image-fit>Fit</button><button type="button" class="secondary-button" data-image-original>Original size</button></div></div>
-  </dialog>
-`;
+const brand = document.createElement('span');
+brand.innerHTML = logo + '<span>Pith<span class="pui-brand-light"> Desk</span></span>';
+brand.style.display = 'contents';
+const workspaceShell = createWorkspaceShell({ brand, prefix: '' });
+$('app').replaceChildren(workspaceShell.element);
+
 
 const input = $<HTMLTextAreaElement>('composer-input');
 const imageViewer = installImageViewer($<HTMLDialogElement>('image-dialog'));
@@ -166,7 +99,7 @@ const tasks = createTaskControls({ view: app, activity, request, download, mutat
 const { clearHistoryImages } = messages;
 const messageEditor = createMessageEditor({ view: app, activity, mutate, showDialog, followLatest: () => messages.followLatest() });
 const { activePermissionMode, renderRuntime, exportDiagnostics, renderApproval, renderPermissions, confirmFullAccess } = tasks;
-const composer = createComposer({ view: app, activity, input, request, mutate, refresh, render, selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), openSettings: () => settings.openSettings(), showDialog, followLatest: () => messages.followLatest(), disposed: () => disposed });
+const composer = createComposer({ view: app, activity, input, request, mutate, refresh, render, selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), openSettings: () => settings.openSettings(), showDialog, followLatest: () => messages.followLatest(), disposed: () => disposed, resizeInput: () => workspaceShell.composer.resize() });
 const files = createFilesUI({ view: app, activity, request, download, render, selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), conversationRunning, showDialog, nativeClipboard, resourceActions: (...args) => sdkUI.resourceActions(...args) });
 const settings = createSettingsUI({ view: app, activity, request, mutate, render, closeSidebar, showDialog, anyRunning, appearanceMode, applyAppearance, providerActions: (provider) => sdkUI.providerActions(provider) });
 const conversations = createConversationsUI({ view: app, activity, input, request, download, mutate, render, closeSidebar, showDialog, workspaceRun, conversationRunning, historyStatus, confirmRemoval, removeWorkspaceResources: (id) => files.removeWorkspace(id), clearHistoryImages, loadComposerDraft: () => composer.loadComposerDraft(), resizeComposer: () => composer.resizeComposer() });
@@ -211,7 +144,7 @@ function render(): void {
   busyNotice.hidden = !blocked;
   if (blocked && busyNotice.dataset.conversation !== blocked.conversationId) {
     busyNotice.dataset.conversation = blocked.conversationId;
-    busyNotice.innerHTML = `<span>A task is running in this workspace or an overlapping folder.</span><button class="text-button" type="button" data-conversation="${escape(blocked.conversationId)}">Open running conversation</button>`;
+    busyNotice.innerHTML = `<span>A task is running in this workspace or an overlapping folder.</span><button class="pui-text-button" type="button" data-conversation="${escape(blocked.conversationId)}">Open running conversation</button>`;
   }
   const error = activity.error || app.state.error || '';
   $('inline-error').hidden = !error || (!activity.error && !!app.state.failure);
@@ -223,7 +156,7 @@ function render(): void {
   const buttonType = stopping ? 'button' : 'submit';
   if (sendButton.type !== buttonType) sendButton.innerHTML = icon(stopping ? 'stop' : 'arrow');
   sendButton.type = buttonType;
-  sendButton.classList.toggle('is-stop', stopping);
+  sendButton.classList.toggle('pui-is-stop', stopping);
   if (stopping) sendButton.dataset.action = 'stop'; else delete sendButton.dataset.action;
   sendButton.disabled = stopping ? activity.busy : !app.loaded || activity.busy || composer.draftLoading || composer.readingImages || composer.resolvingReferences || !hasDraft || (!!composer.draftImages.length && !app.state.settings.supportsImages) || !workspace || !app.state.settings.hasApiKey || (!app.state.running && !!workspaceRun(workspace?.id));
   const buttonLabel = stopping ? 'Stop agent' : app.state.running ? 'Queue message' : 'Send message';
@@ -271,7 +204,7 @@ $<HTMLSelectElement>('composer-thinking').addEventListener('change', async (even
   await mutate('/api/model-selection', { provider: app.state.settings.provider, model: app.state.settings.model, thinkingLevel });
 });
 
-function closeSidebar(): void { $('sidebar').classList.remove('open'); $('sidebar-scrim').classList.remove('visible'); }
+function closeSidebar(): void { $('sidebar').classList.remove('pui-open'); $('sidebar-scrim').classList.remove('pui-visible'); }
 
 $('image-picker').addEventListener('change', (event) => {
   const picker = event.currentTarget as HTMLInputElement;
@@ -283,7 +216,7 @@ input.addEventListener('paste', (event) => {
   const files = Array.from(event.clipboardData?.items || []).filter((item) => item.kind === 'file' && item.type.startsWith('image/')).map((item) => item.getAsFile()).filter((file): file is File => !!file);
   if (files.length) { event.preventDefault(); void addImageFiles(files); }
 });
-installWorkspaceFileDrop({
+const removeFileDrop = installWorkspaceFileDrop({
   form: $('composer-form'), input, native: nativeFileDrop,
   busy: () => activity.busy || composer.draftLoading || !app.loaded,
   context: () => `${selectedWorkspace()?.id}/${app.state.activeId}/${composer.draftGeneration}`,
@@ -307,7 +240,7 @@ nativeMenu = installNativeMenu({
 document.addEventListener('click', async (event) => {
   const clicked = event.target as HTMLElement;
   if (files.artifactsOpen && !clicked.closest('#artifacts-control, #preview-dialog, #image-dialog')) setArtifactsOpen(false);
-  if (clicked instanceof HTMLImageElement && clicked.matches('.history-image, .draft-image img, .file-preview-image')) { imageViewer.open(clicked); return; }
+  if (clicked instanceof HTMLImageElement && clicked.matches('.pui-history-image, .pui-draft-image img, .pui-file-preview-image')) { imageViewer.open(clicked); return; }
   if (!clicked.closest('#conversation-menu, [data-conversation-menu], [data-workspace-menu]')) closeConversationMenu();
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, a[data-download-path]');
   if (!target) return;
@@ -319,7 +252,7 @@ document.addEventListener('click', async (event) => {
   if (target.id === 'artifacts-toggle') { setArtifactsOpen(!files.artifactsOpen); return; }
   if (target.hasAttribute('data-artifacts-close')) { setArtifactsOpen(false, true); return; }
   if (target.hasAttribute('data-copy-code') && !(target as HTMLButtonElement).disabled) {
-    const code = target.closest('.code-block')?.querySelector('pre > code');
+    const code = target.closest('.pui-code-block')?.querySelector('pre > code');
     if (code) await copyWithFeedback(target as HTMLButtonElement, () => copyText(code.textContent || ''), 'Code copied.');
     return;
   }
@@ -438,20 +371,20 @@ document.addEventListener('click', async (event) => {
     case 'refresh-mcp': await loadMCP(); break;
     case 'new-mcp': editMCP(); break;
     case 'toggle-env': {
-      const revealed = $<HTMLTextAreaElement>('mcp-env').classList.toggle('revealed');
+      const revealed = $<HTMLTextAreaElement>('mcp-env').classList.toggle('pui-revealed');
       $('mcp-env-visibility').setAttribute('aria-pressed', String(revealed));
       $('mcp-env-visibility').textContent = revealed ? 'Hide' : 'Show';
       break;
     }
     case 'stop': if (app.state.running && !activity.busy) await mutate('/api/abort', { id: app.state.activeId }); break;
-    case 'menu': $('sidebar').classList.add('open'); $('sidebar-scrim').classList.add('visible'); break;
+    case 'menu': $('sidebar').classList.add('pui-open'); $('sidebar-scrim').classList.add('pui-visible'); break;
   }
 });
 
 $('sidebar-scrim').addEventListener('click', closeSidebar);
 $<HTMLInputElement>('history-search').addEventListener('input', (event) => { conversations.search((event.currentTarget as HTMLInputElement).value); });
 $('composer-form').addEventListener('submit', (event) => { event.preventDefault(); void send(); });
-input.addEventListener('input', () => { rememberDraft(); resizeComposer(); render(); });
+input.addEventListener('input', () => { rememberDraft(); render(); });
 input.addEventListener('blur', () => { rememberDraft(); void drafts.flush(composer.composerScope).catch(() => {}); });
 $<HTMLSelectElement>('permission-mode').addEventListener('change', async (event) => {
   const mode = (event.currentTarget as HTMLSelectElement).value as PermissionMode;
@@ -472,7 +405,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && files.artifactsOpen && !document.querySelector('dialog[open]')) {
     event.preventDefault(); setArtifactsOpen(false, true); return;
   }
-  if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLImageElement && event.target.matches('.history-image, .draft-image img, .file-preview-image')) {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLImageElement && event.target.matches('.pui-history-image, .pui-draft-image img, .pui-file-preview-image')) {
     event.preventDefault(); imageViewer.open(event.target); return;
   }
   if (conversations.menuConversationId || conversations.menuWorkspaceId) {
@@ -491,8 +424,9 @@ document.addEventListener('keydown', (event) => {
 $('history-list').addEventListener('scroll', () => closeConversationMenu(), { passive: true });
 window.addEventListener('resize', () => closeConversationMenu());
 for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog')) {
-  if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => tasks.closePermissions());
+  if (dialog.id === 'permissions-dialog') dialog.addEventListener('close', () => { if (!dialog.open) tasks.closePermissions(); });
   dialog.addEventListener('close', () => {
+    if (dialog.open) return;
     if (dialog.id === 'preview-dialog' && !dialog.open) clearFilePreview();
     acknowledgeViewedCompletion();
     if (dialog.id === 'queue-edit-dialog') composer.closeQueueEditor();
@@ -524,9 +458,19 @@ const removeLifecycle = installAppLifecycle({
     app.dispose();
     removeLifecycle();
     nativeMenu?.dispose();
+    removeFileDrop();
     window.clearInterval(runtimeClock);
     clearDraftImages();
     clearHistoryImages();
+    messages.destroy();
+    imageViewer.destroy();
+    composer.destroy();
+    files.destroy();
+    completionUI.destroy();
+    costUI.destroy();
+    messageEditor.destroy();
+    confirmRemoval.destroy();
+    workspaceShell.destroy();
   },
 });
 systemAppearance.addEventListener('change', () => {

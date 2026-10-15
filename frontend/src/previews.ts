@@ -1,69 +1,15 @@
-import DOMPurify from 'dompurify';
-import { marked, Renderer } from 'marked';
+import { renderMarkdown as renderContentMarkdown } from 'pith-ui';
 import { localFilePath } from './local-file-links.ts';
 
-export const escapeHTML = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+export { renderDiff } from 'pith-ui';
+export { escape as escapeHTML } from './ui.ts';
 
-// Replies and file previews share the same rendering policy. Local HTML, SVG,
-// remote images and scripts are never executed inside the trusted UI.
+// File identity and permissions belong to the host; content rendering belongs to the library.
 export function renderMarkdown(value: string, conversationId = ''): string {
-  const localLinks = new Map<string, string>();
-  const renderer = new Renderer();
-  renderer.link = function(token) {
-    const path = conversationId ? localFilePath(token.href) : null;
-    if (path) {
-      const marker = `#desk-file-${localLinks.size}`;
-      localLinks.set(marker, path);
-      return Renderer.prototype.link.call(this, { ...token, href: marker });
-    }
-    return Renderer.prototype.link.call(this, token);
-  };
-  const html = marked.parse(value, { async: false, breaks: true, renderer }) as string;
-  const safe = DOMPurify.sanitize(html, {
-    FORBID_TAGS: ['img', 'video', 'audio', 'iframe', 'object', 'embed', 'svg', 'math', 'style', 'form', 'input', 'button'],
-    FORBID_ATTR: ['style', 'src', 'srcset'],
-    ALLOW_DATA_ATTR: false,
+  return renderContentMarkdown(value, {
+    resolveLocalLink: conversationId ? (href) => {
+      const path = localFilePath(href);
+      return path ? { path, conversationId } : null;
+    } : undefined,
   });
-  const container = document.createElement('div');
-  container.innerHTML = safe;
-  for (const link of container.querySelectorAll('a')) {
-    const href = link.getAttribute('href') ?? '';
-    const path = conversationId ? localLinks.get(href) || localFilePath(href) : null;
-    if (path) {
-      link.setAttribute('href', '#');
-      link.dataset.downloadPath = path;
-      link.dataset.downloadConversation = conversationId;
-      link.title = `Save file: ${path}`;
-    } else if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href)) {
-      link.setAttribute('target', '_blank');
-      link.setAttribute('rel', 'noopener noreferrer');
-    } else link.replaceWith(...link.childNodes);
-  }
-  for (const code of container.querySelectorAll('pre > code')) {
-    const pre = code.parentElement!;
-    const block = document.createElement('div');
-    block.className = 'code-block';
-    const toolbar = document.createElement('div');
-    toolbar.className = 'code-toolbar';
-    toolbar.dataset.findIgnore = '';
-    const language = document.createElement('span');
-    language.textContent = [...code.classList].find((name) => name.startsWith('language-'))?.slice(9) || 'Code';
-    const copy = document.createElement('button');
-    copy.type = 'button';
-    copy.className = 'secondary-button code-copy';
-    copy.dataset.copyCode = '';
-    copy.textContent = 'Copy';
-    copy.setAttribute('aria-label', 'Copy code');
-    toolbar.append(language, copy);
-    pre.replaceWith(block);
-    block.append(toolbar, pre);
-  }
-  return container.innerHTML;
-}
-
-export function renderDiff(diff: string): string {
-  return diff.split('\n').map((line) => {
-    const kind = line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@') ? 'meta' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'remove' : 'context';
-    return `<span class="diff-line diff-${kind}">${escapeHTML(line) || ' '}</span>`;
-  }).join('');
 }

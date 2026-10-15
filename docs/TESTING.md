@@ -56,7 +56,7 @@ login use a shared dialog generation so an older response cannot replace a
 newer feature dialog. Cross-feature coordination stays in main through queries
 and callbacks, with the existing application-wide mutation gate.
 
-`frontend/tests/feature-controllers.test.mjs` verifies late draft reads across
+`frontend/e2e/feature-controllers.spec.ts` verifies late draft reads across
 conversation selection, a resource read overtaken by history, and dialog-close
 invalidation. The 40 Chromium/WebKit scenarios cover DOM selection, tool folds,
 reading position, image drafts, original mutation targets and real Host

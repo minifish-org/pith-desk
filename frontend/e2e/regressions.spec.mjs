@@ -10,9 +10,9 @@ test.beforeEach(async ({ page }) => {
 test('stream updates preserve historical selection, code scroll and focus', async ({ page }) => {
   const result = await page.evaluate(() => {
     const range = document.createRange(), selection = getSelection();
-    range.selectNodeContents(document.querySelector('.user-text'));
+    range.selectNodeContents(document.querySelector('.pui-user-text'));
     selection.removeAllRanges(); selection.addRange(range);
-    const pre = document.querySelector('.code-block pre'); pre.scrollLeft = 100;
+    const pre = document.querySelector('.pui-code-block pre'); pre.scrollLeft = 100;
     const historical = document.querySelector('[data-reading-id="old-answer"]');
     window.reviewState.messages.at(-1).text += ' updated'; window.emitReview();
     return { selected: selection.toString(), scroll: pre.scrollLeft, sameNode: historical === document.querySelector('[data-reading-id="old-answer"]') };
@@ -30,13 +30,13 @@ test('text and image drafts restore together after switching and reload', async 
     const transfer = new DataTransfer(); transfer.items.add(new File([png], 'draft-image.png', { type: 'image/png' }));
     const picker = document.querySelector('#image-picker'); picker.files = transfer.files; picker.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await expect(page.locator('.draft-image')).toHaveCount(1);
+  await expect(page.locator('.pui-draft-image')).toHaveCount(1);
   await page.locator('#composer-input').fill('Keep this draft');
   await page.locator('[data-conversation="b"]').click();
-  await expect(page.locator('.draft-image')).toHaveCount(0);
+  await expect(page.locator('.pui-draft-image')).toHaveCount(0);
   await expect(page.locator('#composer-input')).toHaveValue('');
   await page.locator('[data-conversation="a"]').click();
-  await expect(page.locator('.draft-image')).toHaveCount(1);
+  await expect(page.locator('.pui-draft-image')).toHaveCount(1);
   await expect(page.locator('#composer-input')).toHaveValue('Keep this draft');
   // Host storage lives outside a browser origin; seed it into a fresh frontend.
   await page.locator('#composer-input').blur();
@@ -44,7 +44,7 @@ test('text and image drafts restore together after switching and reload', async 
   const saved = await page.evaluate(() => window.review.drafts.a);
   await page.addInitScript((draft) => { window.review.drafts.a = draft; }, saved);
   await page.reload();
-  await expect(page.locator('.draft-image')).toHaveCount(1);
+  await expect(page.locator('.pui-draft-image')).toHaveCount(1);
   await expect(page.locator('#composer-input')).toHaveValue('Keep this draft');
 });
 
@@ -70,7 +70,7 @@ test('resource edits keep the dialog workspace after a notification switches con
   await page.locator('[data-action="resources"]').click();
   await page.evaluate(() => { window.reviewState.activeId = 'b'; window.reviewState.conversations.find(c => c.id === 'b').workspaceId = 'other'; window.emitReview(); });
   await page.locator('#resources-content [data-kind="skill"]').click();
-  await expect(page.locator('#sdk-content .file-path')).toHaveText('/tmp/pith-review');
+  await expect(page.locator('#sdk-content .pui-file-path')).toHaveText('/tmp/pith-review');
   expect(await page.evaluate(() => window.reviewState.activeId)).toBe('b');
   await page.locator('#resource-name').fill('fixture-skill');
   await page.locator('#resource-form [type="submit"]').click();
@@ -80,7 +80,7 @@ test('resource edits keep the dialog workspace after a notification switches con
 test('dialogs share accessible headings, close icons and form control sizes', async ({ page }, testInfo) => {
   await page.locator('[data-action="resources"]').click();
   await page.locator('#resources-content [data-kind="skill"]').click();
-  const resource = await page.locator('#sdk-dialog').evaluate(dialog => ({ label: dialog.getAttribute('aria-labelledby'), title: dialog.querySelector('h2').id, icon: !!dialog.querySelector('[data-close] svg'), height: dialog.querySelector('[type="submit"]').getBoundingClientRect().height, font: getComputedStyle(dialog.querySelector('.field-label')).fontSize }));
+  const resource = await page.locator('#sdk-dialog').evaluate(dialog => ({ label: dialog.getAttribute('aria-labelledby'), title: dialog.querySelector('h2').id, icon: !!dialog.querySelector('[data-close] svg'), height: dialog.querySelector('[type="submit"]').getBoundingClientRect().height, font: getComputedStyle(dialog.querySelector('.pui-field-label')).fontSize }));
   await page.locator('#sdk-dialog').screenshot({ path: `output/playwright/final-resource-${testInfo.project.name}.png` });
   expect(resource).toEqual({ label: 'sdk-title', title: 'sdk-title', icon: true, height: 40, font: '13px' });
   await page.locator('#sdk-dialog [data-close]').first().click();
@@ -88,7 +88,7 @@ test('dialogs share accessible headings, close icons and form control sizes', as
   await page.locator('#sidebar [data-action="settings"]').click();
   await expect(page.locator('#save-settings')).toBeEnabled();
   await page.locator('#settings-dialog').screenshot({ path: `output/playwright/final-settings-${testInfo.project.name}.png` });
-  expect(await page.locator('#settings-dialog').evaluate(dialog => ({ label: dialog.getAttribute('aria-labelledby'), title: dialog.querySelector('h2').id, icon: !!dialog.querySelector('[data-close] svg'), height: dialog.querySelector('#save-settings').getBoundingClientRect().height, font: getComputedStyle(dialog.querySelector('.field-label')).fontSize }))).toEqual({ label: 'settings-title', title: 'settings-title', icon: true, height: 40, font: '13px' });
+  expect(await page.locator('#settings-dialog').evaluate(dialog => ({ label: dialog.getAttribute('aria-labelledby'), title: dialog.querySelector('h2').id, icon: !!dialog.querySelector('[data-close] svg'), height: dialog.querySelector('#save-settings').getBoundingClientRect().height, font: getComputedStyle(dialog.querySelector('.pui-field-label')).fontSize }))).toEqual({ label: 'settings-title', title: 'settings-title', icon: true, height: 40, font: '13px' });
 });
 
 test('connection probes keep Save disabled across stream snapshots', async ({ page }) => {
@@ -146,7 +146,7 @@ test('search marks and tool folds preserve historical reading nodes while stream
   await page.keyboard.press('Meta+f');
   await page.locator('#conversation-find input').fill('Stable');
   const selected = await page.evaluate(() => {
-    const text = document.querySelector('.user-text'), range = document.createRange();
+    const text = document.querySelector('.pui-user-text'), range = document.createRange();
     range.selectNodeContents(text); getSelection().removeAllRanges(); getSelection().addRange(range);
     window.reviewState.messages.at(-1).text += ' updated'; window.emitReview();
     return getSelection().toString();
@@ -154,10 +154,10 @@ test('search marks and tool folds preserve historical reading nodes while stream
   expect(selected).toBe('Stable historical text to select');
   await page.keyboard.press('Escape');
   await page.evaluate(() => { window.reviewState.messages.splice(1, 0, { id: 'tool-a', role: 'tool', toolCallId: 'call-a', toolName: 'read_file', text: 'Completed tool', status: 'done' }); window.emitReview(); });
-  await page.locator('.tool-group > summary').click();
-  await page.locator('.tool-message > summary').click();
+  await page.locator('.pui-tool-group > summary').click();
+  await page.locator('.pui-tool-message > summary').click();
   await page.evaluate(() => { window.reviewState.messages.splice(2, 0, { id: 'tool-b', role: 'tool', toolCallId: 'call-b', toolName: 'read_file', text: 'New tool', status: 'running' }); window.emitReview(); });
-  expect(await page.locator('.tool-group').evaluate(node => node.open)).toBe(true);
+  expect(await page.locator('.pui-tool-group').evaluate(node => node.open)).toBe(true);
   expect(await page.locator('[data-reading-id="tool-a"]').evaluate(node => node.open)).toBe(true);
 });
 
@@ -171,12 +171,12 @@ test('first image send preserves its draft and target when creation refresh fail
     const files = new DataTransfer(); files.items.add(new File([bytes], 'first.png', { type: 'image/png' }));
     const picker = document.querySelector('#image-picker'); picker.files = files.files; picker.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await expect(page.locator('.draft-image')).toHaveCount(1);
+  await expect(page.locator('.pui-draft-image')).toHaveCount(1);
   await page.locator('#send-button').click();
   await expect(page.locator('#inline-error')).toContainText('Fixture action rejected');
   await page.evaluate(() => window.emitReview());
   await expect(page.locator('#composer-input')).toHaveValue('Keep the first image draft');
-  await expect(page.locator('.draft-image')).toHaveCount(1);
+  await expect(page.locator('.pui-draft-image')).toHaveCount(1);
   expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversations').length)).toBe(1);
   expect(await page.evaluate(() => window.review.requests.find(r => r.path === '/api/send').body.id)).toBe('created-2');
 });

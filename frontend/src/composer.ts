@@ -3,7 +3,7 @@ import type { DraftScope, ImageContent, QueuedMessage, DraftImage as WireDraftIm
 import { createDrafts, draftKey } from './drafts.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
 import { imagePreviewBlob } from './image-viewer.ts';
-import { dialogHeading, escape, icon } from './ui.ts';
+import { createPendingMessages, createAttachments, createTextEditDialog } from 'pith-ui';
 type ImageInput = ImageContent & {
     type: 'image';
 };
@@ -27,6 +27,7 @@ type API = {
     showDialog: (id: string) => void;
     followLatest: () => void;
     disposed: () => boolean;
+    resizeInput: () => void;
 };
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 export function createComposer(api: API) {
@@ -44,6 +45,23 @@ export function createComposer(api: API) {
     let draftLoading = false;
     let composerDraftReady: Promise<void> = Promise.resolve();
     let draftLoadGeneration = 0;
+    const pendingView = createPendingMessages({ container: $('queued-messages') });
+    const attachmentsView = createAttachments({ container: $('draft-images') });
+    const queueEditor = createTextEditDialog({
+        dialog: $<HTMLDialogElement>('queue-edit-dialog'), title: 'Edit pending message', submitLabel: 'Save message',
+        ids: { form: 'queue-edit-form', control: 'queue-edit-text', submit: 'queue-edit-save', error: 'queue-edit-error', title: 'queue-edit-title' },
+        onInput: renderQueueEditor,
+        onClose: () => { queueEditTarget = null; },
+        onSubmit: async text => {
+            const target = queueEditTarget;
+            const entry = target && app.state.queuedMessages.find(entry => entry.id === target.messageId);
+            if (!target || target.conversationId !== app.state.activeId || !entry || activity.busy || (!text.trim() && !entry.imageCount))
+                return { ok: false, error: 'This message is no longer pending. Your draft is kept here so you can copy it.' };
+            const ok = await mutate('/api/queue/edit', { id: target.conversationId, messageId: target.messageId, text }, () => { if (queueEditTarget === target) queueEditor.close(); });
+            return ok ? { ok: true } : { ok: false, error: activity.error };
+        },
+    });
+    queueEditor.control.rows = 5;
     const drafts = createDrafts(request, (message) => { if (!api.disposed()) {
         activity.error = message;
         render();
@@ -94,52 +112,26 @@ export function createComposer(api: API) {
         });
     }
     function renderQueue(): void {
-        const queued = app.state.queuedMessages || [];
         renderQueueEditor();
-        const signature = JSON.stringify([app.state.activeId, queued, app.state.running, activity.busy]);
-        if (signature === queueSignature)
-            return;
-        queueSignature = signature;
-        $('queued-messages').hidden = !queued.length;
-        $('queued-messages').innerHTML = queued.length ? `<div class="section-heading">Pending messages</div>${queued.map((entry) => {
-            const disabled = activity.busy ? 'disabled' : '';
-            const actions = `data-queued-message="${escape(entry.id)}"`;
-            return `<div class="queued-message">${entry.mode === 'steer' ? '<span class="queue-badge">Instruction</span>' : ''}<div class="queued-message-content"><span class="queued-message-text" title="${escape(entry.text)}">${escape(entry.text || 'Image attachment')}</span>${entry.imageCount ? `<small class="queue-image-count">${entry.imageCount} image${entry.imageCount === 1 ? '' : 's'}</small>` : ''}</div><div class="queued-message-actions">${entry.mode === 'follow-up' && app.state.running ? `<button type="button" class="quiet-icon queue-steer" data-queue-action="steer" ${actions} title="Steer the current task at its next turn" ${disabled}>${icon('steer')}<span>Steer</span></button>` : ''}<button type="button" class="quiet-icon" data-queue-action="edit" ${actions} aria-label="Edit pending message" title="Edit message" ${disabled}>${icon('edit')}</button><button type="button" class="quiet-icon" data-queue-action="delete" ${actions} aria-label="Delete pending message" title="Delete message" ${disabled}>${icon('trash')}</button></div></div>`;
-        }).join('')}` : '';
+        pendingView.update({ items: app.state.queuedMessages || [], running: app.state.running, busy: activity.busy });
     }
     function renderQueueEditor(): void {
-        if (!queueEditTarget)
-            return;
-        const pending = queueEditTarget.conversationId === app.state.activeId && app.state.queuedMessages.some((entry) => entry.id === queueEditTarget!.messageId);
-        const save = $<HTMLButtonElement>('queue-edit-save');
-        const text = $<HTMLTextAreaElement>('queue-edit-text');
-        const entry = app.state.queuedMessages.find((entry) => entry.id === queueEditTarget!.messageId);
-        save.disabled = activity.busy || !pending || (!text.value.trim() && !entry?.imageCount);
-        text.disabled = activity.busy;
-        if (!pending)
-            $('queue-edit-error').textContent = 'This message is no longer pending. Your draft is kept here so you can copy it.';
+        if (!queueEditTarget) return;
+        const pending = queueEditTarget.conversationId === app.state.activeId && app.state.queuedMessages.some(entry => entry.id === queueEditTarget!.messageId);
+        const entry = app.state.queuedMessages.find(entry => entry.id === queueEditTarget!.messageId);
+        queueEditor.update({ title: 'Edit pending message', submitLabel: 'Save message',
+            disabled: activity.busy || !pending || (!queueEditor.getValue().trim() && !entry?.imageCount), inputDisabled: activity.busy,
+            note: entry?.imageCount ? entry.imageCount + ' attached image' + (entry.imageCount === 1 ? '' : 's') + ' will be kept.' : '',
+            error: !pending ? 'This message is no longer pending. Your draft is kept here so you can copy it.' : '',
+        });
     }
     function openQueueEditor(entry: QueuedMessage): void {
-        if (activity.busy || !app.state.activeId)
-            return;
+        if (activity.busy || !app.state.activeId) return;
         queueEditTarget = { conversationId: app.state.activeId, messageId: entry.id };
-        $('queue-edit-content').innerHTML = `${dialogHeading('Edit pending message', 'queue-edit-title', 'queue-edit-dialog', 'Pending message')}<form id="queue-edit-form"><label class="field-label" for="queue-edit-text">Message</label><textarea id="queue-edit-text" class="queue-edit-text" rows="5"></textarea>${entry.imageCount ? `<p class="settings-note">${entry.imageCount} attached image${entry.imageCount === 1 ? '' : 's'} will be kept.</p>` : ''}<p id="queue-edit-error" class="form-error" role="alert"></p><div class="queue-edit-actions"><button type="button" class="secondary-button" data-close="queue-edit-dialog">Cancel</button><button id="queue-edit-save" type="submit" class="primary-button">Save message</button></div></form>`;
-        const editor = $<HTMLTextAreaElement>('queue-edit-text');
-        editor.value = entry.text;
-        editor.addEventListener('input', renderQueueEditor);
-        $('queue-edit-form').addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const target = queueEditTarget;
-            if (!target || $<HTMLButtonElement>('queue-edit-save').disabled)
-                return;
-            $('queue-edit-error').textContent = '';
-            if (!await mutate('/api/queue/edit', { id: target.conversationId, messageId: target.messageId, text: editor.value }, () => $<HTMLDialogElement>('queue-edit-dialog').close())) {
-                $('queue-edit-error').textContent = activity.error;
-            }
-        });
+        queueEditor.open({ value: entry.text, title: 'Edit pending message' });
         renderQueueEditor();
         showDialog('queue-edit-dialog');
-        editor.focus();
+        queueEditor.focus();
     }
     async function send(): Promise<void> {
         const draft = input.value;
@@ -241,7 +233,7 @@ export function createComposer(api: API) {
     }
     function renderDraftImages(): void {
         $('draft-images').hidden = !draftImages.length;
-        $('draft-images').innerHTML = draftImages.map((image) => `<figure class="draft-image"><img src="${escape(image.url)}" alt="${escape(image.name)}" role="button" tabindex="0" title="Click to enlarge" /><figcaption>${escape(image.name)}</figcaption><button type="button" class="remove-image" data-remove-image="${image.id}" aria-label="Remove ${escape(image.name)}" ${activity.busy || readingImages ? 'disabled' : ''}>${icon('close')}</button></figure>`).join('');
+        attachmentsView.update({ items: draftImages, disabled: activity.busy || readingImages });
         $<HTMLButtonElement>('attach-images').disabled = activity.busy || readingImages || draftLoading || !app.loaded;
         const guidance = $('image-guidance');
         guidance.hidden = !draftImages.length;
@@ -310,6 +302,6 @@ export function createComposer(api: API) {
             render();
         }
     }
-    function resizeComposer(): void { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; }
-    return { rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, resizeComposer, drafts, get draftImages() { return draftImages; }, get readingImages() { return readingImages; }, get draftLoading() { return draftLoading; }, get draftGeneration() { return draftGeneration; }, get composerScope() { return composerScope; }, get resolvingReferences() { return resolvingReferences; }, set resolvingReferences(value: boolean) { resolvingReferences = value; }, closeQueueEditor() { queueEditTarget = null; } };
+    function resizeComposer(): void { api.resizeInput(); }
+    return { destroy() { queueEditor.destroy(); pendingView.destroy(); attachmentsView.destroy(); }, rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, resizeComposer, drafts, get draftImages() { return draftImages; }, get readingImages() { return readingImages; }, get draftLoading() { return draftLoading; }, get draftGeneration() { return draftGeneration; }, get composerScope() { return composerScope; }, get resolvingReferences() { return resolvingReferences; }, set resolvingReferences(value: boolean) { resolvingReferences = value; }, closeQueueEditor() { queueEditTarget = null; } };
 }

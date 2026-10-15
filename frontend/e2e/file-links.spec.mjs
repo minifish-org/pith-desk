@@ -67,7 +67,7 @@ test('file URLs use the local save action while external links and Markdown sani
   const website = page.getByRole('link', { name: 'Website', exact: true });
   await expect(website).toHaveAttribute('href', 'https://example.com/report');
   await expect(website).toHaveAttribute('rel', 'noopener noreferrer');
-  await expect(page.locator('.markdown img, .markdown script')).toHaveCount(0);
+  await expect(page.locator('.pui-markdown img, .pui-markdown script')).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Forged', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => window.unsafeLink)).toBeUndefined();
 });

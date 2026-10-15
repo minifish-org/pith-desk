@@ -1,3 +1,4 @@
+import { createDropFeedback } from 'pith-ui';
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const imageExtension = /\.(?:png|jpe?g|gif|webp)$/i;
 
@@ -53,11 +54,14 @@ interface DropOptions {
   error: (message: string) => void;
 }
 
-export function installWorkspaceFileDrop(options: DropOptions): void {
+export function installWorkspaceFileDrop(options: DropOptions): () => void {
   const { form, input } = options;
   let pending = false;
+  let destroyed = false;
+  const abort = new AbortController();
+  const feedback = createDropFeedback({ container: form });
   const addPaths = async (paths: string[]) => {
-    if (!paths.length || options.busy() || pending) return;
+    if (destroyed || !paths.length || options.busy() || pending) return;
     const workspaceID = options.workspaceID();
     if (!workspaceID) { options.error('Choose a workspace before dropping files.'); return; }
     const context = options.context();
@@ -66,26 +70,26 @@ export function installWorkspaceFileDrop(options: DropOptions): void {
     try {
       const refs = await options.resolve(workspaceID, paths);
       // A slow response must not insert into another workspace's draft.
-      if (options.disposed() || context !== options.context()) return;
+      if (destroyed || options.disposed() || context !== options.context()) return;
       const result = insertWorkspaceReferences(input.value, input.selectionStart, input.selectionEnd, refs);
       input.value = result.value;
       input.setSelectionRange(result.cursor, result.cursor);
       input.focus();
       options.changed();
     } catch (error) {
-      if (!options.disposed() && context === options.context()) options.error(error instanceof Error ? error.message : String(error));
-    } finally { pending = false; options.pending(false); }
+      if (!destroyed && !options.disposed() && context === options.context()) options.error(error instanceof Error ? error.message : String(error));
+    } finally { pending = false; if (!destroyed) options.pending(false); }
   };
   form.addEventListener('dragover', (event) => {
     if (event.dataTransfer?.types.some((type) => type === 'Files' || type === 'text/uri-list')) {
       event.preventDefault();
-      if (!options.busy() && !pending) form.classList.add('drag-images');
+      feedback.update({ active: true, disabled: options.busy() || pending });
     }
-  });
-  form.addEventListener('dragleave', () => form.classList.remove('drag-images'));
+  }, { signal: abort.signal });
+  form.addEventListener('dragleave', () => feedback.update({ active: false }), { signal: abort.signal });
   form.addEventListener('drop', (event) => {
     event.preventDefault();
-    form.classList.remove('drag-images');
+    feedback.update({ active: false });
     if (options.busy()) return;
     const files = Array.from(event.dataTransfer?.files || []);
     const images = files.filter(isImageFile);
@@ -94,7 +98,7 @@ export function installWorkspaceFileDrop(options: DropOptions): void {
     const paths = localFileURIs(event.dataTransfer?.getData('text/uri-list') || '').filter((path) => !isImagePath(path));
     if (paths.length) void addPaths(paths);
     else if (files.some((file) => !isImageFile(file))) options.error('Browser preview cannot identify this local file. Type its workspace-relative path, or drop it in the desktop app.');
-  });
+  }, { signal: abort.signal });
   window.addEventListener('pith:file-drop', (event) => {
     if (!options.native) return;
     const detail = (event as CustomEvent).detail as { paths?: unknown; x?: unknown; y?: unknown };
@@ -102,5 +106,6 @@ export function installWorkspaceFileDrop(options: DropOptions): void {
     const target = document.elementFromPoint(detail.x, detail.y);
     if (!target || !form.contains(target)) return;
     void addPaths(detail.paths.filter((path: string) => !isImagePath(path)));
-  });
+  }, { signal: abort.signal });
+  return () => { destroyed = true; abort.abort(); feedback.destroy(); };
 }

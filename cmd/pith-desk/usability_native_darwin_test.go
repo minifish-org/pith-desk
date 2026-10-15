@@ -105,7 +105,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	waitNativeDropCondition(t, win, `document.querySelector('#composer-input')?.readOnly === false && document.querySelector('#workspace-label')?.textContent !== 'No workspace'`)
 	nativeDropEval(t, win, `const input = document.querySelector('#composer-input'); input.value = 'First draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
 	nativeDropEval(t, win, `const canvas=document.createElement('canvas'); canvas.width=10; canvas.height=10; const bytes=Uint8Array.from(atob(canvas.toDataURL().split(',')[1]), c=>c.charCodeAt(0)); const transfer=new DataTransfer(); transfer.items.add(new File([bytes], 'draft.png', {type:'image/png'})); const picker=document.querySelector('#image-picker'); picker.files=transfer.files; picker.dispatchEvent(new Event('change', {bubbles:true})); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelectorAll('.draft-image').length === 1`)
+	waitNativeDropCondition(t, win, `document.querySelectorAll('.pui-draft-image').length === 1`)
 
 	if err := service.OpenConversation(second.ID); err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	if err := service.OpenConversation(first.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#composer-input').value === 'First draft 中文' && document.querySelectorAll('.draft-image').length === 1`)
+	waitNativeDropCondition(t, win, `document.querySelector('#composer-input').value === 'First draft 中文' && document.querySelectorAll('.pui-draft-image').length === 1`)
 	waitSavedDraft(t, service, first.ID, "First draft 中文")
 	waitSavedDraft(t, service, second.ID, "Second draft")
 	// Recreate the host on a different random origin to verify profile storage.
@@ -135,17 +135,17 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		t.Fatal(err)
 	}
 	newOrigin, _ := json.Marshal(server.URL)
-	waitNativeDropCondition(t, win, `location.origin === `+string(newOrigin)+` && document.querySelector('#composer-input')?.value === 'First draft 中文' && !document.querySelector('#composer-input').readOnly && document.querySelectorAll('.draft-image').length === 1`)
+	waitNativeDropCondition(t, win, `location.origin === `+string(newOrigin)+` && document.querySelector('#composer-input')?.value === 'First draft 中文' && !document.querySelector('#composer-input').readOnly && document.querySelectorAll('.pui-draft-image').length === 1`)
 	nativeDropEval(t, win, `document.querySelector('[data-remove-image]').click(); document.querySelector('#composer-form').requestSubmit(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.approval-diff .diff-add') !== null`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-diff .pui-diff-add') !== null`)
 	saveUsabilityScreenshot(t, win, "approval-diff.png")
 	waitSavedDraft(t, service, first.ID, "")
 	approved := map[string]bool{}
 	previousID := ""
 	for range 4 {
 		encodedID, _ := json.Marshal(previousID)
-		waitNativeDropCondition(t, win, `document.querySelector('.approval-diff .diff-add') !== null && document.querySelector('[data-approval="allow"]')?.dataset.approvalId !== `+string(encodedID))
-		value := nativeDropEval(t, win, `({path:document.querySelector('.approval-file code').textContent, id:document.querySelector('[data-approval="allow"]').dataset.approvalId})`)
+		waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-diff .pui-diff-add') !== null && document.querySelector('[data-approval="allow"]')?.dataset.approvalId !== `+string(encodedID))
+		value := nativeDropEval(t, win, `({path:document.querySelector('.pui-approval-file code').textContent, id:document.querySelector('[data-approval="allow"]').dataset.approvalId})`)
 		encoded, _ := json.Marshal(value)
 		var approval struct{ Path, ID string }
 		if err := json.Unmarshal(encoded, &approval); err != nil {
@@ -187,26 +187,26 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="picture.png"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('#file-preview-body img')?.naturalWidth === 2`)
 	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.file-preview-text')?.textContent === 'Plain text 中文'`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent === 'Plain text 中文'`)
 	largeText := "PREVIEW START\n" + strings.Repeat("中文🙂\n", (8<<20)/11-4) + "\nPREVIEW END"
 	if err := os.WriteFile(filepath.Join(workspacePath, "result.txt"), []byte(largeText), 0644); err != nil {
 		t.Fatal(err)
 	}
 	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('#file-preview-body .preview-pagination') !== null && document.querySelector('.file-preview-text')?.textContent.startsWith('PREVIEW START')`)
-	if nativeDropEval(t, win, `new TextEncoder().encode(document.querySelector('.file-preview-text').textContent).length <= 256*1024`) != true {
+	waitNativeDropCondition(t, win, `document.querySelector('#file-preview-body .pui-preview-pagination') !== null && document.querySelector('.pui-file-preview-text')?.textContent.startsWith('PREVIEW START')`)
+	if nativeDropEval(t, win, `new TextEncoder().encode(document.querySelector('.pui-file-preview-text').textContent).length <= 256*1024`) != true {
 		t.Fatal("large preview rendered all bytes at once")
 	}
-	nativeDropEval(t, win, `const next=document.querySelector('#file-preview-body .preview-pagination button:last-child'); while (!next.disabled) next.click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.file-preview-text')?.textContent.endsWith('PREVIEW END')`)
+	nativeDropEval(t, win, `const next=document.querySelector('#file-preview-body .pui-preview-pagination button:last-child'); while (!next.disabled) next.click(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent.endsWith('PREVIEW END')`)
 	saveUsabilityScreenshot(t, win, "large-text-preview.png")
 	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="animation.html"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.file-preview-text')?.textContent.includes('<script>window.__previewUnsafe=true</script>')`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent.includes('<script>window.__previewUnsafe=true</script>')`)
 	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('#file-preview-body script').length === 0`) != true {
 		t.Fatal("HTML source executed in preview")
 	}
 	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); const input=document.querySelector('#composer-input'); input.value='Edit it'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('#composer-form').requestSubmit(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.approval-diff .diff-remove')?.textContent.includes('Saved Markdown') && document.querySelector('.approval-diff .diff-add')?.textContent.includes('Edited Markdown')`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-diff .pui-diff-remove')?.textContent.includes('Saved Markdown') && document.querySelector('.pui-approval-diff .pui-diff-add')?.textContent.includes('Edited Markdown')`)
 	nativeDropEval(t, win, `document.querySelector('[data-approval="allow"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('[data-preview-path]') !== null && document.querySelector('#approval').textContent === ''`)
 	content, err := os.ReadFile(filepath.Join(workspacePath, "note.md"))

@@ -39,11 +39,11 @@ export async function verifyScroll(page) {
     async function stream(withImages) {
       window.scrollState.messages = messages(withImages); emit(); await pause(400);
       document.getElementById('back-to-latest').click(); await pause(80);
-      const initialImage = document.querySelector('.history-image');
+      const initialImage = document.querySelector('.pui-history-image');
       const gaps = [];
       for (let i = 0; i < 12; i++) {
         window.scrollState.messages.at(-1).text += '\nNew streaming line ' + i + '. '.repeat(20); emit(); await pause(65); gaps.push(gap());
-        if (withImages) imageNodesReused &&= initialImage === document.querySelector('.history-image');
+        if (withImages) imageNodesReused &&= initialImage === document.querySelector('.pui-history-image');
       }
       await pause(300); gaps.push(gap());
       return gaps;
@@ -51,7 +51,7 @@ export async function verifyScroll(page) {
     const text = await stream(false);
     const image = await stream(true);
     window.scrollState.messages = messages(true); emit(); await pause(350);
-    const changingImage = document.querySelector('.history-image');
+    const changingImage = document.querySelector('.pui-history-image');
     changingImage.style.height = '24px'; await pause(100);
     document.getElementById('back-to-latest').click(); await pause(100);
     // Decoding changes layout just before the next stream snapshot arrives.
