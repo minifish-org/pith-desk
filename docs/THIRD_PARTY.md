@@ -6,12 +6,15 @@ Pith Desk's own code is covered by the root [LICENSE](../LICENSE), GNU Affero Ge
 
 | Component | Pinned version | License and retained notice |
 | --- | --- | --- |
-| [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261009171020-a6756ade15ea` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
+| [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261010121423-8eec8d5b88d3` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
+| [Pith UI](https://github.com/minifish-org/pith-ui/tree/v0.1.0) | `0.1.0` | AGPL-3.0-only: `PITH-UI-LICENSE`. Reusable TypeScript UI components and styles. |
 | [MyGo](https://github.com/egoist/mygo) | `v0.3.6` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
 | [coder/websocket](https://github.com/coder/websocket) | `v1.8.15` | ISC: `WEBSOCKET-LICENSE`. |
 | [gofrs/flock](https://github.com/gofrs/flock) | `v0.13.1` | BSD-3-Clause: `FLOCK-LICENSE`. |
 | [Marked](https://github.com/markedjs/marked) | `16.4.2` | MIT, with upstream Markdown attribution: the complete `MARKED-LICENSE` file is retained. |
 | [DOMPurify](https://github.com/cure53/DOMPurify) | `3.4.16` | Upstream declares `MPL-2.0 OR Apache-2.0`. This distribution uses the Apache-2.0 option and retains that upstream text in `DOMPURIFY-LICENSE`, together with the package's attribution below. |
+
+Marked and DOMPurify are runtime dependencies of Pith UI and remain bundled with Pith Desk.
 
 DOMPurify 3.4.16: Copyright Cure53 and other contributors. The bundled upstream module identifies its license and links to its [versioned license file](https://github.com/cure53/DOMPurify/blob/3.4.16/LICENSE).
 
