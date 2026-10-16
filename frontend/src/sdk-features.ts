@@ -1,96 +1,99 @@
-import { createSDKDialogElements, createProviderActions } from 'pith-ui';
-import type { ProviderChoice } from './app-state.ts';
-import { createCustomUI } from './custom-connections.ts';
-import { createHistoryUI } from './history.ts';
-import { createProviderLoginUI } from './provider-login.ts';
-import { createResourceUI } from './resource-editor.ts';
-import { createSDKDialog } from './sdk-dialog.ts';
-import type { SDKFeatureAPI as API } from './sdk-feature-api.ts';
-import { escape } from './ui.ts';
-const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
-// These are host controls around SDK APIs, not another agent runtime.
+import type {ActionResult, ProviderAction, ProviderActionsState, ProviderActionTarget} from 'pith-ui/app';
+import type {ProviderChoice} from './app-state.ts';
+import type {MutationInput, MutationPath} from './api.ts';
+import {createCustomUI} from './custom-connections.ts';
+import {createHistoryUI} from './history.ts';
+import {createProviderLoginUI} from './provider-login.ts';
+import {createResourceUI} from './resource-editor.ts';
+import type {SDKFeatureAPI as API} from './sdk-feature-api.ts';
+
+// Requests and transactions stay here; scenes own every control and error view.
 export function createSDKUI(api: API, onDialogClose?: () => void) {
-    const abort = new AbortController(); let destroyed = false;
-    const elements = createSDKDialogElements({idPrefix: ''});
-    document.body.append(elements.dialog, elements.oauthDialog);
-    const dialog = createSDKDialog(api,onDialogClose);
-    const { fail, act } = dialog;
-    const { custom } = createCustomUI(api, dialog);
-    const { resource } = createResourceUI(api, dialog);
-    const { history } = createHistoryUI(api, dialog);
-    const providerLogin = createProviderLoginUI(api,onDialogClose);
-    function render() {
-        if (destroyed) return;
-        const state = api.state();
-        const globalActions = new Set(['custom', 'login', 'logout', 'mcp-login', 'mcp-logout', 'remove-connection']);
-        for (const button of document.querySelectorAll<HTMLButtonElement>('[data-sdk]')) {
-            if (globalActions.has(button.dataset.sdk || ''))
-                button.disabled = api.busy() || state.runs.length > 0;
-        }
-        for (const button of document.querySelectorAll<HTMLButtonElement>('[data-sdk-idle]'))
-            button.disabled = api.busy() || state.running || !state.activeId || (button.dataset.sdk === 'compact' && !state.messages.length);
-        providerLogin.render();
+    let destroyed = false;
+    const customUI = createCustomUI(api);
+    const resourceUI = createResourceUI(api);
+    const historyUI = createHistoryUI(api);
+    const providerLogin = createProviderLoginUI(api, onDialogClose);
+    const unavailable = (): ActionResult => ({ok: false, error: 'This action is no longer available.'});
+    const globalUnavailable = () => destroyed || api.busy() || api.state().runs.length > 0;
+    const failure = (error: unknown): ActionResult => ({ok: false, error: error instanceof Error ? error.message : String(error)});
+    async function act<P extends MutationPath>(path: P, payload: MutationInput<P>): Promise<ActionResult> {
+        if (destroyed) return unavailable();
+        try {return await api.mutate(path, payload) ? {ok: true} : {ok: false, error: api.error()};}
+        catch (error) {return failure(error);}
     }
-    document.addEventListener('click', async (event) => {
-        const target = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-sdk]');
-        if (!target || target.disabled)
-            return;
+    async function custom(id?: string): Promise<void> {
+        if (!globalUnavailable()) await customUI.custom(id);
+    }
+    async function providerAction(action: ProviderAction, target: ProviderActionTarget): Promise<ActionResult> {
+        if (globalUnavailable()) return unavailable();
+        const id = target.id;
         try {
-            switch (target.dataset.sdk) {
+            switch (action) {
                 case 'custom':
-                    await custom(target.dataset.id);
-                    break;
-                case 'resource':
-                    await resource(target.dataset.resourceWorkspace || '', target.dataset.kind || 'instructions', target.dataset.path);
-                    break;
-                case 'use-resource':
-                    api.draft(target.dataset.command || '');
-                    $<HTMLDialogElement>('resources-dialog').close();
-                    break;
-                case 'history':
-                    await history();
-                    break;
-                case 'branch':
-                    if (await api.mutate('/api/branch', { id: api.state().activeId, nodeId: target.dataset.node! }))
-                        api.draft('');
-                    break;
-                case 'compact':
-                    if (await act('/api/compact', { id: api.state().activeId }))
-                        $<HTMLDialogElement>('sdk-dialog').close();
-                    break;
-                case 'mcp-login':
-                    providerLogin.resetDismissed();
-                    await act('/api/mcp/oauth/start', { name: target.dataset.id! }, target.closest('dialog')!);
-                    break;
-                case 'mcp-logout':
-                    if (await act('/api/mcp/oauth/logout', { name: target.dataset.id! }, target.closest('dialog')!))
-                        await api.refreshMCP();
-                    break;
+                    await custom(id);
+                    return {ok: true};
                 case 'login':
                     providerLogin.resetDismissed();
-                    await act('/api/oauth/start', { provider: target.dataset.id! }, target.closest('dialog')!);
-                    break;
-                case 'logout':
-                    if (await act('/api/oauth/logout', { provider: target.dataset.id! }, target.closest('dialog')!))
-                        api.refreshProviderAuth(target.dataset.id!);
-                    break;
-                case 'cancel-login':
-                    await act('/api/oauth/cancel', {}, target.closest('dialog')!);
-                    break;
+                    return await act('/api/oauth/start', {provider: id});
+                case 'logout': {
+                    const result = await act('/api/oauth/logout', {provider: id});
+                    if (result.ok && !destroyed) {
+                        // Credential reads own their feedback after this write.
+                        try {api.refreshProviderAuth(id);} catch {}
+                    }
+                    return result;
+                }
                 case 'remove-connection':
-                    api.confirm({ title: 'Remove model connection?', action: 'Remove connection', description: `Remove <strong>${escape(target.dataset.id)}</strong> and its saved credentials?`, hint: 'Existing conversations and workspace files stay available.', scope: { global: true }, unavailable: () => api.busy() || api.state().runs.length > 0, error: api.error, run: async () => { if (!await api.mutate('/api/remove-model-connection', { id: target.dataset.id! }))
-                            return false; api.settings(); return true; } });
-                    break;
+                    api.confirm({title: 'Remove model connection?', action: 'Remove connection',
+                        description: {before: 'Remove ', subject: id, after: ' and its saved credentials?'},
+                        hint: 'Existing conversations and workspace files stay available.', scope: {global: true},
+                        unavailable: globalUnavailable, error: api.error,
+                        run: async () => {
+                            if (globalUnavailable()) return false;
+                            if (!await api.mutate('/api/remove-model-connection', {id})) return false;
+                            if (!destroyed) api.settings();
+                            return true;
+                        },
+                    });
+                    return {ok: true};
             }
+        } catch (error) {return failure(error);}
+    }
+    async function mcpAuth(action: 'mcp-login' | 'mcp-logout', name: string): Promise<ActionResult> {
+        if (globalUnavailable()) return unavailable();
+        if (action === 'mcp-login') {
+            providerLogin.resetDismissed();
+            return act('/api/mcp/oauth/start', {name});
         }
-        catch (error) {
-            fail(String(error), $<HTMLDialogElement>('sdk-dialog').open ? $('sdk-content') : target.closest('dialog') || document.body);
+        const result = await act('/api/mcp/oauth/logout', {name});
+        if (result.ok && !destroyed) {
+            // The logout is committed. Its following read reports its own error
+            // in the Connections controller and must never replay this write.
+            try {await api.refreshMCP();} catch {}
         }
-    },{signal:abort.signal});
+        return result;
+    }
+    async function compact(): Promise<ActionResult> {
+        const state = api.state();
+        if (destroyed || api.busy() || state.running || !state.activeId || !state.messages.length) return unavailable();
+        return act('/api/compact', {id: state.activeId});
+    }
     return {
-        render,
-        resource,
-        providerActions(provider: ProviderChoice) { return createProviderActions(provider).element; },
-        destroy() {if (destroyed) return; destroyed = true; abort.abort(); providerLogin.destroy(); dialog.destroy(); elements.destroy();},
+        render() {if (!destroyed) providerLogin.render();},
+        custom,
+        async resource(...args: Parameters<typeof resourceUI.resource>) {if (!destroyed) await resourceUI.resource(...args);},
+        async history() {if (!destroyed) await historyUI.history();},
+        compact,
+        providerAction,
+        mcpAuth,
+        providerActions(provider: ProviderChoice): ProviderActionsState {
+            return {id: provider.id, oauth: provider.oauth, signedIn: provider.signedIn, custom: provider.custom, disabled: globalUnavailable()};
+        },
+        destroy() {
+            if (destroyed) return;
+            destroyed = true;
+            providerLogin.destroy(); customUI.destroy(); resourceUI.destroy(); historyUI.destroy();
+        },
     };
 }

@@ -287,6 +287,24 @@ host route drift. `build:ui` and the CI check run this check automatically.
 The frontend retains the authenticated loopback HTTP/WebSocket transport.
 Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
+Desk consumes the exact npm version in `frontend/package-lock.json`. Its UI
+uses only `pith-ui/app` and `pith-ui/styles.css`: the workspace, settings,
+resources and files scenes own controls, layout, typography, menus, dialogs,
+focus, scrolling and local interaction state. Controllers retain requests,
+identities, drafts, credentials, permissions and native capabilities. The
+installed package's `APP.md`, `APP-API.md` and declarations define the contract.
+Missing UI capabilities belong in Pith UI, followed by a registry release and
+an exact dependency update here; do not use a source alias or local package.
+
+`npm run check:ui-consumption` checks production imports, DOM/style/template
+bypasses, precise mount/bootstrap/native adapters, and the registry dependency
+and installed exports. It runs in `build:ui` and therefore in CI. The only DOM
+mount is `ui-mount.ts`; `ui-bootstrap.ts` consumes the four host metadata fields
+and initial appearance. Native adapters forward validated events and read
+foreground state without finding or changing UI nodes. Branding uses finite
+library-owned resources or approved application assets. New UI styling or
+internal-node access in Desk is outside this boundary.
+
 ## Build a Mac application
 
 ```sh
@@ -305,7 +323,7 @@ Both Pith and MyGo are pinned in `go.mod`; applications build without a sibling 
 
 ## Where to read the code
 
-- `frontend/src/`: layout, settings, conversations, streamed state and approval controls.
+- `frontend/src/`: business controllers, streamed state, typed Pith UI scene projections and finite host adapters.
 - `internal/desk/`: the application service and its Pith SDK adapter, persisted settings/history and tool policy.
 - `internal/host/`: embedded frontend, authenticated loopback API and streamed snapshots.
 - `internal/wire/` and `cmd/contractgen/`: Go request/response schemas and generated TypeScript contracts.

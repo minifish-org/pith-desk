@@ -1,21 +1,21 @@
-import { createBranchHistory, createFeatureStatus } from 'pith-ui';
-import type { SDKDialog } from './sdk-dialog.ts';
-import type { SDKFeatureAPI } from './sdk-feature-api.ts';
-const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
-type API = Pick<SDKFeatureAPI, 'state' | 'request'>;
-export function createHistoryUI(api: API, dialog: SDKDialog) {
-    const { open, act, fail } = dialog;
-    async function history() {
+import type {SDKFeatureAPI} from './sdk-feature-api.ts';
+
+type API = Pick<SDKFeatureAPI, 'ui' | 'state' | 'request' | 'mutate' | 'error'>;
+export function createHistoryUI(api: API) {
+    let generation = 0;
+    async function history(): Promise<void> {
         const id = api.state().activeId;
-        if (!id)
-            return;
-        const seq = open('Conversation branches', createFeatureStatus({message: 'Loading history…'}));
-        const nodes = await api.request('/api/history', { query: { id } });
-        if (!dialog.current(seq))
-            return;
-        open('Conversation branches', createBranchHistory({nodes: nodes || []}, {onContinue: async (nodeId) => {
-            if (await act('/api/branch', {id, nodeId})) $<HTMLDialogElement>('sdk-dialog').close();
-        }}));
+        if (!id) return;
+        const sequence = ++generation;
+        const session = api.ui.workspace.openHistory({nodes: null, loading: true}, {onContinue: async nodeId => {
+            const saved = await api.mutate('/api/branch', {id, nodeId});
+            return saved ? {ok: true} : {ok: false, error: api.error()};
+        }});
+        const current = () => sequence === generation && session.isOpen() && api.state().activeId === id;
+        try {
+            const nodes = await api.request('/api/history', {query: {id}});
+            if (current()) session.update({nodes: nodes || [], loading: false});
+        } catch (error) {if (current()) session.fail(error instanceof Error ? error.message : String(error));}
     }
-    return { history };
+    return {history, destroy() {generation++;}};
 }

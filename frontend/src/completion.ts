@@ -1,31 +1,30 @@
 import type { Conversation } from './contract.generated';
 import type { State } from './app-state';
 import type { ApiRequest } from './api';
-import { createCompletionNotices, historyStatusMarkup } from 'pith-ui';
+import type { Application, NavigationStatus } from 'pith-ui/app';
 type CompletionState = Pick<State, 'activeId' | 'conversations' | 'workspaces' | 'runs'>;
 interface Notice { id: string; runID: string; title: string; workspace: string }
 
 export function createCompletionUI(deps: {
+  ui: Application;
   state: () => CompletionState;
   request: ApiRequest;
   confirmRead: (id: string, runID: string) => void;
   renderHistory: () => void;
-  escape: (value: unknown) => string;
-  icon: (name: string) => string;
+  foreground: () => boolean;
 }) {
-  const panel = createCompletionNotices({ container: document.getElementById('completion-notices')! });
   const seen = new Set<string>();
   const reading = new Set<string>();
   let notices: Notice[] = [];
   let noticeSignature = '';
-  const foreground = () => document.visibilityState === 'visible' && document.hasFocus();
-  const viewing = (id: string) => foreground() && deps.state().activeId === id && !document.querySelector('dialog[open]');
+  const foreground = deps.foreground;
+  const viewing = (id: string) => foreground() && deps.state().activeId === id && !deps.ui.read().hasModal;
 
   function renderNotices(): void {
     const signature = JSON.stringify(notices);
     if (signature === noticeSignature) return;
     noticeSignature = signature;
-    panel.update(notices);
+    deps.ui.workspace.updateNotices(notices);
   }
 
   function dismiss(runID: string): void {
@@ -63,10 +62,10 @@ export function createCompletionUI(deps: {
     acknowledgeViewed();
   }
 
-  function historyStatus(entry: Conversation): string {
+  function historyStatus(entry: Conversation): NavigationStatus {
     const run = deps.state().runs.find((run) => run.conversationId === entry.id);
-    return historyStatusMarkup(run?.needsApproval ? 'approval' : run ? 'running' : entry.unread ? 'unread' : 'idle');
+    return {kind: run?.needsApproval ? 'approval' : run ? 'running' : entry.unread ? 'unread' : 'idle'};
   }
 
-  return { observe, acknowledgeViewed, dismiss, historyStatus, destroy: panel.destroy };
+  return { observe, acknowledgeViewed, dismiss, historyStatus, destroy() {} };
 }

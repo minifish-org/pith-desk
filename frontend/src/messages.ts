@@ -1,93 +1,55 @@
+import type { Application, ConversationActionAvailability, ImageTarget } from 'pith-ui/app';
 import type { ApiDownload } from './api.ts';
 import type { Workspace } from './contract.generated.ts';
-import { installConversationReader } from './conversation-reader.ts';
 import type { AppView } from './feature-api.ts';
-import { createMessageView } from './messages-view.ts';
-import { createWelcomeView, type ConversationViewOptions, type ConversationActionAvailability, type WelcomeOptions } from 'pith-ui';
-const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
+
 type API = {
+    ui: Application;
     view: AppView;
     download: ApiDownload;
-    logo: string;
     disposed: () => boolean;
-    onMessageAction: NonNullable<ConversationViewOptions['onAction']>;
-    onCopyCode: NonNullable<ConversationViewOptions['onCopyCode']>;
     messageActionAvailability: () => ConversationActionAvailability;
-    onWelcomeAction: NonNullable<WelcomeOptions['onAction']>;
-    onPrompt: NonNullable<WelcomeOptions['onPrompt']>;
 };
+
 export function createMessagesUI(api: API) {
-    const { view: app, download, logo } = api;
+    const { ui, view: app, download } = api;
     let messagesSignature = '';
-    let renderedActiveId: string | null = null;
-    const conversationFolds = new Map<string, Map<string, boolean>>();
-    const historyImages = new Map<string, Promise<string>>();
     let imageGeneration = 0;
-    const reader = installConversationReader($('chat-scroll'), $('messages'), $('conversation-find'), $<HTMLButtonElement>('back-to-latest'));
-    const messageView = createMessageView($('messages'), {onAction: api.onMessageAction, onCopyCode: api.onCopyCode});
-    const logoTemplate = document.createElement('template');
-    logoTemplate.innerHTML = logo;
-    const welcome = createWelcomeView({ container: $('welcome'), logo: logoTemplate.content, onAction: api.onWelcomeAction, onPrompt: api.onPrompt });
     function renderWelcome(workspace?: Workspace): void {
-        welcome.update({ workspace, hasApiKey: app.state.settings.hasApiKey, hasConnections: app.state.settings.hasConnections, modelName: app.state.settings.modelName || app.state.settings.model });
+        ui.workspace.updateWelcome({ workspace, hasApiKey: app.state.settings.hasApiKey, hasConnections: app.state.settings.hasConnections, modelName: app.state.settings.modelName || app.state.settings.model });
     }
-    function clearHistoryImages(): void {
-        imageGeneration++;
-        for (const value of historyImages.values())
-            void value.then((url) => URL.revokeObjectURL(url)).catch(() => { });
-        historyImages.clear();
-    }
-    function loadHistoryImages(): void {
-        for (const image of messageView.images()) {
-            if (image.hasAttribute('src'))
-                continue;
-            const key = image.dataset.imageKey!;
-            let value = historyImages.get(key);
-            if (!value) {
-                const generation = imageGeneration;
-                value = download('/api/image', { id: app.state.activeId, message: image.dataset.messageId!, index: Number(image.dataset.imageIndex) }).then((blob) => {
-                    if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type))
-                        throw new Error('Invalid image attachment.');
-                    if (generation !== imageGeneration || api.disposed())
-                        throw new Error('Conversation changed.');
-                    return URL.createObjectURL(blob);
-                });
-                historyImages.set(key, value);
-                const pending = value;
-                void pending.catch(() => { if (historyImages.get(key) === pending)
-                    historyImages.delete(key); });
-            }
-            void value.then(url => messageView.setImageState(image, {status: 'ready', src: url})).catch(() => messageView.setImageState(image, {status: 'unavailable'}));
-        }
+    function clearHistoryImages(): void { imageGeneration++; }
+    async function loadImage(target: ImageTarget): Promise<Blob | null> {
+        const generation = imageGeneration;
+        const blob = await download('/api/image', { id: target.conversationId, message: target.messageId, index: target.index });
+        if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type))
+            throw new Error('Invalid image attachment.');
+        return generation === imageGeneration && !api.disposed() ? blob : null;
     }
     function renderMessages(workspace?: Workspace): void {
-        messageView.updateActionAvailability(api.messageActionAvailability());
+        ui.workspace.updateMessageAvailability(api.messageActionAvailability());
         const hasMessages = app.state.messages.length > 0;
         const signature = JSON.stringify([app.state.activeId, app.state.messages, app.state.running, app.state.pendingApproval?.id]);
         if (signature !== messagesSignature) {
-            const changedConversation = renderedActiveId !== app.state.activeId;
-            reader.beforeRender(app.state.activeId || '');
-            $('welcome').hidden = hasMessages;
-            $('messages').hidden = !hasMessages;
-            const currentFolds = new Map(Array.from($('messages').querySelectorAll<HTMLDetailsElement>('[data-tool-fold]'), (element) => [element.dataset.toolFold!, element.open] as const));
-            if (renderedActiveId)
-                conversationFolds.set(renderedActiveId, currentFolds);
-            const folds = changedConversation ? conversationFolds.get(app.state.activeId || '') || new Map<string, boolean>() : currentFolds;
-            messageView.update(app.state.activeId || '', app.state.messages, app.state.running && !app.state.pendingApproval, folds);
+            ui.workspace.updateConversation({
+                id: app.state.activeId || '',
+                messages: app.state.messages.map(message => ({
+                    ...message,
+                    actions: {
+                        copy: (message.role === 'user' || (message.role === 'assistant' && message.status !== 'streaming')) && !!message.text ? message.role === 'user' ? 'Copy message' : 'Copy response' : false,
+                        edit: message.role === 'user',
+                        branch: message.role === 'assistant' && message.branchNodeId ? { key: message.branchNodeId } : undefined,
+                    },
+                })),
+                working: app.state.running && !app.state.pendingApproval,
+            });
             messagesSignature = signature;
-            renderedActiveId = app.state.activeId;
-            loadHistoryImages();
-            reader.afterRender();
-            reader.prune(app.state.conversations.map((entry) => entry.id));
-            for (const id of conversationFolds.keys())
-                if (!app.state.conversations.some((entry) => entry.id === id))
-                    conversationFolds.delete(id);
+            ui.workspace.pruneConversations(app.state.conversations.map(entry => entry.id));
         }
-        if (!hasMessages)
-            renderWelcome(workspace);
+        if (!hasMessages) renderWelcome(workspace);
     }
     return {
-        renderMessages, clearHistoryImages, followLatest: reader.followLatest,
-        destroy(): void { clearHistoryImages(); reader.destroy(); messageView.destroy(); welcome.destroy(); },
+        renderMessages, clearHistoryImages, loadImage, followLatest: ui.workspace.followLatest,
+        destroy(): void { clearHistoryImages(); },
     };
 }

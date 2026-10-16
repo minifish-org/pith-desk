@@ -1,19 +1,21 @@
-import { createCustomConnectionEditor, createFeatureStatus } from 'pith-ui';
+import type { CustomConnectionSession, LoadingSession } from 'pith-ui/app';
 import type { ModelsJsonModel as ModelDefinition } from './contract.generated.ts';
-import type { SDKDialog } from './sdk-dialog.ts';
 import type { SDKFeatureAPI } from './sdk-feature-api.ts';
-const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
-type API = Pick<SDKFeatureAPI, 'request' | 'settings' | 'mutate' | 'error'>;
-export function createCustomUI(api: API, dialog: SDKDialog) {
-    const { open } = dialog;
+type API = Pick<SDKFeatureAPI, 'ui' | 'request' | 'settings' | 'mutate' | 'error'>;
+export function createCustomUI(api: API) {
+    let destroyed = false, generation = 0;
+    let loading: LoadingSession | undefined, current: CustomConnectionSession | undefined;
     async function custom(id?: string) {
-        const seq = open(id ? 'Edit model connection' : 'Add model connection', createFeatureStatus({message: 'Loading…'}));
-        const connection = id ? await api.request('/api/custom-connection', { query: { id } }) : { name: '', baseUrl: '', api: 'openai-completions', models: [{ id: '', contextWindow: 128000, maxTokens: 8192 }] };
-        if (!dialog.current(seq))
+        if (destroyed) return;
+        const sequence = ++generation;
+        const pending = api.ui.settings.openConnectionLoading({editing: !!id}); loading = pending;
+        let connection;
+        try { connection = id ? await api.request('/api/custom-connection', { query: { id } }) : { name: '', baseUrl: '', api: 'openai-completions', models: [{ id: '', contextWindow: 128000, maxTokens: 8192 }] }; }
+        catch (error) {if (!destroyed && generation === sequence && pending.isOpen()) pending.fail(String(error)); return;}
+        if (destroyed || generation !== sequence || !pending.isOpen())
             return;
         const models = [...(connection.models || [])];
-        let editorSequence = 0;
-        const editor = createCustomConnectionEditor({name: connection.name, baseUrl: connection.baseUrl, api: connection.api, editing: !!id, models}, {idPrefix: '', onSubmit: async draft => {
+        const editor = api.ui.settings.openCustomConnection({name: connection.name, baseUrl: connection.baseUrl, api: connection.api, editing: !!id, models}, {onSubmit: async draft => {
             for (const field of draft.models) {
                 const rates = Object.values(field.prices);
                 if (rates.some(Boolean) && rates.some((value) => value === '')) {
@@ -28,14 +30,14 @@ export function createCustomUI(api: API, dialog: SDKDialog) {
                 return model;
             });
             if (await api.mutate('/api/custom-connection', { id: id || '', name: draft.name, baseUrl: draft.baseUrl, api: draft.api, apiKey: draft.apiKey, models: definitions })) {
-                if (!dialog.current(editorSequence)) return {ok:true};
-                $<HTMLDialogElement>('sdk-dialog').close();
+                if (destroyed || generation !== sequence || !editor.isOpen()) return {ok:true};
+                editor.close();
                 api.settings();
                 return {ok:true};
             }
             return {ok:false,error:api.error()};
         }});
-        editorSequence = open(id ? 'Edit model connection' : 'Add model connection', editor);
+        current = editor;
     }
-    return { custom };
+    return { custom, destroy() {if (destroyed) return; destroyed = true; generation++; loading?.destroy(); current?.destroy();} };
 }

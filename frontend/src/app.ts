@@ -154,19 +154,4 @@ export function createApp(options: AppOptions) {
   };
 }
 
-// Consume the Host bootstrap once; secrets stay in closures, outside the DOM.
-export function readAppBootstrap(document: Document) {
-  const consume = (name: string): string => {
-    const meta = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
-    const value = meta?.content ?? '';
-    meta?.remove();
-    return value;
-  };
-  const token = consume('desk-token');
-  return {
-    token: token === '__DESK_TOKEN__' ? '' : token,
-    nativeClipboard: consume('desk-native-clipboard') === 'true',
-    nativeFileDrop: consume('desk-native-file-drop') === 'true',
-    nativeMenus: consume('desk-native-menus') === 'true',
-  };
-}
+export {readAppBootstrap} from './ui-bootstrap.ts';

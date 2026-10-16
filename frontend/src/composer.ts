@@ -2,8 +2,8 @@ import type { ApiMutate, ApiRequest } from './api.ts';
 import type { DraftScope, ImageContent, QueuedMessage, DraftImage as WireDraftImage, Workspace } from './contract.generated.ts';
 import { createDrafts, draftKey } from './drafts.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
-import { imagePreviewBlob } from './image-viewer.ts';
-import { createPendingMessages, createAttachments, createTextEditDialog } from 'pith-ui';
+import { imagePreviewBlob } from './image-data.ts';
+import type { ActionResult, Application, MessageEditorSession } from 'pith-ui/app';
 type ImageInput = ImageContent & {
     type: 'image';
 };
@@ -16,7 +16,7 @@ interface DraftImage extends ImageInput {
 type API = {
     view: AppView;
     activity: UIActivity;
-    input: HTMLTextAreaElement;
+    ui: Application;
     request: ApiRequest;
     mutate: ApiMutate;
     refresh: () => Promise<void>;
@@ -24,16 +24,12 @@ type API = {
     selectedWorkspace: () => Workspace | undefined;
     openWorkspace: () => void;
     openSettings: () => void;
-    showDialog: (id: string) => void;
     followLatest: () => void;
     disposed: () => boolean;
-    resizeInput: () => void;
 };
-const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 export function createComposer(api: API) {
-    const { view: app, activity, input, request, mutate, refresh, render, selectedWorkspace, openWorkspace, openSettings, showDialog } = api;
+    const { view: app, activity, ui, request, mutate, refresh, render, selectedWorkspace, openWorkspace, openSettings } = api;
     let resolvingReferences = false;
-    let queueSignature = '';
     let queueEditTarget: {
         conversationId: string;
         messageId: string;
@@ -45,30 +41,22 @@ export function createComposer(api: API) {
     let draftLoading = false;
     let composerDraftReady: Promise<void> = Promise.resolve();
     let draftLoadGeneration = 0;
-    const pendingView = createPendingMessages({ container: $('queued-messages') });
-    const attachmentsView = createAttachments({ container: $('draft-images') });
-    const queueEditor = createTextEditDialog({
-        dialog: $<HTMLDialogElement>('queue-edit-dialog'), title: 'Edit pending message', submitLabel: 'Save message',
-        ids: { form: 'queue-edit-form', control: 'queue-edit-text', submit: 'queue-edit-save', error: 'queue-edit-error', title: 'queue-edit-title' },
-        onInput: renderQueueEditor,
-        onClose: () => { queueEditTarget = null; },
-        onSubmit: async text => {
+    let queueEditor: MessageEditorSession | undefined;
+    async function submitQueueEdit(text: string): Promise<ActionResult> {
             const target = queueEditTarget;
             const entry = target && app.state.queuedMessages.find(entry => entry.id === target.messageId);
             if (!target || target.conversationId !== app.state.activeId || !entry || activity.busy || (!text.trim() && !entry.imageCount))
                 return { ok: false, error: 'This message is no longer pending. Your draft is kept here so you can copy it.' };
-            const ok = await mutate('/api/queue/edit', { id: target.conversationId, messageId: target.messageId, text }, () => { if (queueEditTarget === target) queueEditor.close(); });
+            const ok = await mutate('/api/queue/edit', { id: target.conversationId, messageId: target.messageId, text }, () => { if (queueEditTarget === target) queueEditor?.close(); });
             return ok ? { ok: true } : { ok: false, error: activity.error };
-        },
-    });
-    queueEditor.control.rows = 5;
+    }
     const drafts = createDrafts(request, (message) => { if (!api.disposed()) {
         activity.error = message;
         render();
     } });
     function rememberDraft(): void {
         if (!draftLoading)
-            drafts.update(composerScope, input.value, draftImages.map(({ url, ...image }) => image));
+            drafts.update(composerScope, ui.workspace.readDraft(), draftImages.map(({ url, ...image }) => image));
     }
     function loadComposerDraft(): void {
         const scope: DraftScope = app.state.activeId ? { id: app.state.activeId } : { workspaceId: selectedWorkspace()?.id || '' };
@@ -83,9 +71,8 @@ export function createComposer(api: API) {
         clearDraftImages();
         composerScope = scope;
         const generation = ++draftLoadGeneration;
-        input.value = '';
+        ui.workspace.resetDraft('');
         draftLoading = !!draftKey(scope);
-        input.readOnly = draftLoading;
         drafts.prune(app.state.conversations.map((entry) => entry.id), app.state.workspaces.map((entry) => entry.id));
         if (!draftLoading)
             return;
@@ -97,7 +84,7 @@ export function createComposer(api: API) {
                 images.forEach((image) => URL.revokeObjectURL(image.url));
                 return;
             }
-            input.value = draft.text;
+            ui.workspace.resetDraft(draft.text);
             draftImages = images;
         }).catch((error) => {
             if (generation === draftLoadGeneration)
@@ -106,37 +93,40 @@ export function createComposer(api: API) {
             if (api.disposed() || generation !== draftLoadGeneration)
                 return;
             draftLoading = false;
-            input.readOnly = false;
-            resizeComposer();
             render();
         });
     }
     function renderQueue(): void {
         renderQueueEditor();
-        pendingView.update({ items: app.state.queuedMessages || [], running: app.state.running, busy: activity.busy });
+        ui.workspace.updatePending({ items: app.state.queuedMessages || [], running: app.state.running, busy: activity.busy });
     }
     function renderQueueEditor(): void {
-        if (!queueEditTarget) return;
+        if (!queueEditTarget || !queueEditor) return;
         const pending = queueEditTarget.conversationId === app.state.activeId && app.state.queuedMessages.some(entry => entry.id === queueEditTarget!.messageId);
         const entry = app.state.queuedMessages.find(entry => entry.id === queueEditTarget!.messageId);
-        queueEditor.update({ title: 'Edit pending message', submitLabel: 'Save message',
-            disabled: activity.busy || !pending || (!queueEditor.getValue().trim() && !entry?.imageCount), inputDisabled: activity.busy,
+        queueEditor.update({ title: 'Edit pending message', value: queueEditor.read(), submitLabel: 'Save message',
+            disabled: activity.busy || !pending || (!queueEditor.read().trim() && !entry?.imageCount), inputDisabled: activity.busy,
             note: entry?.imageCount ? entry.imageCount + ' attached image' + (entry.imageCount === 1 ? '' : 's') + ' will be kept.' : '',
             error: !pending ? 'This message is no longer pending. Your draft is kept here so you can copy it.' : '',
         });
     }
     function openQueueEditor(entry: QueuedMessage): void {
         if (activity.busy || !app.state.activeId) return;
-        queueEditTarget = { conversationId: app.state.activeId, messageId: entry.id };
-        queueEditor.open({ value: entry.text, title: 'Edit pending message' });
+        queueEditor?.destroy();
+        const target = { conversationId: app.state.activeId, messageId: entry.id };
+        queueEditTarget = target;
+        queueEditor = ui.workspace.openQueueEditor({ value: entry.text, title: 'Edit pending message', submitLabel: 'Save message' }, {
+            onInput: renderQueueEditor,
+            onClose: () => { if (queueEditTarget === target) { queueEditTarget = null; queueEditor = undefined; } },
+            onSubmit: submitQueueEdit,
+        });
         renderQueueEditor();
-        showDialog('queue-edit-dialog');
         queueEditor.focus();
     }
     async function send(): Promise<void> {
-        const draft = input.value;
+        const draft = ui.workspace.readDraft();
         const sourceScope = composerScope;
-        const text = input.value.trim();
+        const text = ui.workspace.readDraft().trim();
         const images = draftImages.map(({ type, data, mimeType }) => ({ type, data, mimeType }));
         const submittedImages = draftImages.map(({ url, ...image }) => image);
         const submittedIds = new Set(submittedImages.map((image) => image.id));
@@ -169,12 +159,12 @@ export function createComposer(api: API) {
                 const carried = await drafts.transfer(sourceScope, { id });
                 const remaining = await drafts.load(sourceScope);
                 if (draftKey(composerScope) === draftKey(sourceScope) && !remaining.text && !remaining.images?.length) {
-                    input.value = '';
+                    ui.workspace.resetDraft('');
                     clearDraftImages();
                 }
                 await composerDraftReady;
-                if (composerScope.id === id && !input.value && !draftImages.length) {
-                    input.value = carried.text;
+                if (composerScope.id === id && !ui.workspace.readDraft() && !draftImages.length) {
+                    ui.workspace.resetDraft(carried.text);
                     draftImages = await restoreDraftImages(carried.images || [], () => composerScope.id === id);
                     rememberDraft();
                 }
@@ -190,14 +180,13 @@ export function createComposer(api: API) {
             if (sourceScope.id !== id)
                 drafts.clearIfUnchanged({ id }, draft, submittedImages);
             if (composerScope.id === id) {
-                if (input.value === draft)
-                    input.value = '';
+                if (ui.workspace.readDraft() === draft)
+                    ui.workspace.resetDraft('');
                 clearDraftImages(submittedIds);
                 rememberDraft();
             }
         })) {
             await drafts.flushAll();
-            resizeComposer();
             render();
             api.followLatest();
         }
@@ -214,13 +203,12 @@ export function createComposer(api: API) {
             await request('/api/queue', { id, text, images });
             drafts.clearIfUnchanged({ id }, draft, submittedImages);
             if (composerScope.id === id) {
-                if (input.value === draft)
-                    input.value = '';
+                if (ui.workspace.readDraft() === draft)
+                    ui.workspace.resetDraft('');
                 clearDraftImages(new Set(submittedImages.map((image) => image.id)));
                 rememberDraft();
             }
             await drafts.flushAll();
-            resizeComposer();
             await refresh().catch(() => { activity.error = 'Message submitted. Waiting for the local service to update the pending list.'; });
         }
         catch (error) {
@@ -232,14 +220,10 @@ export function createComposer(api: API) {
         }
     }
     function renderDraftImages(): void {
-        $('draft-images').hidden = !draftImages.length;
-        attachmentsView.update({ items: draftImages, disabled: activity.busy || readingImages });
-        $<HTMLButtonElement>('attach-images').disabled = activity.busy || readingImages || draftLoading || !app.loaded;
-        const guidance = $('image-guidance');
-        guidance.hidden = !draftImages.length;
-        guidance.textContent = app.state.settings.supportsImages
+        ui.workspace.updateAttachments({ items: draftImages, disabled: activity.busy || readingImages || draftLoading || !app.loaded });
+        ui.workspace.updateImageGuidance(!draftImages.length ? '' : app.state.settings.supportsImages
             ? 'Images are saved with this conversation and sent to your configured model provider. Up to 50 MiB total per message.'
-            : 'This model does not support images. Choose an image-capable model beside the message box, or remove the attachments.';
+            : 'This model does not support images. Choose an image-capable model beside the message box, or remove the attachments.');
     }
     function clearDraftImages(ids?: Set<string>): void {
         if (!ids)
@@ -302,6 +286,5 @@ export function createComposer(api: API) {
             render();
         }
     }
-    function resizeComposer(): void { api.resizeInput(); }
-    return { destroy() { queueEditor.destroy(); pendingView.destroy(); attachmentsView.destroy(); }, rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, resizeComposer, drafts, get draftImages() { return draftImages; }, get readingImages() { return readingImages; }, get draftLoading() { return draftLoading; }, get draftGeneration() { return draftGeneration; }, get composerScope() { return composerScope; }, get resolvingReferences() { return resolvingReferences; }, set resolvingReferences(value: boolean) { resolvingReferences = value; }, closeQueueEditor() { queueEditTarget = null; } };
+    return { destroy() { queueEditTarget = null; queueEditor?.destroy(); queueEditor = undefined; }, rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, drafts, get draftImages() { return draftImages; }, get readingImages() { return readingImages; }, get draftLoading() { return draftLoading; }, get draftGeneration() { return draftGeneration; }, get composerScope() { return composerScope; }, get resolvingReferences() { return resolvingReferences; }, set resolvingReferences(value: boolean) { resolvingReferences = value; }, closeQueueEditor() { queueEditTarget = null; queueEditor?.close(); queueEditor = undefined; } };
 }

@@ -1,10 +1,5 @@
-import { createDropFeedback } from 'pith-ui';
-const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+import type { Application, WorkspaceCallbacks } from 'pith-ui/app';
 const imageExtension = /\.(?:png|jpe?g|gif|webp)$/i;
-
-export function isImageFile(file: Pick<File, 'type' | 'name'>): boolean {
-  return imageTypes.has(file.type) || (!file.type && imageExtension.test(file.name));
-}
 
 export function isImagePath(path: string): boolean {
   try { if (/^file:/i.test(path)) path = new URL(path).pathname; } catch { return false; }
@@ -23,89 +18,61 @@ export function localFileURIs(value: string): string[] {
   });
 }
 
-export function insertWorkspaceReferences(value: string, start: number, end: number, paths: string[]): { value: string; cursor: number } {
-  const references = paths.map(formatWorkspaceReference).join(' ');
-  const before = value.slice(0, start);
-  const after = value.slice(end);
-  const inserted = (before && !/\s$/.test(before) ? ' ' : '') + references + (after && !/^\s/.test(after) ? ' ' : '');
-  return { value: before + inserted + after, cursor: before.length + inserted.length };
-}
-
-export function formatWorkspaceReference(path: string): string {
-  // CommonMark code spans can contain backticks when the delimiter is longer.
-  const length = Math.max(0, ...Array.from(path.matchAll(/`+/g), (match) => match[0].length)) + 1;
-  const delimiter = '`'.repeat(length);
-  const padded = /^`|`$|^ | $/.test(path) && !/^ +$/.test(path);
-  return delimiter + (padded ? ` ${path} ` : path) + delimiter;
-}
-
 interface DropOptions {
-  form: HTMLElement;
-  input: HTMLTextAreaElement;
+  ui: Application;
   native: boolean;
   busy: () => boolean;
   context: () => string;
   workspaceID: () => string | undefined;
   disposed: () => boolean;
   resolve: (workspaceID: string, paths: string[]) => Promise<string[]>;
-  images: (files: File[]) => Promise<void>;
   pending: (pending: boolean) => void;
   changed: () => void;
   error: (message: string) => void;
 }
 
-export function installWorkspaceFileDrop(options: DropOptions): () => void {
-  const { form, input } = options;
+export function installWorkspaceFileDrop(options: DropOptions) {
   let pending = false;
   let destroyed = false;
-  const abort = new AbortController();
-  const feedback = createDropFeedback({ container: form });
   const addPaths = async (paths: string[]) => {
     if (destroyed || !paths.length || options.busy() || pending) return;
     const workspaceID = options.workspaceID();
     if (!workspaceID) { options.error('Choose a workspace before dropping files.'); return; }
     const context = options.context();
     pending = true;
+    options.ui.workspace.setDropPending(true);
     options.pending(true);
+    let released = false;
     try {
       const refs = await options.resolve(workspaceID, paths);
       // A slow response must not insert into another workspace's draft.
       if (destroyed || options.disposed() || context !== options.context()) return;
-      const result = insertWorkspaceReferences(input.value, input.selectionStart, input.selectionEnd, refs);
-      input.value = result.value;
-      input.setSelectionRange(result.cursor, result.cursor);
-      input.focus();
+      // Resolving has finished. The scene can now perform its own selection
+      // insertion while this controller still rejects a second resolver.
+      options.ui.workspace.setDropPending(false);
+      options.pending(false);
+      released = true;
+      options.ui.workspace.insertReferences(refs);
       options.changed();
     } catch (error) {
       if (!destroyed && !options.disposed() && context === options.context()) options.error(error instanceof Error ? error.message : String(error));
-    } finally { pending = false; if (!destroyed) options.pending(false); }
-  };
-  form.addEventListener('dragover', (event) => {
-    if (event.dataTransfer?.types.some((type) => type === 'Files' || type === 'text/uri-list')) {
-      event.preventDefault();
-      feedback.update({ active: true, disabled: options.busy() || pending });
+    } finally {
+      pending = false;
+      if (!destroyed && !released) { options.ui.workspace.setDropPending(false); options.pending(false); }
     }
-  }, { signal: abort.signal });
-  form.addEventListener('dragleave', () => feedback.update({ active: false }), { signal: abort.signal });
-  form.addEventListener('drop', (event) => {
-    event.preventDefault();
-    feedback.update({ active: false });
-    if (options.busy()) return;
-    const files = Array.from(event.dataTransfer?.files || []);
-    const images = files.filter(isImageFile);
-    if (images.length) void options.images(images);
-    if (options.native) return; // The native event supplies the actual paths.
-    const paths = localFileURIs(event.dataTransfer?.getData('text/uri-list') || '').filter((path) => !isImagePath(path));
+  };
+  function references(input: Parameters<NonNullable<WorkspaceCallbacks['onDropReferences']>>[0]): void {
+    if (destroyed || options.busy() || pending) return;
+    if (options.native) {
+      if (input.paths.length) void addPaths(input.paths.filter(path => !isImagePath(path)));
+      return;
+    }
+    const paths = localFileURIs(input.uris || '').filter(path => !isImagePath(path));
     if (paths.length) void addPaths(paths);
-    else if (files.some((file) => !isImageFile(file))) options.error('Browser preview cannot identify this local file. Type its workspace-relative path, or drop it in the desktop app.');
-  }, { signal: abort.signal });
-  window.addEventListener('pith:file-drop', (event) => {
-    if (!options.native) return;
-    const detail = (event as CustomEvent).detail as { paths?: unknown; x?: unknown; y?: unknown };
-    if (!detail || !Array.isArray(detail.paths) || !detail.paths.every((path) => typeof path === 'string') || typeof detail.x !== 'number' || typeof detail.y !== 'number') return;
-    const target = document.elementFromPoint(detail.x, detail.y);
-    if (!target || !form.contains(target)) return;
-    void addPaths(detail.paths.filter((path: string) => !isImagePath(path)));
-  }, { signal: abort.signal });
-  return () => { destroyed = true; abort.abort(); feedback.destroy(); };
+    else if (input.hasUnidentifiedFiles) options.error('Browser preview cannot identify this local file. Type its workspace-relative path, or drop it in the desktop app.');
+  }
+  return {
+    references,
+    destroy(): void { destroyed = true; options.ui.workspace.setDropPending(false); },
+  };
 }

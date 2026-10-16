@@ -1,16 +1,15 @@
 import type { ApiRequest } from './api';
 import type { UpdateStatus } from './contract.generated';
-import { createUpdatePanel } from 'pith-ui';
+import type { SettingsSession, UpdateAction } from 'pith-ui/app';
 
-export function mountUpdates(root: HTMLElement, request: ApiRequest): { check: () => Promise<void>; dispose: () => void } {
-  const panel = createUpdatePanel({ container: root, productName: 'Pith Desk', onCheck: () => { void act('check'); }, onInstall: () => { void act('install'); } });
+export function mountUpdates(panel: SettingsSession, request: ApiRequest): { act: (action: UpdateAction) => Promise<void>; check: () => Promise<void>; dispose: () => void } {
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let submitting = false;
   let generation = 0;
 
   function render(state: UpdateStatus): void {
-    panel.update(state);
+    panel.updateUpdates(state);
     const busy = ['checking', 'installing', 'restarting'].includes(state.phase);
     if (busy && !disposed) timer = setTimeout(() => { void refresh(); }, 500);
   }
@@ -23,7 +22,7 @@ export function mountUpdates(root: HTMLElement, request: ApiRequest): { check: (
       const state = await request('/api/update');
       if (!disposed && current === generation) render(state);
     } catch (error) {
-      if (!disposed && current === generation) { panel.setError(String(error), { allowCheckRetry: true }); }
+      if (!disposed && current === generation) { panel.setUpdateError(String(error), { allowCheckRetry: true }); }
     }
   }
 
@@ -31,19 +30,20 @@ export function mountUpdates(root: HTMLElement, request: ApiRequest): { check: (
     if (disposed || submitting) return;
     generation++;
     submitting = true;
-    panel.setPending(true);
+    panel.setUpdatePending(true);
     let failure = '';
     try { await request('/api/update', { action }); }
     catch (error) { failure = String(error); }
     finally { submitting = false; }
     await refresh();
-    panel.setPending(false);
-    if (!disposed && failure) panel.setError(failure);
+    panel.setUpdatePending(false);
+    if (!disposed && failure) panel.setUpdateError(failure);
   }
 
   void refresh();
   return {
+    act,
     check: () => act('check'),
-    dispose: () => { disposed = true; if (timer !== undefined) clearTimeout(timer); panel.destroy(); },
+    dispose: () => { disposed = true; if (timer !== undefined) clearTimeout(timer); },
   };
 }

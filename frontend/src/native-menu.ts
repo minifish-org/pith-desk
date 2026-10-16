@@ -34,7 +34,7 @@ export function installNativeMenu(options: NativeMenuOptions): { update: () => v
     return {
       ready: context.ready && !disposed,
       busy: context.busy,
-      modal: !!context.modal || !!document.querySelector('dialog[open]'),
+      modal: !!context.modal,
       workspaceId: context.workspaceId || '',
       activeId: context.activeId || '',
     };
@@ -107,8 +107,6 @@ export function installNativeMenu(options: NativeMenuOptions): { update: () => v
   };
   window.addEventListener('pith:native-menu', onNative);
   if (!options.native) document.addEventListener('keydown', onKeyDown);
-  const dialogs = new MutationObserver(update);
-  dialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
   update();
   return {
     update,
@@ -116,7 +114,6 @@ export function installNativeMenu(options: NativeMenuOptions): { update: () => v
       disposed = true;
       pending = undefined;
       if (retry !== undefined) clearTimeout(retry);
-      dialogs.disconnect();
       window.removeEventListener('pith:native-menu', onNative);
       document.removeEventListener('keydown', onKeyDown);
     },

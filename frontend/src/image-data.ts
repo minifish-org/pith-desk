@@ -12,5 +12,3 @@ export async function imagePreviewBlob(data: string, mimeType: string, active: (
   }
   return active() ? new Blob(parts, { type: mimeType }) : null;
 }
-
-export { installImageViewer, createImageViewer } from 'pith-ui';
