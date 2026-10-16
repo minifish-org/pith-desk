@@ -238,6 +238,25 @@ test('namespace and dynamic app factories cannot bypass the single mount adapter
   ]) rejected(text);
 });
 
+test('the published custom model defaults helper is pure data through named, alias and namespace imports', () => {
+  for (const text of [
+    "import {customModelDefaults} from 'pith-ui/app'; export const model = customModelDefaults();",
+    "import {customModelDefaults as defaults} from 'pith-ui/app'; export const model = defaults();",
+    "import * as ui from 'pith-ui/app'; export const model = ui.customModelDefaults();",
+  ]) assert.deepEqual(source(text), []);
+});
+
+test('an application factory cannot impersonate the pure custom model defaults helper', () => {
+  for (const text of [
+    "import {createApplication as customModelDefaults} from 'pith-ui/app'; const model = customModelDefaults();",
+    "import * as ui from 'pith-ui/app'; const customModelDefaults = ui.createApplication; customModelDefaults();",
+    "const ui = await import('pith-ui/app'); const customModelDefaults = ui.createApplication; customModelDefaults();",
+  ]) {
+    const issues = source(text);
+    assert.ok(issues.some(issue => issue.code === 'mount'), text);
+  }
+});
+
 test('a drop validator must reject invalid values rather than contain unreachable validation checks', () => {
   const ineffectiveGuard = nativeModule.replace(
     "if (!Array.isArray(value.paths) || !value.paths.every(path => typeof path === 'string')) return;",
