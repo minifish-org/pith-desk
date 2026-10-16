@@ -46,6 +46,13 @@ test('a committed MCP logout remains successful when its following list read fai
   sdk.destroy();
 });
 
+test('a committed provider logout remains successful when its following credential read fails',async()=>{
+  const h=harness();h.api.refreshProviderAuth=id=>{h.events.push({providerRefresh:id});throw new Error('Read failed after committed write');};
+  const sdk=createSDKUI(h.api);
+  assert.deepEqual(await sdk.providerAction('logout',{id:'provider'}),{ok:true});
+  assert.deepEqual(h.events,[{path:'/api/oauth/logout',payload:{provider:'provider'}},{providerRefresh:'provider'}]);sdk.destroy();
+});
+
 test('global availability and destruction block auth writes without starting transactions',async()=>{
   const h=harness(),sdk=createSDKUI(h.api);h.setBusy(true);
   assert.equal((await sdk.providerAction('login',{id:'provider'})).ok,false);assert.equal((await sdk.mcpAuth('mcp-login','tools')).ok,false);
@@ -54,6 +61,13 @@ test('global availability and destruction block auth writes without starting tra
   h.state.runs=[];sdk.destroy();
   assert.equal((await sdk.providerAction('logout',{id:'provider'})).ok,false);assert.equal((await sdk.mcpAuth('mcp-logout','tools')).ok,false);
   assert.deepEqual(h.events,[]);assert.deepEqual(h.confirmations,[]);
+});
+
+test('destroyed SDK entry points do not reopen resource or history windows',async()=>{
+  const h=harness(),sdk=createSDKUI(h.api);h.state.activeId='active';h.state.workspaces=[{id:'w',name:'Project',path:'/demo/project'}];
+  sdk.destroy();
+  const results=await Promise.allSettled([sdk.resource('w','skill'),sdk.history()]);
+  assert.deepEqual(results.map(result=>result.status),['fulfilled','fulfilled']);assert.deepEqual(h.events,[]);
 });
 
 test('connection removal uses a structured confirmation and captures its original target',async()=>{
