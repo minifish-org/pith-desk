@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
-import { checkUIConsumption } from './ui-consumption.ts';
+import { checkUIConsumption, readConsumptionInput } from './ui-consumption.ts';
 
 const version = '0.2.0';
 const integrity = 'sha512-' + Buffer.alloc(64).toString('base64');
@@ -183,6 +186,66 @@ test('native event detail cannot escape validation or forward a target node as a
   rejected(nativeModule.replace('onDrop({ paths: detail.paths, x: detail.x, y: detail.y })', 'onDrop({ paths: detail.paths, x: detail.x, y: detail.y, target: event.target })'), 'frontend/src/ui-native.ts');
 });
 
+test('the draft flush lifecycle retains its guarded saved-result callback protocol', () => {
+  assert.deepEqual(source(`
+    export function installAppLifecycle(flushDrafts: () => Promise<boolean>) {
+      const onFlush = (event: Event) => {
+        const callback = (event as CustomEvent<unknown>).detail;
+        if (typeof callback !== 'function') return;
+        event.preventDefault();
+        void flushDrafts().then(callback, () => callback(false));
+      };
+      window.addEventListener('pith:flush-drafts', onFlush);
+      return () => window.removeEventListener('pith:flush-drafts', onFlush);
+    }
+  `, 'frontend/src/app-lifecycle.ts'), []);
+});
+
+test('the native menu retains its guarded finite action protocol without querying UI nodes', () => {
+  assert.deepEqual(source(`
+    export function installNativeMenu(dispatch: (action: string) => void) {
+      const onNative = (event: Event) => {
+        const detail = (event as CustomEvent<unknown>).detail;
+        if (!detail || typeof detail !== 'object' || !('action' in detail)) return;
+        const action = detail.action;
+        if (action === 'new-conversation' || action === 'choose-workspace' || action === 'export-conversation' || action === 'settings' || action === 'check-updates') dispatch(action);
+      };
+      window.addEventListener('pith:native-menu', onNative);
+      return () => window.removeEventListener('pith:native-menu', onNative);
+    }
+  `, 'frontend/src/native-menu.ts'), []);
+});
+
+test('computed global capabilities and standalone global aliases cannot supply DOM access', () => {
+  for (const text of [
+    "const key = 'document'; globalThis[key].createElement('button');",
+    "const global = globalThis; global.document.createElement('button');",
+    "const key = 'document'; const { [key]: doc } = globalThis; doc.createElement('button');",
+  ]) rejected(text);
+});
+
+test('a semantic application handle cannot recover style or internal nodes through a mounting alias', () => {
+  for (const suffix of ['app.style.padding = "8px"', 'app.element', "app.part('messages')"]) {
+    const issues = source(`import { mountApplication } from './ui-mount'; const app = mountApplication(options); ${suffix};`);
+    assert.ok(issues.some(issue => issue.code === 'internal'), suffix);
+  }
+});
+
+test('namespace and dynamic app factories cannot bypass the single mount adapter', () => {
+  for (const text of [
+    "import * as ui from 'pith-ui/app'; const app = ui.createApplication(undefined as any, {}); app.element;",
+    "const ui = await import('pith-ui/app'); const create = ui.createApplication; create(undefined as any, {});",
+  ]) rejected(text);
+});
+
+test('a drop validator must reject invalid values rather than contain unreachable validation checks', () => {
+  const ineffectiveGuard = nativeModule.replace(
+    "if (!Array.isArray(value.paths) || !value.paths.every(path => typeof path === 'string')) return;",
+    "if (false && (!Array.isArray(value.paths) || !value.paths.every(path => typeof path === 'string'))) return;",
+  );
+  rejected(ineffectiveGuard, 'frontend/src/ui-native.ts');
+});
+
 test('business file, blob, URL, networking and literal tool data remain outside the DOM prohibition', () => {
   assert.deepEqual(source(`
     export function upload(file: File, blob: Blob, buffer: ArrayBuffer) {
@@ -347,10 +410,37 @@ test('installed package metadata must match the pinned version and expose the ap
   assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(missingApp) }).length > 0);
 });
 
+test('installed entry export targets cannot escape the built dist directory', () => {
+  const escaped = structuredClone(installedPackage);
+  escaped.exports['./app'].import = './dist/../../src/app.js';
+  assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(escaped) }).length > 0);
+});
+
 test('a UI dependency or production source symlink cannot bypass installed-package checks', () => {
   for (const path of ['frontend/node_modules/pith-ui', 'frontend/src/borrowed-ui.ts']) {
     assert.ok(inspect({}, [path]).length > 0, path);
   }
+});
+
+test('the CLI reader never follows a linked frontend or installed dependency ancestor', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pith-consumption-reader-'));
+  try {
+    const outside = path.join(root, 'outside');
+    await mkdir(path.join(outside, 'src'), { recursive: true });
+    await writeFile(path.join(outside, 'src', 'secret.ts'), 'export const secret = true;');
+    await symlink(outside, path.join(root, 'frontend'));
+    const frontend = await readConsumptionInput(root);
+    assert.deepEqual(frontend.files, {});
+    assert.ok(frontend.symlinks?.includes('frontend'));
+    await rm(path.join(root, 'frontend'));
+    await mkdir(path.join(root, 'frontend', 'src'), { recursive: true });
+    await mkdir(path.join(outside, 'pith-ui'), { recursive: true });
+    await writeFile(path.join(outside, 'pith-ui', 'package.json'), JSON.stringify(installedPackage));
+    await symlink(outside, path.join(root, 'frontend', 'node_modules'));
+    const dependency = await readConsumptionInput(root);
+    assert.equal(dependency.files['frontend/node_modules/pith-ui/package.json'], undefined);
+    assert.ok(dependency.symlinks?.includes('frontend/node_modules'));
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('TypeScript and Vite source aliases cannot redirect the UI entry to a sibling checkout', () => {
