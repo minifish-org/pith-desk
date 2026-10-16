@@ -97,7 +97,7 @@ test('a delayed creation cannot refresh or report into a newly opened inventory'
   await page.evaluate(() => {(window as unknown as BrowserFixture).instructions.holdWrite = true;});
   await page.getByRole('button', {name: 'Create AGENTS.md in this workspace', exact: true}).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as BrowserFixture).instructions.writes)).toEqual([{workspaceId: 'w'}]);
-  await page.locator('[id$="resources-dialog"]').getByRole('button', {name: 'Close', exact: true}).click();
+  await page.locator('[id$="resources-dialog"]').getByRole('button', {name: 'Close workspace resources', exact: true}).click();
   await page.evaluate(() => {
     const fixture = window as unknown as BrowserFixture;
     fixture.reviewState.conversations.find(entry => entry.id === 'b')!.workspaceId = 'other'; fixture.reviewState.activeId = 'b'; fixture.emitReview();
