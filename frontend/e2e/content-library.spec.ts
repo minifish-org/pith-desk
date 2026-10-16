@@ -46,8 +46,12 @@ for (const appearance of ['light', 'dark']) {
     await page.evaluate((appearance) => { const app = window as ContentTestWindow; app.reviewState.settings.appearance = appearance; app.emitReview(); }, appearance);
     const failed = page.locator('.pui-tool-group-failed');
     await expect(failed).toHaveText('1 failed');
-    await page.locator('[data-tool-fold="group-0"] > summary').click();
+    const group = page.locator('.pui-tool-group').filter({ has: page.locator('[data-reading-id="tool-error"]') });
+    await expect(group).toHaveCount(1);
+    await group.locator(':scope > summary').click();
+    await expect(group).toHaveJSProperty('open', true);
     const status = page.locator('[data-reading-id="tool-error"] .pui-tool-status-error');
+    await expect(status).toBeVisible();
     await expect(status).toHaveText('error');
     const colors = await page.evaluate(() => {
       const probe = document.createElement('span'); probe.style.color = 'var(--pui-error-text)'; document.querySelector('.pui')!.append(probe);

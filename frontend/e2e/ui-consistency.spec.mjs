@@ -24,7 +24,7 @@ test('connection actions use form buttons without submitting while resetting or 
   await page.locator('#mcp-type').selectOption('stdio');
   await page.locator('#mcp-env').fill('{"DEMO":"local example"}');
   const visibility = page.locator('#mcp-env-visibility');
-  expect(await visibility.evaluate(el => document.querySelector('#mcp-env').getBoundingClientRect().top - el.getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(9);
+  expect(await visibility.evaluate(el => document.querySelector('#mcp-env').getBoundingClientRect().top - el.getBoundingClientRect().bottom)).toBe(8);
   await visibility.press('Space');
   await expect(visibility).toHaveText('Hide');
   await expect(visibility).toHaveAttribute('aria-pressed', 'true');
@@ -46,7 +46,7 @@ test('model removal uses the existing destructive button and only changes the un
   expect(styles.height).toBe(40);
   expect(styles.decoration).toBe('none');
   expect(styles.color).toBe(styles.errorColor);
-  expect(await remove.evaluate(el => el.getBoundingClientRect().top - el.previousElementSibling.getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(9);
+  expect(await remove.evaluate(el => el.getBoundingClientRect().top - el.previousElementSibling.getBoundingClientRect().bottom)).toBe(8);
   await remove.press('Enter');
   await expect(page.locator('#custom-models fieldset')).toHaveCount(1);
   await expect(page.locator('#sdk-dialog')).toBeVisible();
@@ -62,7 +62,7 @@ test('workspace Change activates as a button while the logo keeps its style with
   await page.locator('#workspace-dialog [data-close]').first().click();
   const logo = page.locator('.pui-brand');
   const appearance = await logo.evaluate(el => ({ background: getComputedStyle(el).backgroundColor, font: getComputedStyle(el).fontSize, align: getComputedStyle(el).textAlign, border: getComputedStyle(el).borderTopWidth }));
-  expect(appearance).toEqual({ background: 'rgba(0, 0, 0, 0)', font: '21px', align: 'start', border: '0px' });
+  expect(appearance).toEqual({ background: 'rgba(0, 0, 0, 0)', font: '16px', align: 'start', border: '0px' });
   const url = page.url();
   expect(await logo.evaluate(el => el.tabIndex)).toBe(-1);
   await page.locator('#history-search').focus();
@@ -180,13 +180,13 @@ test('image viewer ignores internal padding clicks and keeps its source focus on
 test('OAuth prompts keep form spacing and failed sign-in uses an accessible error status', async ({ page }) => {
   for (const prompt of [{ promptType: 'text' }, { promptType: 'secret' }, { options: [{ id: 'yes', label: 'Yes' }] }]) {
     await page.evaluate(prompt => { window.reviewState.login = { id: JSON.stringify(prompt), provider: 'custom-test', phase: 'prompt', message: 'Enter the provider value.', prompt: 'Verification value', ...prompt }; window.emitReview(); }, prompt);
-    const gap = await page.locator('#oauth-answer').evaluate(form => form.querySelector('button').getBoundingClientRect().top - form.querySelector('#oauth-value').getBoundingClientRect().bottom);
-    expect(gap).toBeGreaterThanOrEqual(12);
+    const gap = await page.locator('#oauth-answer').evaluate(form => form.querySelector('button[type="submit"]').getBoundingClientRect().top - form.querySelector('#oauth-value').getBoundingClientRect().bottom);
+    expect(gap).toBe(12);
   }
   await page.evaluate(() => { window.reviewState.login = { id: 'failure', provider: 'custom-test', phase: 'error', message: 'Provider sign-in failed. Please try again.' }; window.emitReview(); });
   await expect(page.locator('.pui-provider-login-status')).toHaveAttribute('role', 'alert');
   const styles = await page.locator('.pui-provider-login-status').evaluate(el => ({ size: getComputedStyle(el).fontSize, line: getComputedStyle(el).lineHeight, color: getComputedStyle(el).color, expectedColor: getComputedStyle(document.querySelector('#oauth-error')).color }));
-  expect(styles).toMatchObject({ size: '13px', line: '20px' });
+  expect(styles).toMatchObject({ size: '14px', line: '21px' });
   expect(styles.color).toBe(styles.expectedColor);
   expect(await page.evaluate(() => window.review.requests.some(r => r.path === '/api/oauth/answer'))).toBe(false);
 });

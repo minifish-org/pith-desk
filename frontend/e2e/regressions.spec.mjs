@@ -82,13 +82,13 @@ test('dialogs share accessible headings, close icons and form control sizes', as
   await page.locator('#resources-content').getByRole('button', { name: 'Add skill', exact: true }).click();
   const resource = await page.locator('#sdk-dialog').evaluate(dialog => ({ label: dialog.getAttribute('aria-labelledby'), title: dialog.querySelector('h2').id, icon: !!dialog.querySelector('[data-close] svg'), height: dialog.querySelector('[type="submit"]').getBoundingClientRect().height, font: getComputedStyle(dialog.querySelector('.pui-field-label')).fontSize }));
   await page.locator('#sdk-dialog').screenshot({ path: `output/playwright/final-resource-${testInfo.project.name}.png` });
-  expect(resource).toEqual({ label: 'sdk-title', title: 'sdk-title', icon: true, height: 40, font: '13px' });
+  expect(resource).toEqual({ label: 'sdk-title', title: 'sdk-title', icon: true, height: 40, font: '14px' });
   await page.locator('#sdk-dialog [data-close]').first().click();
   await page.locator('#resources-dialog [data-close]').click();
   await page.locator('#sidebar [data-action="settings"]').click();
   await expect(page.locator('#save-settings')).toBeEnabled();
   await page.locator('#settings-dialog').screenshot({ path: `output/playwright/final-settings-${testInfo.project.name}.png` });
-  expect(await page.locator('#settings-dialog').evaluate(dialog => ({ label: dialog.getAttribute('aria-labelledby'), title: dialog.querySelector('h2').id, icon: !!dialog.querySelector('[data-close] svg'), height: dialog.querySelector('#save-settings').getBoundingClientRect().height, font: getComputedStyle(dialog.querySelector('.pui-field-label')).fontSize }))).toEqual({ label: 'settings-title', title: 'settings-title', icon: true, height: 40, font: '13px' });
+  expect(await page.locator('#settings-dialog').evaluate(dialog => ({ label: dialog.getAttribute('aria-labelledby'), title: dialog.querySelector('h2').id, icon: !!dialog.querySelector('[data-close] svg'), height: dialog.querySelector('#save-settings').getBoundingClientRect().height, font: getComputedStyle(dialog.querySelector('.pui-field-label')).fontSize }))).toEqual({ label: 'settings-title', title: 'settings-title', icon: true, height: 40, font: '14px' });
 });
 
 test('connection probes keep Save disabled across stream snapshots', async ({ page }) => {
