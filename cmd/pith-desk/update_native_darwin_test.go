@@ -68,7 +68,7 @@ func TestUpdatesNativeSettingsProgressFailureAndDraftSave(t *testing.T) {
 	if err := win.Page().LoadURL(server.URL); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#composer-input')?.readOnly === false`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]')?.readOnly === false`)
 	nativeDropEval(t, win, `document.querySelector('[data-action="settings"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('[data-update-version]')?.textContent === 'Pith Desk 0.1.0-rc.19' && !document.querySelector('[data-update-check]').disabled`)
 	nativeDropEval(t, win, `document.querySelector('[data-update-check]').click(); return true;`)
@@ -80,9 +80,9 @@ func TestUpdatesNativeSettingsProgressFailureAndDraftSave(t *testing.T) {
 		t.Fatal("rejected signature restarted the app")
 	}
 	nativeDropEval(t, win, `document.querySelector('[data-update-install]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('#update-settings progress')?.value === 50 && !document.querySelector('#update-settings progress').hidden`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=update-settings] progress')?.value === 50 && !document.querySelector('[id$=update-settings] progress').hidden`)
 	saveUsabilityScreenshot(t, win, "update-progress.png")
-	nativeDropEval(t, win, `document.querySelector('[data-close="settings-dialog"]').click(); const input=document.querySelector('#composer-input');input.value='Last draft while updating 中文';input.dispatchEvent(new Event('input',{bubbles:true}));return true;`)
+	nativeDropEval(t, win, `document.querySelector('[data-close$="settings-dialog"]').click(); const input=document.querySelector('[id$=composer-input]');input.value='Last draft while updating 中文';input.dispatchEvent(new Event('input',{bubbles:true}));return true;`)
 	close(proceed)
 	waitUpdatePhase(t, u, "restarting")
 	waitSavedDraft(t, service, conversation.ID, "Last draft while updating 中文")

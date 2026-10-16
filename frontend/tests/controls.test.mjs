@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { controlDisabled, setControlPending } from '../src/controls.ts';
+import { controlDisabled, setControlPending } from 'pith-ui';
 
 test('snapshot availability preserves loading, connection probes and pending copies', () => {
   const button = { dataset: {}, disabled: false };

@@ -96,26 +96,26 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 			draft, draftErr := service.Draft(desk.DraftScope{ID: first.ID})
 			t.Logf("saved draft bytes=%d revision=%d, error: %v", len(draft.Text), draft.Revision, draftErr)
 			t.Logf("fixture requests=%d running=%v phase=%s error=%q hasKey=%v approval=%+v", requests.Load(), state.Running, state.Runtime.Phase, state.Error, state.Settings.HasAPIKey, state.PendingApproval)
-			t.Logf("UI: %v", nativeDropEval(t, win, `({ready:document.querySelector('#composer-input')?.readOnly, sendDisabled:document.querySelector('#send-button')?.disabled, approval:document.querySelector('#approval')?.textContent, failure:document.querySelector('#task-failure')?.textContent, error:document.querySelector('#inline-error')?.textContent, loaded:document.querySelector('#composer-input')?.placeholder})`))
+			t.Logf("UI: %v", nativeDropEval(t, win, `({ready:document.querySelector('[id$=composer-input]')?.readOnly, sendDisabled:document.querySelector('[id$=send-button]')?.disabled, approval:document.querySelector('[id$=approval]')?.textContent, failure:document.querySelector('[id$=task-failure]')?.textContent, error:document.querySelector('[id$=inline-error]')?.textContent, loaded:document.querySelector('[id$=composer-input]')?.placeholder})`))
 		}
 	}()
 	if err := win.Page().LoadURL(server.URL); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#composer-input')?.readOnly === false && document.querySelector('#workspace-label')?.textContent !== 'No workspace'`)
-	nativeDropEval(t, win, `const input = document.querySelector('#composer-input'); input.value = 'First draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
-	nativeDropEval(t, win, `const canvas=document.createElement('canvas'); canvas.width=10; canvas.height=10; const bytes=Uint8Array.from(atob(canvas.toDataURL().split(',')[1]), c=>c.charCodeAt(0)); const transfer=new DataTransfer(); transfer.items.add(new File([bytes], 'draft.png', {type:'image/png'})); const picker=document.querySelector('#image-picker'); picker.files=transfer.files; picker.dispatchEvent(new Event('change', {bubbles:true})); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]')?.readOnly === false && document.querySelector('[id$=workspace-label]')?.textContent !== 'No workspace'`)
+	nativeDropEval(t, win, `const input = document.querySelector('[id$=composer-input]'); input.value = 'First draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	nativeDropEval(t, win, `const canvas=document.createElement('canvas'); canvas.width=10; canvas.height=10; const bytes=Uint8Array.from(atob(canvas.toDataURL().split(',')[1]), c=>c.charCodeAt(0)); const transfer=new DataTransfer(); transfer.items.add(new File([bytes], 'draft.png', {type:'image/png'})); const picker=document.querySelector('[id$=image-picker]'); picker.files=transfer.files; picker.dispatchEvent(new Event('change', {bubbles:true})); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelectorAll('.pui-draft-image').length === 1`)
 
 	if err := service.OpenConversation(second.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#composer-input').value === '' && !document.querySelector('#composer-input').readOnly`)
-	nativeDropEval(t, win, `const input = document.querySelector('#composer-input'); input.value = 'Second draft'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]').value === '' && !document.querySelector('[id$=composer-input]').readOnly`)
+	nativeDropEval(t, win, `const input = document.querySelector('[id$=composer-input]'); input.value = 'Second draft'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
 	if err := service.OpenConversation(first.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#composer-input').value === 'First draft 中文' && document.querySelectorAll('.pui-draft-image').length === 1`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]').value === 'First draft 中文' && document.querySelectorAll('.pui-draft-image').length === 1`)
 	waitSavedDraft(t, service, first.ID, "First draft 中文")
 	waitSavedDraft(t, service, second.ID, "Second draft")
 	// Recreate the host on a different random origin to verify profile storage.
@@ -135,8 +135,8 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		t.Fatal(err)
 	}
 	newOrigin, _ := json.Marshal(server.URL)
-	waitNativeDropCondition(t, win, `location.origin === `+string(newOrigin)+` && document.querySelector('#composer-input')?.value === 'First draft 中文' && !document.querySelector('#composer-input').readOnly && document.querySelectorAll('.pui-draft-image').length === 1`)
-	nativeDropEval(t, win, `document.querySelector('[data-remove-image]').click(); document.querySelector('#composer-form').requestSubmit(); return true;`)
+	waitNativeDropCondition(t, win, `location.origin === `+string(newOrigin)+` && document.querySelector('[id$=composer-input]')?.value === 'First draft 中文' && !document.querySelector('[id$=composer-input]').readOnly && document.querySelectorAll('.pui-draft-image').length === 1`)
+	nativeDropEval(t, win, `document.querySelector('[data-remove-image]').click(); document.querySelector('[id$=composer-form]').requestSubmit(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-diff .pui-diff-add') !== null`)
 	saveUsabilityScreenshot(t, win, "approval-diff.png")
 	waitSavedDraft(t, service, first.ID, "")
@@ -161,12 +161,12 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		nativeDropEval(t, win, `document.querySelector('[data-approval="allow"]').click(); return true;`)
 	}
 	waitNativeDropCondition(t, win, `document.querySelectorAll('[data-preview-path]').length === 4`)
-	nativeDropEval(t, win, `document.querySelector('#artifacts').open = true; document.querySelector('#artifacts').scrollIntoView({block:'end'}); return true;`)
+	nativeDropEval(t, win, `document.querySelector('[aria-label="Conversation files"]').click(); document.querySelector('[id$=artifacts]').scrollIntoView({block:'end'}); return true;`)
 	saveUsabilityScreenshot(t, win, "generated-file-actions.png")
 	nativeDropEval(t, win, `document.querySelector('[data-preview-path$="note.md"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('#preview-dialog').open && document.querySelector('#file-preview-body h1')?.textContent === 'Native preview'`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=preview-dialog]').open && document.querySelector('[id$=file-preview-body] h1')?.textContent === 'Native preview'`)
 	saveUsabilityScreenshot(t, win, "markdown-preview.png")
-	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('#file-preview-body script, #file-preview-body img').length === 0 && document.querySelector('#file-preview-body strong')?.textContent === 'Saved Markdown'`) != true {
+	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('[id$=file-preview-body] script, [id$=file-preview-body] img').length === 0 && document.querySelector('[id$=file-preview-body] strong')?.textContent === 'Saved Markdown'`) != true {
 		t.Fatal("Markdown preview failed sanitization")
 	}
 	var imageData bytes.Buffer
@@ -184,46 +184,46 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspacePath, "picture.png"), largeImage, 0644); err != nil {
 		t.Fatal(err)
 	}
-	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="picture.png"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('#file-preview-body img')?.naturalWidth === 2`)
-	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
+	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); document.querySelector('[data-preview-path$="picture.png"]').click(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=file-preview-body] img')?.naturalWidth === 2`)
+	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent === 'Plain text 中文'`)
 	largeText := "PREVIEW START\n" + strings.Repeat("中文🙂\n", (8<<20)/11-4) + "\nPREVIEW END"
 	if err := os.WriteFile(filepath.Join(workspacePath, "result.txt"), []byte(largeText), 0644); err != nil {
 		t.Fatal(err)
 	}
-	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('#file-preview-body .pui-preview-pagination') !== null && document.querySelector('.pui-file-preview-text')?.textContent.startsWith('PREVIEW START')`)
+	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=file-preview-body] .pui-preview-pagination') !== null && document.querySelector('.pui-file-preview-text')?.textContent.startsWith('PREVIEW START')`)
 	if nativeDropEval(t, win, `new TextEncoder().encode(document.querySelector('.pui-file-preview-text').textContent).length <= 256*1024`) != true {
 		t.Fatal("large preview rendered all bytes at once")
 	}
-	nativeDropEval(t, win, `const next=document.querySelector('#file-preview-body .pui-preview-pagination button:last-child'); while (!next.disabled) next.click(); return true;`)
+	nativeDropEval(t, win, `const next=document.querySelector('[id$=file-preview-body] .pui-preview-pagination button:last-child'); while (!next.disabled) next.click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent.endsWith('PREVIEW END')`)
 	saveUsabilityScreenshot(t, win, "large-text-preview.png")
-	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); document.querySelector('[data-preview-path$="animation.html"]').click(); return true;`)
+	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); document.querySelector('[data-preview-path$="animation.html"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent.includes('<script>window.__previewUnsafe=true</script>')`)
-	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('#file-preview-body script').length === 0`) != true {
+	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('[id$=file-preview-body] script').length === 0`) != true {
 		t.Fatal("HTML source executed in preview")
 	}
-	nativeDropEval(t, win, `document.querySelector('[data-close="preview-dialog"]').click(); const input=document.querySelector('#composer-input'); input.value='Edit it'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('#composer-form').requestSubmit(); return true;`)
+	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); const input=document.querySelector('[id$=composer-input]'); input.value='Edit it'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('[id$=composer-form]').requestSubmit(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-diff .pui-diff-remove')?.textContent.includes('Saved Markdown') && document.querySelector('.pui-approval-diff .pui-diff-add')?.textContent.includes('Edited Markdown')`)
 	nativeDropEval(t, win, `document.querySelector('[data-approval="allow"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('[data-preview-path]') !== null && document.querySelector('#approval').textContent === ''`)
+	waitNativeDropCondition(t, win, `document.querySelector('[data-preview-path]') !== null && document.querySelector('[id$=approval]').textContent === ''`)
 	content, err := os.ReadFile(filepath.Join(workspacePath, "note.md"))
 	if err != nil || !strings.Contains(string(content), "Edited Markdown") {
 		t.Fatalf("approved edit not applied: %s %v", content, err)
 	}
 	// Reload immediately, before the autosave debounce can expire. The old
 	// document's authenticated unload save must preserve the latest text.
-	nativeDropEval(t, win, `const input=document.querySelector('#composer-input'); input.value='Last text before reload'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	nativeDropEval(t, win, `const input=document.querySelector('[id$=composer-input]'); input.value='Last text before reload'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
 	if err := win.Page().LoadURL(server.URL + "?restore-draft"); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `location.search === '?restore-draft' && document.querySelector('#composer-input')?.value === 'Last text before reload' && !document.querySelector('#composer-input').readOnly`)
+	waitNativeDropCondition(t, win, `location.search === '?restore-draft' && document.querySelector('[id$=composer-input]')?.value === 'Last text before reload' && !document.querySelector('[id$=composer-input]').readOnly`)
 	waitSavedDraft(t, service, first.ID, "Last text before reload")
 	// The production quit guard saves before the host and WebView go away,
 	// including keystrokes still waiting for the normal autosave debounce.
-	nativeDropEval(t, win, `const input=document.querySelector('#composer-input'); input.value='中'.repeat(2796202)+'ab'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	nativeDropEval(t, win, `const input=document.querySelector('[id$=composer-input]'); input.value='中'.repeat(2796202)+'ab'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
 	if err := flushDesktopDrafts(win); err != nil {
 		t.Fatal(err)
 	}
@@ -262,14 +262,14 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 	if err := win.Page().LoadURL(server.URL); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#composer-input')?.readOnly === false && document.querySelector('#workspace-label')?.textContent !== 'No workspace'`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]')?.readOnly === false && document.querySelector('[id$=workspace-label]')?.textContent !== 'No workspace'`)
 	// Reject only the first send; conversation creation and draft persistence
 	// still use the real authenticated host. No provider request is sent.
 	nativeDropEval(t, win, `const originalFetch=window.fetch; window.fetch=(url,options)=> {
   if (String(url)==='/api/send') { window.fetch=originalFetch; return Promise.resolve(new Response(JSON.stringify({error:'This send was rejected'}), {status:409, headers:{'Content-Type':'application/json'}})); }
   return originalFetch(url,options);
-}; const input=document.querySelector('#composer-input'); input.value='Keep my first draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('#composer-form').requestSubmit(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('#inline-error')?.textContent.includes('This send was rejected') && document.querySelector('#composer-input')?.value === 'Keep my first draft 中文' && !document.querySelector('#composer-input').readOnly`)
+}; const input=document.querySelector('[id$=composer-input]'); input.value='Keep my first draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('[id$=composer-form]').requestSubmit(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=inline-error]')?.textContent.includes('This send was rejected') && document.querySelector('[id$=composer-input]')?.value === 'Keep my first draft 中文' && !document.querySelector('[id$=composer-input]').readOnly`)
 	id := service.Snapshot().ActiveID
 	if id == "" || len(service.Snapshot().Conversations) != 1 {
 		t.Fatal("first send did not create its conversation")
@@ -278,7 +278,7 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 	if err := win.Page().LoadURL(server.URL + "?rejected-send"); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `location.search === '?rejected-send' && document.querySelector('#composer-input')?.value === 'Keep my first draft 中文' && !document.querySelector('#composer-input').readOnly`)
+	waitNativeDropCondition(t, win, `location.search === '?rejected-send' && document.querySelector('[id$=composer-input]')?.value === 'Keep my first draft 中文' && !document.querySelector('[id$=composer-input]').readOnly`)
 }
 
 func saveUsabilityScreenshot(t *testing.T, win *mygo.Window, name string) {

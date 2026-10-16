@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findRanges, installConversationReader } from '../src/conversation-reader.ts';
+import { findRanges, installConversationReader } from 'pith-ui';
 
 test('find treats regular-expression characters as literal user text', () => {
   assert.deepEqual(findRanges('a+b [x] a+b', 'a+b'), [{ start: 0, end: 3 }, { start: 8, end: 11 }]);

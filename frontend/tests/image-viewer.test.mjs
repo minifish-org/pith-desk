@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { imagePreviewBlob } from '../src/image-viewer.ts';
+import { imagePreviewBlob } from '../src/image-data.ts';
 
 test('large images decode across chunk boundaries with original bytes', async () => {
   const bytes = Buffer.alloc(3 * 1024 * 1024 + 5);

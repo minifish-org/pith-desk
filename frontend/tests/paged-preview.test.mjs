@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { previewPageRanges, previewPageBytes } from '../src/paged-preview.ts';
+import { previewPageRanges, previewPageBytes } from 'pith-ui';
 
 test('8 MiB previews page without losing Unicode, long lines or code fences', () => {
   const text = '```ts\n' + '中文🙂'.repeat(850000) + '\n```\nLast line';

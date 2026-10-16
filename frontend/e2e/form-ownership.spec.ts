@@ -1,40 +1,66 @@
 import {test,expect} from '@playwright/test';
+import type {ActionResult, Application, SettingsSession} from 'pith-ui/app';
+
+type FormFixture = {ui: Application; panel: SettingsSession; calls: unknown[]; result?: ActionResult; release?: (value: boolean) => void; destroy(): void};
 
 test.beforeEach(async ({page}) => {
-  await page.route('**/form-ownership.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body></body></html>'}));
+  await page.route('**/form-ownership.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body><div id="app"></div></body></html>'}));
   await page.goto('/form-ownership.html');
 });
 
 test('provider actions report to their own form while the SDK dialog is closed',async ({page}) => {
-  const result = await page.evaluate(async () => {
-    const library = '/node_modules/pith-ui/dist/index.js',adapter = '/src/sdk-dialog.ts';
-    const [{createSettingsPanel,createSDKDialogElements},{createSDKDialog}] = await Promise.all([import(library),import(adapter)]);
-    const elements = createSDKDialogElements({idPrefix:''}); document.body.append(elements.dialog,elements.oauthDialog);
-    const native = document.createElement('dialog'); document.body.append(native);
-    const panel = createSettingsPanel({baseUrl:'https://example.com',hasApiKey:true,ready:true},{idPrefix:''}); native.append(panel.element); native.showModal();
-    const dialog = createSDKDialog({mutate:async()=>false,error:()=> 'Provider rejected'});
-    const saved = await dialog.act('/api/oauth/start',{provider:'example'},native);
-    const result = {saved,settings:panel.element.querySelector('[data-dialog-error]')!.textContent,appearance:panel.element.querySelector('[id$=appearance-error]')!.textContent,sdkOpen:elements.dialog.open};
-    dialog.destroy(); panel.destroy(); native.remove(); elements.destroy(); return result;
+  await page.evaluate(async () => {
+    const library = '/node_modules/pith-ui/dist/app/index.js', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const [{createApplication}, {createSDKUI}] = await Promise.all([import(library), import(adapter), import(styles)]);
+    const ui = createApplication(document.getElementById('app')!), calls: unknown[] = [];
+    const sdk = createSDKUI({ui, state: () => ({runs: []}), busy: () => false, mutate: async (path: string, payload: unknown) => {calls.push({path, payload}); return false;}, error: () => 'Provider rejected'});
+    const fixture: FormFixture = {ui, calls, panel: undefined!, destroy() {sdk.destroy(); ui.destroy();}};
+    fixture.panel = ui.settings.openSettings({baseUrl: 'https://example.com', hasApiKey: true, ready: true}, {
+      onProviderAction: async (action: string, target: {id: string}) => {const result = await sdk.providerAction(action, target); fixture.result = result; return result;},
+    });
+    fixture.panel.setCredential({status: 'Configured', hidden: true, required: false, placeholder: '', removeVisible: false,
+      providerActions: {id: 'example', oauth: true, signedIn: false, custom: false}});
+    (window as unknown as {formFixture: FormFixture}).formFixture = fixture;
   });
-  expect(result).toEqual({saved:false,settings:'Provider rejected',appearance:'',sdkOpen:false});
+  await page.getByRole('button', {name: 'Sign in with provider', exact: true}).click();
+  await expect(page.locator('[id$="settings-error"]')).toHaveText('Provider rejected');
+  const result = await page.evaluate(() => {
+    const fixture = (window as unknown as {formFixture: FormFixture}).formFixture;
+    const result = {saved: fixture.result?.ok, settings: document.querySelector('[id$="settings-error"]')!.textContent,
+      appearance: document.querySelector('[id$="appearance-error"]')!.textContent,
+      sdkOpen: document.querySelector<HTMLDialogElement>('[id$="sdk-dialog"]')!.open, calls: fixture.calls};
+    fixture.destroy(); return result;
+  });
+  expect(result).toEqual({saved: false, settings: 'Provider rejected', appearance: '', sdkOpen: false, calls: [{path: '/api/oauth/start', payload: {provider: 'example'}}]});
 });
 
 test('a replaced provider form cannot receive an older action failure',async ({page}) => {
-  const result = await page.evaluate(async () => {
-    const library = '/node_modules/pith-ui/dist/index.js',adapter = '/src/sdk-dialog.ts';
-    const [{createSettingsPanel,createSDKDialogElements},{createSDKDialog}] = await Promise.all([import(library),import(adapter)]);
-    const elements = createSDKDialogElements({idPrefix:''}); document.body.append(elements.dialog,elements.oauthDialog);
-    const native = document.createElement('dialog'); document.body.append(native);
-    const state = {baseUrl:'https://example.com',hasApiKey:true,ready:true};
-    const original = createSettingsPanel(state,{idPrefix:''}); native.append(original.element); native.showModal();
-    let release!:(value:boolean)=>void;
-    const dialog = createSDKDialog({mutate:()=>new Promise<boolean>(resolve=>{release = resolve;}),error:()=> 'Old provider rejected'});
-    const pending = dialog.act('/api/oauth/start',{provider:'example'},native);
-    original.destroy(); const replacement = createSettingsPanel(state,{idPrefix:''}); native.replaceChildren(replacement.element);
-    release(false); const saved = await pending;
-    const result = {saved,settings:replacement.element.querySelector('[data-dialog-error]')!.textContent,appearance:replacement.element.querySelector('[id$=appearance-error]')!.textContent};
-    dialog.destroy(); replacement.destroy(); native.remove(); elements.destroy(); return result;
+  await page.evaluate(async () => {
+    const library = '/node_modules/pith-ui/dist/app/index.js', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const [{createApplication}, {createSDKUI}] = await Promise.all([import(library), import(adapter), import(styles)]);
+    const ui = createApplication(document.getElementById('app')!), calls: unknown[] = [];
+    const fixture: FormFixture = {ui, calls, panel: undefined!, destroy() {sdk.destroy(); ui.destroy();}};
+    const sdk = createSDKUI({ui, state: () => ({runs: []}), busy: () => false,
+      mutate: (path: string, payload: unknown) => {calls.push({path, payload}); return new Promise<boolean>(resolve => {fixture.release = resolve;});}, error: () => 'Old provider rejected'});
+    fixture.panel = ui.settings.openSettings({baseUrl: 'https://example.com', hasApiKey: true, ready: true}, {
+      onProviderAction: async (action: string, target: {id: string}) => {const result = await sdk.providerAction(action, target); fixture.result = result; return result;},
+    });
+    fixture.panel.setCredential({status: 'Configured', hidden: true, required: false, placeholder: '', removeVisible: false,
+      providerActions: {id: 'example', oauth: true, signedIn: false, custom: false}});
+    (window as unknown as {formFixture: FormFixture}).formFixture = fixture;
   });
-  expect(result).toEqual({saved:false,settings:'',appearance:''});
+  await page.getByRole('button', {name: 'Sign in with provider', exact: true}).click();
+  await page.evaluate(() => {
+    const fixture = (window as unknown as {formFixture: FormFixture}).formFixture;
+    fixture.panel = fixture.ui.settings.openSettings({baseUrl: 'https://replacement.example.com', hasApiKey: true, ready: true});
+    fixture.release!(false);
+  });
+  await expect.poll(() => page.evaluate(() => (window as unknown as {formFixture: FormFixture}).formFixture.result?.ok)).toBe(false);
+  const result = await page.evaluate(() => {
+    const fixture = (window as unknown as {formFixture: FormFixture}).formFixture;
+    const result = {saved: fixture.result?.ok, settings: document.querySelector('[id$="settings-error"]')!.textContent,
+      appearance: document.querySelector('[id$="appearance-error"]')!.textContent, calls: fixture.calls};
+    fixture.destroy(); return result;
+  });
+  expect(result).toEqual({saved: false, settings: '', appearance: '', calls: [{path: '/api/oauth/start', payload: {provider: 'example'}}]});
 });

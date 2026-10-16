@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderDiff } from '../src/previews.ts';
+import { renderDiff } from 'pith-ui';
 
 test('diff distinguishes metadata, additions and removals and escapes file content', () => {
   const html = renderDiff('--- note.md\n+++ note.md\n@@ -1 +1 @@\n-<script>old</script>\n+<img src=x onerror=alert(1)>\n context');

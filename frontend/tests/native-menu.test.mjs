@@ -5,18 +5,14 @@ import { installNativeMenu } from '../src/native-menu.ts';
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function harness(native, request = async () => ({ ok: true })) {
-  globalThis.window = new EventTarget();
-  globalThis.document = new EventTarget();
-  document.body = {};
-  let modal = false;
-  document.querySelector = () => modal ? {} : null;
-  const observers = [];
-  globalThis.MutationObserver = class {
-    constructor(callback) { this.callback = callback; observers.push(this); }
-    observe() {}
-    disconnect() { this.disconnected = true; }
-  };
-  const context = { ready: true, busy: false, workspaceId: 'workspace', activeId: 'chat' };
+  class HostEvents extends EventTarget {
+    listeners = new Set();
+    addEventListener(type, listener, options) { super.addEventListener(type, listener, options); this.listeners.add(listener); }
+    removeEventListener(type, listener, options) { super.removeEventListener(type, listener, options); this.listeners.delete(listener); }
+  }
+  globalThis.window = new HostEvents();
+  globalThis.document = new HostEvents();
+  const context = { ready: true, busy: false, modal: false, workspaceId: 'workspace', activeId: 'chat' };
   const actions = [], requests = [];
   let canExport = true;
   const controller = installNativeMenu({
@@ -28,8 +24,8 @@ function harness(native, request = async () => ({ ok: true })) {
     },
   });
   return {
-    controller, context, actions, requests, observers,
-    modal: (value) => { modal = value; observers[0].callback(); },
+    controller, context, actions, requests,
+    modal: (value) => { context.modal = value; controller.update(); },
     canExport: (value) => { canExport = value; },
     nativeAction: (action) => { const event = new Event('pith:native-menu'); event.detail = { action }; window.dispatchEvent(event); },
     key: (options = {}) => { const event = new Event('keydown', { cancelable: true }); Object.assign(event, { key: 'n', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, repeat: false, isComposing: false }, options); document.dispatchEvent(event); return event; },
@@ -103,7 +99,8 @@ test('menu synchronization serializes requests and sends only the latest queued 
   ui.controller.update();
   assert.equal(ui.requests.length, 2);
   ui.controller.dispose();
-  assert.equal(ui.observers[0].disconnected, true);
+  assert.equal(window.listeners.size, 0);
+  assert.equal(document.listeners.size, 0);
   ui.nativeAction('new-conversation');
   ui.context.busy = true;
   ui.controller.update();

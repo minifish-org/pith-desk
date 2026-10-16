@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
     ];
   });
   await page.goto('/');
-  await page.waitForFunction(() => (window as ContentTestWindow).reviewSocket?.onmessage && !(document.querySelector('#composer-input') as HTMLTextAreaElement).readOnly);
+  await page.waitForFunction(() => (window as ContentTestWindow).reviewSocket?.onmessage && !(document.querySelector('[id$=composer-input]') as HTMLTextAreaElement).readOnly);
 });
 
 test('library integration preserves per-message copy eligibility, host branch actions and stream transition', async ({ page }) => {

@@ -84,13 +84,13 @@ func TestWorkspaceFileDropNativeBridge(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("embedded UI did not load")
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#workspace-label')?.textContent === 'workspace' && document.querySelector('#composer-input')?.placeholder !== 'Connecting to Pith…'`)
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=workspace-label]')?.textContent === 'workspace' && document.querySelector('[id$=composer-input]')?.placeholder !== 'Connecting to Pith…'`)
 	var point struct {
 		X int `json:"x"`
 		Y int `json:"y"`
 	}
 	data, err := json.Marshal(nativeDropEval(t, win, `
-const input = document.querySelector('#composer-input');
+const input = document.querySelector('[id$=composer-input]');
 input.value = 'Review OLD please'; input.setSelectionRange(7, 10);
 window.__dropReferenceRequests = 0;
 const originalFetch = window.fetch;
@@ -105,14 +105,14 @@ return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rec
 	}
 	want := "Review `docs/需求 draft.md` `中文 file.txt` please"
 	encodedWant, _ := json.Marshal(want)
-	waitNativeDropCondition(t, win, "document.querySelector('#composer-input').value === "+string(encodedWant))
+	waitNativeDropCondition(t, win, "document.querySelector('[id$=composer-input]').value === "+string(encodedWant))
 	t.Logf("native bridge inserted %q through the embedded WebView and authenticated host", want)
 
 	if err := forwardNativeFileDrop(win, &mygo.FileDropEvent{Paths: []string{outside}, X: point.X, Y: point.Y}); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('#inline-error').textContent.includes('selected workspace')`)
-	if value := nativeDropEval(t, win, `document.querySelector('#composer-input').value`); value != want {
+	waitNativeDropCondition(t, win, `document.querySelector('[id$=inline-error]').textContent.includes('selected workspace')`)
+	if value := nativeDropEval(t, win, `document.querySelector('[id$=composer-input]').value`); value != want {
 		t.Fatalf("outside path changed draft: %v", value)
 	}
 	if requests := nativeDropEval(t, win, `window.__dropReferenceRequests`); requests != float64(2) {
@@ -124,7 +124,7 @@ return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rec
 	if requests := nativeDropEval(t, win, `window.__dropReferenceRequests`); requests != float64(2) {
 		t.Fatalf("drop outside composer reached validation: %v", requests)
 	}
-	if value := nativeDropEval(t, win, `document.querySelector('#composer-input').value`); value != want {
+	if value := nativeDropEval(t, win, `document.querySelector('[id$=composer-input]').value`); value != want {
 		t.Fatalf("drop outside composer changed draft: %v", value)
 	}
 	for path, expected := range hashes {
@@ -156,6 +156,6 @@ func waitNativeDropCondition(t *testing.T, win *mygo.Window, condition string) {
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
-	value := nativeDropEval(t, win, `({draft: document.querySelector('#composer-input')?.value, error: document.querySelector('#inline-error')?.textContent, workspace: document.querySelector('#workspace-label')?.textContent})`)
+	value := nativeDropEval(t, win, `({draft: document.querySelector('[id$=composer-input]')?.value, error: document.querySelector('[id$=inline-error]')?.textContent, workspace: document.querySelector('[id$=workspace-label]')?.textContent})`)
 	t.Fatalf("native UI condition failed (%s): %v", strings.TrimSpace(condition), value)
 }

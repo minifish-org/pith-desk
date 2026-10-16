@@ -7,7 +7,7 @@ test.setTimeout(90000);
 async function ready(page, url) {
   await page.goto(url);
   await expect(page.getByRole('textbox', { name: 'Message Pith' })).toBeEditable();
-  await expect(page.locator('#composer-model')).toBeEnabled();
+  await expect(page.locator('[id$=composer-model]')).toBeEnabled();
 }
 
 test('real Host broadcasts to two browsers and delayed HTTP cannot revert newer WS state', async ({ page, context, host }) => {
@@ -29,11 +29,11 @@ test('real Host broadcasts to two browsers and delayed HTTP cannot revert newer 
     await page.locator(`[data-conversation="${target.id}"]`).click();
     await held;
     await host.command('rename', { id: target.id, title: 'Newer streamed title 中文' });
-    await expect(page.locator('#conversation-label')).toHaveText('Newer streamed title 中文');
-    await expect(second.locator('#conversation-label')).toHaveText('Newer streamed title 中文');
+    await expect(page.locator('[id$=conversation-label]')).toHaveText('Newer streamed title 中文');
+    await expect(second.locator('[id$=conversation-label]')).toHaveText('Newer streamed title 中文');
   } finally { release(); }
-  await expect(page.locator('#composer-model')).toBeEnabled();
-  await expect(page.locator('#conversation-label')).toHaveText('Newer streamed title 中文');
+  await expect(page.locator('[id$=composer-model]')).toBeEnabled();
+  await expect(page.locator('[id$=conversation-label]')).toHaveText('Newer streamed title 中文');
   expect((await host.command('state')).state.activeId).toBe(target.id);
 });
 
@@ -73,14 +73,14 @@ test('committed create and send survive failed refresh and WS reconnect without 
     await closed.route.close({ code: 1001, reason: 'Injected disconnect' });
     await closed.server.close({ code: 1001, reason: 'Injected disconnect' });
     await expect.poll(() => sockets.length).toBe(count + 1);
-    await expect(page.locator('#connection-status')).toBeHidden();
+    await expect(page.locator('[id$=connection-status]')).toBeHidden();
   };
   hold = true; failRead = true;
   await page.locator(`[data-new-workspace="${host.state.workspaces[0].id}"]`).click();
-  await expect(page.locator('#inline-error')).toContainText('Change saved');
+  await expect(page.locator('[id$=inline-error]')).toContainText('Change saved');
   expect((await host.command('state')).state.conversations).toHaveLength(before + 1);
   await reconnect();
-  await expect(page.locator('#conversation-label')).toHaveText('New conversation');
+  await expect(page.locator('[id$=conversation-label]')).toHaveText('New conversation');
   expect(posts.filter((path) => path === '/api/conversations')).toHaveLength(1);
   for (const request of authenticated.filter((request) => request.resourceType() === 'fetch')) {
     expect((await request.allHeaders()).authorization).toMatch(/^Bearer [a-f0-9]+$/);
@@ -91,10 +91,10 @@ test('committed create and send survive failed refresh and WS reconnect without 
   hold = true; failRead = true;
   await page.getByRole('textbox', { name: 'Message Pith' }).fill('One committed send');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await expect(page.locator('#inline-error')).toContainText('Change saved');
+  await expect(page.locator('[id$=inline-error]')).toContainText('Change saved');
   await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
   await reconnect();
-  await expect(page.locator('#messages')).toContainText('Fixture answer');
+  await expect(page.locator('.pui-messages')).toContainText('Fixture answer');
   const actual = await host.command('state');
   expect(actual.requests).toBe(1);
   expect(actual.state.messages.filter((message) => message.role === 'user' && message.text === 'One committed send')).toHaveLength(1);
@@ -106,7 +106,7 @@ test('real SDK history, drafts and completion survive isolated restart; download
   await ready(page, host.url);
   await page.getByRole('textbox', { name: 'Message Pith' }).fill('Persistent history 中文');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await expect(page.locator('#messages')).toContainText('Fixture answer');
+  await expect(page.locator('.pui-messages')).toContainText('Fixture answer');
   await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
   const finished = await host.command('state');
   const id = finished.state.activeId;
@@ -125,8 +125,8 @@ test('real SDK history, drafts and completion survive isolated restart; download
   expect(restarted.requests).toBe(1);
   expect(restarted.state.conversations.find((entry) => entry.id === id).completedRunId).toBe(completed);
   await ready(page, restarted.url);
-  await expect(page.locator('#messages')).toContainText('Persistent history 中文');
-  await expect(page.locator('#messages')).toContainText('Fixture answer');
+  await expect(page.locator('.pui-messages')).toContainText('Persistent history 中文');
+  await expect(page.locator('.pui-messages')).toContainText('Fixture answer');
   await expect(composer).toHaveValue('Persistent draft 中文');
 
   const download = page.waitForEvent('download');

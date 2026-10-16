@@ -43,9 +43,13 @@ test('app owns authenticated HTTP and WS ingress and consumes bootstrap secrets'
   assert.equal(app.connection, 'connected');
 
   const removed = [];
-  const bootstrap = readAppBootstrap({ querySelector: (selector) => ({ content: selector.includes('desk-token') ? 'fixture-token' : 'true', remove: () => removed.push(selector) }) });
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', {configurable:true, value: {documentElement: {dataset: {appearance: 'dark'}}, querySelector: selector => ({content: selector.includes('desk-token') ? 'fixture-token' : 'true', remove: () => removed.push(selector)})}});
+  t.after(() => {if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument); else delete globalThis.document;});
+  const bootstrap = readAppBootstrap();
   assert.equal(bootstrap.token, 'fixture-token');
   assert.equal(bootstrap.nativeMenus, true);
+  assert.equal(bootstrap.appearance, 'dark');
   assert.equal(removed.length, 4);
 });
 
