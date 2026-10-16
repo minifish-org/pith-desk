@@ -1,12 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mountUpdates } from '../src/updates.ts';
+import { updateElements as elements } from './helpers/updates-dom.ts';
 
 const state = (phase, extra = {}) => ({ version: '0.1.0-rc.19', enabled: true, phase, availableVersion: '', progress: 0, message: '', ...extra });
-function elements() {
-  const nodes = Object.fromEntries(['[data-update-version]', '[data-update-message]', '[data-update-check]', '[data-update-install]', 'progress'].map((name) => [name, Object.assign(new EventTarget(), { textContent: '', disabled: false, hidden: false, value: 0 })]));
-  return { root: { querySelector: (name) => nodes[name] }, nodes };
-}
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
 test('a stale initial status cannot hide the release found by a manual check', async () => {

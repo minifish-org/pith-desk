@@ -13,6 +13,7 @@ type API = {
     render: () => void;
     selectedWorkspace: () => Workspace | undefined;
     renderCosts: () => void;
+    showDialog: (id: string) => void;
 };
 export function createTaskControls(api: API) {
     const { view: app, activity, request, download, mutate, render, selectedWorkspace } = api;
@@ -22,7 +23,13 @@ export function createTaskControls(api: API) {
     const runtimePanel = createRuntimePanel(emptyRuntime, {element: $('run-status'), idPrefix: ''});
     const failurePanel = createTaskFailure({visible: false, message: '', advice: '', canContinue: false}, {element: $('task-failure')});
     const approvalPanel = createApprovalPanel({approval: null}, {element: $('approval'), idPrefix: ''});
-    const permissionControl = createPermissionControl({mode: 'ask', description: '', disabled: true}, {element: $('permission-control'), descriptionElement: $('permission-description')});
+    const permissionControl = createPermissionControl({mode: 'ask', description: '', disabled: true}, {element: $('permission-control'), descriptionElement: $('permission-description'), onChange: async value => {
+        const mode = value as PermissionMode, id = app.state.activeId;
+        renderPermissions();
+        if (!id || activity.busy || mode === activePermissionMode()) return;
+        if (mode === 'full-access') confirmFullAccess(id);
+        else await mutate('/api/permissions', { id, mode });
+    }});
     let fullAccessPanel: ReturnType<typeof createFullAccessConfirmation> | undefined;
     const activeRunPhases = new Set(['starting', 'working', 'tool', 'retrying', 'compacting']);
     function activePermissionMode(): PermissionMode {
@@ -126,19 +133,17 @@ export function createTaskControls(api: API) {
         fullAccessTargetId = id;
         const conversation = app.state.conversations.find((entry) => entry.id === id);
         fullAccessPanel?.destroy();
-        fullAccessPanel = createFullAccessConfirmation({title: conversation?.title || 'this conversation'}, {idPrefix: ''});
-        $('permissions-content').replaceChildren(fullAccessPanel.element);
-        $<HTMLDialogElement>('permissions-dialog').showModal();
-        $('enable-full-access').addEventListener('click', async () => {
+        const panel: ReturnType<typeof createFullAccessConfirmation> = createFullAccessConfirmation({title: conversation?.title || 'this conversation'}, {idPrefix: '', onConfirm: async () => {
             const targetId = fullAccessTargetId;
-            if (!targetId || targetId !== app.state.activeId || activity.busy)
-                return;
-            if (await mutate('/api/permissions', { id: targetId, mode: 'full-access' }))
-                $<HTMLDialogElement>('permissions-dialog').close();
-            else if ($<HTMLDialogElement>('permissions-dialog').open)
-                $('permissions-error').textContent = activity.error;
-        });
+            if (!targetId || targetId !== app.state.activeId || activity.busy || fullAccessPanel !== panel) return {ok: false, error: 'The active conversation changed. Choose its permissions again.'};
+            const ok = await mutate('/api/permissions', { id: targetId, mode: 'full-access' });
+            if (ok && fullAccessPanel === panel && fullAccessTargetId === targetId) $<HTMLDialogElement>('permissions-dialog').close();
+            return ok ? {ok:true} : {ok:false,error:activity.error};
+        }});
+        fullAccessPanel = panel;
+        $('permissions-content').replaceChildren(fullAccessPanel.element);
+        api.showDialog('permissions-dialog');
     }
-    return { activePermissionMode, taskElapsedMs, formatDuration, renderRuntimeTiming, renderRuntime, exportDiagnostics, renderApproval, renderPermissions, confirmFullAccess, closePermissions() { fullAccessTargetId = null; }, tick() { if (app.state.running && app.state.runtime && activeRunPhases.has(app.state.runtime.phase))
+    return { activePermissionMode, taskElapsedMs, formatDuration, renderRuntimeTiming, renderRuntime, exportDiagnostics, renderApproval, renderPermissions, confirmFullAccess, closePermissions() { fullAccessTargetId = null; fullAccessPanel?.destroy(); fullAccessPanel = undefined; }, destroy() {fullAccessTargetId = null; fullAccessPanel?.destroy(); fullAccessPanel = undefined; permissionControl.destroy(); approvalPanel.destroy(); failurePanel.destroy(); runtimePanel.destroy();}, tick() { if (app.state.running && app.state.runtime && activeRunPhases.has(app.state.runtime.phase))
             renderRuntimeTiming(); } };
 }

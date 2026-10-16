@@ -2,7 +2,7 @@ import type { ApiDownload, ApiRequest } from './api.ts';
 import type { Artifact, Workspace, ResourceInventory as WorkspaceResources } from './contract.generated.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
 import { imagePreviewBlob } from './image-viewer.ts';
-import { createArtifactPanel, createFileActions, createFilePreview, createResourcesPanel, createCopyFeedback, createResourceActions, createButton } from 'pith-ui';
+import { createArtifactPanel, createFileActions, createFilePreview, createResourcesPanel, createCopyFeedback, createResourceActions } from 'pith-ui';
 import type { createSDKUI } from './sdk-features.ts';
 type API = {
     view: AppView;
@@ -13,9 +13,10 @@ type API = {
     selectedWorkspace: () => Workspace | undefined;
     openWorkspace: () => void;
     conversationRunning: (id: string | null) => boolean;
+    workspaceBusy: (id: string) => boolean;
     showDialog: (id: string) => void;
     nativeClipboard: boolean;
-    resourceActions: ReturnType<typeof createSDKUI>['resourceActions'];
+    editResource: ReturnType<typeof createSDKUI>['resource'];
 };
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 export function createFilesUI(api: API) {
@@ -30,32 +31,24 @@ export function createFilesUI(api: API) {
     let resourcesRequest = 0;
     let previewRequest = 0;
     let previewImageURL = '';
-    const artifactsPanel = createArtifactPanel({ container: $('artifacts'), control: $('artifacts-control'), toggle: $('artifacts-toggle'), count: $('artifacts-count'), headingId: 'artifacts-title' });
-    const resourcesPanel = createResourcesPanel({ container: $('resources-content'), titleId: 'resources-title', dialogId: 'resources-dialog', listId: 'resources-list', errorId: 'resources-error' });
+    const resourceBlocks: Array<{ destroy(): void }> = [];
+    const previewBlocks: Array<{ destroy(): void }> = [];
+    const clearBlocks = (blocks: Array<{ destroy(): void }>) => { for (const block of blocks.splice(0)) block.destroy(); };
+    const artifactsPanel = createArtifactPanel({ container: $('artifacts'), control: $('artifacts-control'), toggle: $('artifacts-toggle'), count: $('artifacts-count'), headingId: 'artifacts-title', dismissExclusions: [$('preview-dialog'), $('image-dialog')] });
+    const resourcesPanel = createResourcesPanel({ container: $('resources-content'), titleId: 'resources-title', dialogId: 'resources-dialog', listId: 'resources-list', errorId: 'resources-error',
+        onRefresh: () => { void loadResources(); },
+        onCreate: kind => { const workspaceId = resourcesWorkspaceId, sequence = resourcesRequest; if (activity.busy || api.workspaceBusy(workspaceId)) return; void api.editResource(workspaceId, kind).catch(error => { if (sequence !== resourcesRequest || workspaceId !== resourcesWorkspaceId || !$<HTMLDialogElement>('resources-dialog').open) return; activity.error = error instanceof Error ? error.message : String(error); resourcesPanel.setError(activity.error); }); },
+    });
     const previewPanel = createFilePreview({ container: $('preview-content'), titleId: 'preview-title', dialogId: 'preview-dialog', bodyId: 'file-preview-body' });
     const feedback = createCopyFeedback({
         status: $('copy-status'),
         isDisabled: (button) => !!button.dataset.idleConversation && (activity.busy || conversationRunning(button.dataset.idleConversation)),
         onError: (error) => { activity.error = error instanceof Error ? error.message : String(error); render(); },
     });
-    function decorateFileActions(root: HTMLElement): void {
-        for (const button of root.querySelectorAll<HTMLButtonElement>('[data-file-action], [data-preview-path]')) {
-            button.dataset.idleAction = '';
-            const ownerId = button.dataset.fileOwner || button.dataset.previewId || '';
-            if (button.dataset.fileKind === 'resource') button.dataset.idleWorkspace = ownerId;
-            else button.dataset.idleConversation = ownerId;
-        }
-    }
     function fileActions(kind: 'artifact' | 'resource', ownerId: string, path: string, includePreview = false): HTMLElement {
         const block = createFileActions({ kind, ownerId, path, preview: includePreview, copyMode: kind === 'artifact' ? nativeClipboard ? 'file' : 'path' : 'none' });
-        decorateFileActions(block.element);
+        (kind === 'artifact' ? previewBlocks : resourceBlocks).push(block);
         return block.element;
-    }
-    function resourceCreate(kind: string, label: string): HTMLButtonElement {
-        const button = createButton({ label }).element;
-        button.classList.add('pui-secondary-button');
-        Object.assign(button.dataset, { sdk: 'resource', resourceWorkspace: resourcesWorkspaceId, idleAction: '', idleWorkspace: resourcesWorkspaceId, kind });
-        return button;
     }
     async function downloadConversationFile(id: string, path: string): Promise<void> {
         if (activity.busy || conversationRunning(id) || id !== app.state.activeId)
@@ -93,12 +86,12 @@ export function createFilesUI(api: API) {
     }
     const copyWithFeedback = feedback.copy;
     const setArtifactsOpen = artifactsPanel.setOpen;
+    function renderResourceAvailability(): void {resourcesPanel.setCreateDisabled(activity.busy || api.workspaceBusy(resourcesWorkspaceId));}
     function renderArtifacts(): void {
         const signature = JSON.stringify([app.state.activeId, artifacts, artifactsError, artifactsLoading]);
         if (signature === artifactsSignature) return;
         artifactsSignature = signature;
         artifactsPanel.update({ ownerId: app.state.activeId || '', files: artifacts, error: artifactsError, loading: artifactsLoading, copyMode: nativeClipboard ? 'file' : 'path' });
-        decorateFileActions(artifactsPanel.element);
     }
     function clearFilePreview(): void {
         previewRequest++;
@@ -106,6 +99,7 @@ export function createFilesUI(api: API) {
             URL.revokeObjectURL(previewImageURL);
         previewImageURL = '';
         previewPanel.clear();
+        clearBlocks(previewBlocks);
     }
     async function openArtifactPreview(id: string, path: string): Promise<void> {
         if (conversationRunning(id) || id !== app.state.activeId)
@@ -165,11 +159,9 @@ export function createFilesUI(api: API) {
         }
         resourcesWorkspaceId = workspace.id;
         resources = null;
-        const toolbar = document.createDocumentFragment();
-        const refresh = createButton({ label: 'Refresh' }).element;
-        refresh.classList.add('pui-secondary-button'); refresh.dataset.action = 'refresh-resources';
-        toolbar.append(refresh, resourceCreate('skill', 'Add skill'), resourceCreate('template', 'Add prompt template'));
-        resourcesPanel.open(workspace.name, toolbar);
+        clearBlocks(resourceBlocks);
+        renderResourceAvailability();
+        resourcesPanel.open(workspace.name);
         showDialog('resources-dialog');
         void loadResources();
     }
@@ -194,27 +186,27 @@ export function createFilesUI(api: API) {
     function renderResources(): void {
         if (!resources)
             return;
+        clearBlocks(resourceBlocks);
         const workspace = app.state.workspaces.find((entry) => entry.id === resourcesWorkspaceId);
         const rootPath = `${workspace?.path.replace(/\\/g, '/').replace(/\/$/, '')}/AGENTS.md`;
         const hasInstructions = (resources.instructions || []).some((entry) => entry.path.replace(/\\/g, '/') === rootPath);
-        const entry = (kind: string, item: { name: string; path: string; description?: string; content?: string }) => ({
-            ...item,
-            fileActions: kind === 'template' ? undefined : fileActions('resource', resourcesWorkspaceId, item.path),
-            actions: createResourceActions({ kind, resource: item, workspaceId: resourcesWorkspaceId }).element,
-        });
+        const entry = (kind: string, item: { name: string; path: string; description?: string; content?: string }) => {
+            const actions = createResourceActions({ kind, resource: item, workspaceId: resourcesWorkspaceId }); resourceBlocks.push(actions);
+            return { ...item, fileActions: kind === 'template' ? undefined : fileActions('resource', resourcesWorkspaceId, item.path), actions: actions.element };
+        };
         resourcesPanel.update({
             instructions: (resources.instructions || []).map((item) => entry('instructions', item)),
             skills: (resources.skills || []).map((item) => entry('skill', item)),
             templates: (resources.templates || []).map((item) => entry('template', item)),
             diagnostics: resources.diagnostics || [],
-            createInstructions: hasInstructions ? undefined : resourceCreate('instructions', 'Create AGENTS.md in this workspace'),
+            canCreateInstructions: !hasInstructions,
         });
         render();
     }
-    return { downloadConversationFile, copyText, copyWithFeedback, setArtifactsOpen, renderArtifacts, clearFilePreview, openArtifactPreview, loadArtifacts, openResources, loadResources, get artifactsOpen() { return artifactsPanel.open; }, get resourcesWorkspaceId() { return resourcesWorkspaceId; }, activeChanged() { artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; setArtifactsOpen(false); $<HTMLDialogElement>('preview-dialog').close(); }, removeWorkspace(id: string) { if (resourcesWorkspaceId === id) {
+    return { downloadConversationFile, copyText, copyWithFeedback, setArtifactsOpen, renderArtifacts, renderResourceAvailability, clearFilePreview, openArtifactPreview, loadArtifacts, openResources, loadResources, setResourceError: resourcesPanel.setError, get artifactsOpen() { return artifactsPanel.open; }, get resourcesWorkspaceId() { return resourcesWorkspaceId; }, activeChanged() { artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; setArtifactsOpen(false); $<HTMLDialogElement>('preview-dialog').close(); }, removeWorkspace(id: string) { if (resourcesWorkspaceId === id) {
             resources = null;
             resourcesWorkspaceId = '';
             resourcesRequest++;
             $<HTMLDialogElement>('resources-dialog').close();
-        } }, closeResources() { resourcesRequest++; }, destroy() { artifactsRequest++; resourcesRequest++; clearFilePreview(); feedback.destroy(); artifactsPanel.destroy(); resourcesPanel.destroy(); previewPanel.destroy(); } };
+        } }, closeResources() { resourcesRequest++; }, destroy() { artifactsRequest++; resourcesRequest++; clearBlocks(resourceBlocks); clearFilePreview(); feedback.destroy(); artifactsPanel.destroy(); resourcesPanel.destroy(); previewPanel.destroy(); } };
 }

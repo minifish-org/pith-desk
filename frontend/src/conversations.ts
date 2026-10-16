@@ -13,7 +13,6 @@ type API = {
     mutate: ApiMutate;
     render: () => void;
     closeSidebar: () => void;
-    showDialog: (id: string) => void;
     workspaceRun: (id?: string) => RunSummary | undefined;
     conversationRunning: (id: string | null) => boolean;
     historyStatus: (entry: Conversation) => string;
@@ -25,7 +24,7 @@ type API = {
 };
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 export function createConversationsUI(api: API) {
-    const { view: app, activity, input, request, download, mutate, render, closeSidebar, showDialog, workspaceRun, conversationRunning, historyStatus, confirmRemoval, clearHistoryImages, loadComposerDraft, resizeComposer } = api;
+    const { view: app, activity, input, request, download, mutate, render, closeSidebar, workspaceRun, conversationRunning, historyStatus, confirmRemoval, clearHistoryImages, loadComposerDraft, resizeComposer } = api;
     let selectedWorkspaceId = '';
     let historySearch = '';
     const expandedWorkspaces = new Set<string>();
@@ -34,7 +33,12 @@ export function createConversationsUI(api: API) {
     let historyActiveId: string | null | undefined;
     let menuConversationId: string | null = null;
     let menuWorkspaceId: string | null = null;
-    const navigation = createWorkspaceNavigation({groups: [], empty: null}, {element: $('history-list'), idPrefix: ''});
+    function toggleWorkspace(id: string): void {
+        if (expandedWorkspaces.has(id)) expandedWorkspaces.delete(id);
+        else expandedWorkspaces.add(id);
+        renderHistory();
+    }
+    const navigation = createWorkspaceNavigation({groups: [], empty: null}, {element: $('history-list'), idPrefix: '', onToggle: toggleWorkspace});
     const contextMenu = createContextMenu({element: $('conversation-menu'), onDismiss: (restoreFocus) => closeConversationMenu(restoreFocus)});
     let renameEditor: ReturnType<typeof createRenameConversation> | undefined;
     let workspacePicker: ReturnType<typeof createWorkspacePicker> | undefined;
@@ -43,6 +47,11 @@ export function createConversationsUI(api: API) {
         return app.state.workspaces.find((entry) => entry.id === (conversation?.workspaceId || selectedWorkspaceId)) ?? app.state.workspaces[0];
     }
     function renderHistory(): void {
+        if (renameEditor) {
+            const draft = renameEditor.read();
+            renameEditor.update({...draft, disabled: activity.busy || conversationRunning(draft.id)});
+        }
+        workspacePicker?.update({workspaces: app.state.workspaces, disabled: activity.busy});
         if (historyActiveId !== app.state.activeId) {
             const active = app.state.conversations.find((entry) => entry.id === app.state.activeId);
             if (active)
@@ -69,16 +78,9 @@ export function createConversationsUI(api: API) {
     }
 
     function closeConversationMenu(restoreFocus = false): void {
-        const triggerID = menuConversationId ? `conversation-actions-${menuConversationId}` : menuWorkspaceId ? `workspace-actions-${menuWorkspaceId}` : '';
         menuConversationId = null;
         menuWorkspaceId = null;
         contextMenu.close(restoreFocus);
-        if (triggerID) {
-            const trigger = document.getElementById(triggerID);
-            trigger?.setAttribute('aria-expanded', 'false');
-            if (restoreFocus)
-                trigger?.focus();
-        }
     }
     function openConversationMenu(id: string, trigger: HTMLElement): void {
         if (activity.busy)
@@ -91,7 +93,6 @@ export function createConversationsUI(api: API) {
         if (alreadyOpen)
             return;
         menuConversationId = id;
-        trigger.setAttribute('aria-expanded', 'true');
         const idle = {conversationId: id};
         const disabled = conversationRunning(id);
         const items: ContextMenuItem[] = [{label: 'Rename', action: 'rename', idle, disabled}];
@@ -108,7 +109,6 @@ export function createConversationsUI(api: API) {
         if (alreadyOpen)
             return;
         menuWorkspaceId = id;
-        trigger.setAttribute('aria-expanded', 'true');
         contextMenu.open(trigger, {label: 'Workspace actions', items: [{label: 'Remove workspace', action: 'remove-workspace', danger: true, idle: {workspaceId: id}, disabled: !!workspaceRun(id)}]});
     }
     function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
@@ -167,20 +167,16 @@ export function createConversationsUI(api: API) {
         if (!conversation || conversationRunning(id))
             return;
         renameEditor?.destroy();
-        renameEditor = createRenameConversation({id: id!, title: conversation.title || ''}, {idPrefix: ''});
-        $('rename-content').replaceChildren(renameEditor.element);
-        showDialog('rename-dialog');
-        $<HTMLInputElement>('conversation-title').select();
-        $('rename-form').addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const title = $<HTMLInputElement>('conversation-title').value.trim();
-            if (!title || conversationRunning(id) || activity.busy)
-                return;
-            if (await mutate('/api/rename', { id, title }))
-                $<HTMLDialogElement>('rename-dialog').close();
-            else
-                $('rename-error').textContent = activity.error;
+        renameEditor = createRenameConversation({id: id!, title: conversation.title || ''}, {
+            idPrefix: '', dialog: $<HTMLDialogElement>('rename-dialog'),
+            unavailable: () => conversationRunning(id) || activity.busy,
+            async onSubmit(draft) {
+                const ok = await mutate('/api/rename', draft);
+                return ok ? {ok: true} : {ok: false, error: activity.error};
+            },
         });
+        $('rename-content').replaceChildren(renameEditor.element);
+        renameEditor.open();
     }
     async function exportConversation(id = app.state.activeId): Promise<void> {
         const conversation = app.state.conversations.find((entry) => entry.id === id);
@@ -217,53 +213,27 @@ export function createConversationsUI(api: API) {
     function openWorkspace(): void {
         closeSidebar();
         workspacePicker?.destroy();
-        workspacePicker = createWorkspacePicker({workspaces: app.state.workspaces}, {idPrefix: ''});
+        let addedWorkspaceId = '';
+        workspacePicker = createWorkspacePicker({workspaces: app.state.workspaces}, {
+            idPrefix: '', dialog: $<HTMLDialogElement>('workspace-dialog'), unavailable: () => activity.busy,
+            async onSubmit(path) {
+                const ok = await mutate('/api/workspaces', {path}, response => {
+                    if (!response?.workspace?.id) throw new Error('The local service did not return the added workspace.');
+                    addedWorkspaceId = response.workspace.id;
+                });
+                return ok ? {ok: true} : {ok: false, error: activity.error};
+            },
+            onPick: () => request('/api/pick-workspace', {}),
+            onSelect(id) {
+                selectedWorkspaceId = id;
+                workspacePicker?.close();
+                const latest = app.state.conversations.filter(entry => entry.workspaceId === id).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+                void (latest ? mutate('/api/open', {id: latest.id}) : newConversation(id)).then(() => closeSidebar());
+            },
+            onSubmitted() {selectedWorkspaceId = addedWorkspaceId; void newConversation(addedWorkspaceId);},
+        });
         $('workspace-content').replaceChildren(workspacePicker.element);
-        $<HTMLDialogElement>('workspace-dialog').showModal();
-        $('workspace-form').addEventListener('submit', async (event) => {
-            event.preventDefault();
-            await addWorkspace($<HTMLInputElement>('workspace-path').value.trim());
-        });
-        $('pick-folder').addEventListener('click', async () => {
-            const button = $<HTMLButtonElement>('pick-folder');
-            button.disabled = true;
-            $('workspace-error').textContent = '';
-            try {
-                const result = await request('/api/pick-workspace', {});
-                if (result.path) {
-                    $<HTMLInputElement>('workspace-path').value = result.path;
-                    await addWorkspace(result.path);
-                }
-            }
-            catch (error) {
-                $('workspace-error').textContent = `${error instanceof Error ? error.message : String(error)} You can enter the path below.`;
-                $<HTMLInputElement>('workspace-path').focus();
-            }
-            finally {
-                button.disabled = false;
-            }
-        });
+        workspacePicker.open();
     }
-    async function addWorkspace(path: string): Promise<void> {
-        if (!path)
-            return;
-        $<HTMLButtonElement>('add-workspace').disabled = true;
-        let workspaceId = '';
-        if (await mutate('/api/workspaces', { path }, (response) => {
-            if (!response?.workspace?.id)
-                throw new Error('The local service did not return the added workspace.');
-            workspaceId = response.workspace.id;
-        })) {
-            selectedWorkspaceId = workspaceId;
-            $<HTMLDialogElement>('workspace-dialog').close();
-            await newConversation(workspaceId);
-        }
-        else
-            $('workspace-error').textContent = activity.error;
-        $<HTMLButtonElement>('add-workspace').disabled = false;
-    }
-    return { selectedWorkspace, renderHistory, closeConversationMenu, openConversationMenu, openWorkspaceMenu, openDeletion, newConversation, openRename, exportConversation, openWorkspace, get selectedWorkspaceId() { return selectedWorkspaceId; }, set selectedWorkspaceId(id: string) { selectedWorkspaceId = id; }, get menuConversationId() { return menuConversationId; }, get menuWorkspaceId() { return menuWorkspaceId; }, toggleWorkspace(id: string) { if (expandedWorkspaces.has(id))
-            expandedWorkspaces.delete(id);
-        else
-            expandedWorkspaces.add(id); renderHistory(); }, search(value: string) { historySearch = value; renderHistory(); } };
+    return { selectedWorkspace, renderHistory, closeConversationMenu, openConversationMenu, openWorkspaceMenu, openDeletion, newConversation, openRename, exportConversation, openWorkspace, destroy() {navigation.destroy(); contextMenu.destroy(); renameEditor?.destroy(); workspacePicker?.destroy();}, get selectedWorkspaceId() { return selectedWorkspaceId; }, set selectedWorkspaceId(id: string) { selectedWorkspaceId = id; }, get menuConversationId() { return menuConversationId; }, get menuWorkspaceId() { return menuWorkspaceId; }, search(value: string) { historySearch = value; renderHistory(); } };
 }

@@ -69,7 +69,7 @@ test('a committed create operation reports refresh trouble without a retry', asy
 test('resource edits keep the dialog workspace after a notification switches conversations', async ({ page }) => {
   await page.locator('[data-action="resources"]').click();
   await page.evaluate(() => { window.reviewState.activeId = 'b'; window.reviewState.conversations.find(c => c.id === 'b').workspaceId = 'other'; window.emitReview(); });
-  await page.locator('#resources-content [data-kind="skill"]').click();
+  await page.locator('#resources-content').getByRole('button', { name: 'Add skill', exact: true }).click();
   await expect(page.locator('#sdk-content .pui-file-path')).toHaveText('/tmp/pith-review');
   expect(await page.evaluate(() => window.reviewState.activeId)).toBe('b');
   await page.locator('#resource-name').fill('fixture-skill');
@@ -79,7 +79,7 @@ test('resource edits keep the dialog workspace after a notification switches con
 
 test('dialogs share accessible headings, close icons and form control sizes', async ({ page }, testInfo) => {
   await page.locator('[data-action="resources"]').click();
-  await page.locator('#resources-content [data-kind="skill"]').click();
+  await page.locator('#resources-content').getByRole('button', { name: 'Add skill', exact: true }).click();
   const resource = await page.locator('#sdk-dialog').evaluate(dialog => ({ label: dialog.getAttribute('aria-labelledby'), title: dialog.querySelector('h2').id, icon: !!dialog.querySelector('[data-close] svg'), height: dialog.querySelector('[type="submit"]').getBoundingClientRect().height, font: getComputedStyle(dialog.querySelector('.pui-field-label')).fontSize }));
   await page.locator('#sdk-dialog').screenshot({ path: `output/playwright/final-resource-${testInfo.project.name}.png` });
   expect(resource).toEqual({ label: 'sdk-title', title: 'sdk-title', icon: true, height: 40, font: '13px' });

@@ -3,13 +3,18 @@ import type { Workspace } from './contract.generated.ts';
 import { installConversationReader } from './conversation-reader.ts';
 import type { AppView } from './feature-api.ts';
 import { createMessageView } from './messages-view.ts';
-import { createWelcomeView } from 'pith-ui';
+import { createWelcomeView, type ConversationViewOptions, type ConversationActionAvailability, type WelcomeOptions } from 'pith-ui';
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 type API = {
     view: AppView;
     download: ApiDownload;
     logo: string;
     disposed: () => boolean;
+    onMessageAction: NonNullable<ConversationViewOptions['onAction']>;
+    onCopyCode: NonNullable<ConversationViewOptions['onCopyCode']>;
+    messageActionAvailability: () => ConversationActionAvailability;
+    onWelcomeAction: NonNullable<WelcomeOptions['onAction']>;
+    onPrompt: NonNullable<WelcomeOptions['onPrompt']>;
 };
 export function createMessagesUI(api: API) {
     const { view: app, download, logo } = api;
@@ -19,13 +24,12 @@ export function createMessagesUI(api: API) {
     const historyImages = new Map<string, Promise<string>>();
     let imageGeneration = 0;
     const reader = installConversationReader($('chat-scroll'), $('messages'), $('conversation-find'), $<HTMLButtonElement>('back-to-latest'));
-    const messageView = createMessageView($('messages'));
+    const messageView = createMessageView($('messages'), {onAction: api.onMessageAction, onCopyCode: api.onCopyCode});
     const logoTemplate = document.createElement('template');
     logoTemplate.innerHTML = logo;
-    const welcome = createWelcomeView({ container: $('welcome'), logo: logoTemplate.content });
+    const welcome = createWelcomeView({ container: $('welcome'), logo: logoTemplate.content, onAction: api.onWelcomeAction, onPrompt: api.onPrompt });
     function renderWelcome(workspace?: Workspace): void {
         welcome.update({ workspace, hasApiKey: app.state.settings.hasApiKey, hasConnections: app.state.settings.hasConnections, modelName: app.state.settings.modelName || app.state.settings.model });
-        for (const button of welcome.element.querySelectorAll<HTMLElement>('[data-welcome-action]')) button.dataset.action = button.dataset.welcomeAction;
     }
     function clearHistoryImages(): void {
         imageGeneration++;
@@ -34,7 +38,7 @@ export function createMessagesUI(api: API) {
         historyImages.clear();
     }
     function loadHistoryImages(): void {
-        for (const image of $('messages').querySelectorAll<HTMLImageElement>('img[data-image-key]')) {
+        for (const image of messageView.images()) {
             if (image.hasAttribute('src'))
                 continue;
             const key = image.dataset.imageKey!;
@@ -53,14 +57,11 @@ export function createMessagesUI(api: API) {
                 void pending.catch(() => { if (historyImages.get(key) === pending)
                     historyImages.delete(key); });
             }
-            void value.then((url) => { if (image.isConnected)
-                image.src = url; }).catch(() => { if (image.isConnected) {
-                image.alt = 'Image unavailable';
-                image.classList.add('pui-image-unavailable');
-            } });
+            void value.then(url => messageView.setImageState(image, {status: 'ready', src: url})).catch(() => messageView.setImageState(image, {status: 'unavailable'}));
         }
     }
     function renderMessages(workspace?: Workspace): void {
+        messageView.updateActionAvailability(api.messageActionAvailability());
         const hasMessages = app.state.messages.length > 0;
         const signature = JSON.stringify([app.state.activeId, app.state.messages, app.state.running, app.state.pendingApproval?.id]);
         if (signature !== messagesSignature) {

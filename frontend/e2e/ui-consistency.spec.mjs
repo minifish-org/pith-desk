@@ -136,7 +136,7 @@ test('loaded SDK content retains an actionable focus and history uses conversati
   expect(text).toEqual({ size: '14px', line: '21px' });
   await page.keyboard.press('Escape');
   await page.locator('[data-action="resources"]').click();
-  await page.locator('#resources-content [data-kind="skill"]').click();
+  await page.locator('#resources-content').getByRole('button', { name: 'Add skill', exact: true }).click();
   await expect(page.locator('#sdk-dialog [data-close]').first()).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.locator('#resource-name')).toBeFocused();

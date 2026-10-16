@@ -1,4 +1,4 @@
-import { createSDKDialogElements, providerActionsMarkup, resourceActionsMarkup } from 'pith-ui';
+import { createSDKDialogElements, createProviderActions } from 'pith-ui';
 import type { ProviderChoice } from './app-state.ts';
 import { createCustomUI } from './custom-connections.ts';
 import { createHistoryUI } from './history.ts';
@@ -7,24 +7,20 @@ import { createResourceUI } from './resource-editor.ts';
 import { createSDKDialog } from './sdk-dialog.ts';
 import type { SDKFeatureAPI as API } from './sdk-feature-api.ts';
 import { escape } from './ui.ts';
-type Resource = {
-    name: string;
-    path: string;
-    description?: string;
-    content?: string;
-};
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 // These are host controls around SDK APIs, not another agent runtime.
-export function createSDKUI(api: API) {
+export function createSDKUI(api: API, onDialogClose?: () => void) {
+    const abort = new AbortController(); let destroyed = false;
     const elements = createSDKDialogElements({idPrefix: ''});
     document.body.append(elements.dialog, elements.oauthDialog);
-    const dialog = createSDKDialog(api);
+    const dialog = createSDKDialog(api,onDialogClose);
     const { fail, act } = dialog;
     const { custom } = createCustomUI(api, dialog);
     const { resource } = createResourceUI(api, dialog);
     const { history } = createHistoryUI(api, dialog);
-    const providerLogin = createProviderLoginUI(api);
+    const providerLogin = createProviderLoginUI(api,onDialogClose);
     function render() {
+        if (destroyed) return;
         const state = api.state();
         const globalActions = new Set(['custom', 'login', 'logout', 'mcp-login', 'mcp-logout', 'remove-connection']);
         for (const button of document.querySelectorAll<HTMLButtonElement>('[data-sdk]')) {
@@ -90,10 +86,11 @@ export function createSDKUI(api: API) {
         catch (error) {
             fail(String(error), $<HTMLDialogElement>('sdk-dialog').open ? $('sdk-content') : target.closest('dialog') || document.body);
         }
-    });
+    },{signal:abort.signal});
     return {
         render,
-        providerActions(provider: ProviderChoice) { return providerActionsMarkup(provider); },
-        resourceActions(kind: string, resource: Resource, workspaceId: string) { return resourceActionsMarkup(kind, resource, workspaceId); },
+        resource,
+        providerActions(provider: ProviderChoice) { return createProviderActions(provider).element; },
+        destroy() {if (destroyed) return; destroyed = true; abort.abort(); providerLogin.destroy(); dialog.destroy(); elements.destroy();},
     };
 }

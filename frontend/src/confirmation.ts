@@ -34,14 +34,7 @@ export function createConfirmation(dialog: HTMLDialogElement) {
   });
   const open = (options: Confirmation): void => {
     current = options;
-    const scope = options.scope ?? {};
-    const button = confirmation.confirmButton;
-    button.dataset.idleAction = '';
-    if (scope.global) button.dataset.globalIdle = ''; else delete button.dataset.globalIdle;
-    if (scope.workspaceId) button.dataset.idleWorkspace = scope.workspaceId; else delete button.dataset.idleWorkspace;
-    if (scope.conversationId) button.dataset.idleConversation = scope.conversationId; else delete button.dataset.idleConversation;
     confirmation.open({ title: options.title, eyebrow: 'PERMANENT REMOVAL', message: descriptionContent(options.description), hint: options.hint, confirmLabel: options.action });
-    button.disabled = options.unavailable();
   };
-  return Object.assign(open, { destroy() { current = null; confirmation.destroy(); } });
+  return Object.assign(open, { render() {confirmation.refreshAvailability();}, destroy() { current = null; confirmation.destroy(); } });
 }
