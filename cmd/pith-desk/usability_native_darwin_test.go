@@ -161,7 +161,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		nativeDropEval(t, win, `document.querySelector('[data-approval="allow"]').click(); return true;`)
 	}
 	waitNativeDropCondition(t, win, `document.querySelectorAll('[data-preview-path]').length === 4`)
-	nativeDropEval(t, win, `document.querySelector('[aria-label="Conversation files"]').click(); document.querySelector('[id$=artifacts]').scrollIntoView({block:'end'}); return true;`)
+	nativeDropEval(t, win, `document.querySelector('button[id$=artifacts-toggle]').click(); document.querySelector('[id$=artifacts]').scrollIntoView({block:'end'}); return true;`)
 	saveUsabilityScreenshot(t, win, "generated-file-actions.png")
 	nativeDropEval(t, win, `document.querySelector('[data-preview-path$="note.md"]').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('[id$=preview-dialog]').open && document.querySelector('[id$=file-preview-body] h1')?.textContent === 'Native preview'`)
