@@ -6,10 +6,13 @@ test('edit and resend replaces the active suffix, sends revised context once, an
   await page.goto(host.url);
   const composer = page.getByRole('textbox', { name: 'Message Pith' });
   await expect(composer).toBeEditable();
-  for (const text of ['Original question', 'Later follow-up']) {
+  for (const [index, text] of ['Original question', 'Later follow-up'].entries()) {
     await composer.fill(text);
     await page.getByRole('button', { name: 'Send message', exact: true }).click();
-    await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
+    await expect.poll(async () => {
+      const {state} = await host.command('state');
+      return {running: state.running, messageCount: state.messages.length};
+    }).toEqual({running: false, messageCount: (index + 1) * 2});
   }
   const before = (await host.command('state')).state;
   expect(before.messages).toHaveLength(4);
@@ -18,7 +21,10 @@ test('edit and resend replaces the active suffix, sends revised context once, an
   await page.locator('#message-edit-text').fill('Revised question 中文');
   await page.getByRole('button', { name: 'Send again', exact: true }).click();
   await expect(page.locator('#message-edit-dialog')).not.toBeVisible();
-  await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
+  await expect.poll(async () => {
+    const snapshot = await host.command('state');
+    return {requests: snapshot.requests, running: snapshot.state.running, messages: snapshot.state.messages.map(message => message.text)};
+  }).toEqual({requests: 3, running: false, messages: ['Revised question 中文', 'Fixture answer']});
   const finished = await host.command('state');
   expect(finished.requests).toBe(3);
   expect(finished.state.messages.map(message => message.text)).toEqual(['Revised question 中文', 'Fixture answer']);
