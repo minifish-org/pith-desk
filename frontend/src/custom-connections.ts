@@ -1,4 +1,4 @@
-import type { CustomConnectionSession, LoadingSession } from 'pith-ui/app';
+import { customModelDefaults, type CustomConnectionSession, type LoadingSession } from 'pith-ui/app';
 import type { ModelsJsonModel as ModelDefinition } from './contract.generated.ts';
 import type { SDKFeatureAPI } from './sdk-feature-api.ts';
 type API = Pick<SDKFeatureAPI, 'ui' | 'request' | 'settings' | 'mutate' | 'error'>;
@@ -10,7 +10,7 @@ export function createCustomUI(api: API) {
         const sequence = ++generation;
         const pending = api.ui.settings.openConnectionLoading({editing: !!id}); loading = pending;
         let connection;
-        try { connection = id ? await api.request('/api/custom-connection', { query: { id } }) : { name: '', baseUrl: '', api: 'openai-completions', models: [{ id: '', contextWindow: 128000, maxTokens: 8192 }] }; }
+        try { connection = id ? await api.request('/api/custom-connection', { query: { id } }) : { name: '', baseUrl: '', api: 'openai-completions', models: [customModelDefaults()] }; }
         catch (error) {if (!destroyed && generation === sequence && pending.isOpen()) pending.fail(String(error)); return;}
         if (destroyed || generation !== sequence || !pending.isOpen())
             return;
