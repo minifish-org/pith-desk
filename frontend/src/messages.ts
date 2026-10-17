@@ -1,4 +1,4 @@
-import type { Application, ConversationActionAvailability, ImageTarget } from 'pith-ui/app';
+import type { Application, ConversationActionAvailability, ImageTarget } from './ui-types';
 import type { ApiDownload } from './api.ts';
 import type { Workspace } from './contract.generated.ts';
 import type { AppView } from './feature-api.ts';

@@ -18,7 +18,7 @@ export interface ConsumptionIssue {
 const controlsEntry = 'pith-ui';
 const appEntry = 'pith-ui/app';
 const cssEntry = 'pith-ui/styles.css';
-const nativeFiles = new Set(['frontend/src/ui-native.ts', 'frontend/src/native-menu.ts', 'frontend/src/app-lifecycle.ts']);
+const nativeFiles = new Set(['frontend/src/ui-native.ts', 'frontend/src/native-menu.ts', 'frontend/src/app-lifecycle.ts', 'frontend/src/ui-native-io.ts']);
 const metaNames = new Set(['desk-token', 'desk-native-clipboard', 'desk-native-file-drop', 'desk-native-menus']);
 const nativeEvents = new Set(['focus', 'blur', 'visibilitychange', 'pagehide', 'beforeunload', 'keydown', 'pith:flush-drafts', 'pith:file-drop', 'pith:native-menu']);
 const internalParts = new Set(['element', 'field', 'part', 'form', 'control', 'body', 'dialog', 'internals', 'style', 'className', 'classList', 'innerHTML', 'outerHTML', 'querySelector', 'querySelectorAll']);
@@ -91,14 +91,14 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
   const entry = installed.exports?.['./app'];
   const controls = installed.exports?.['.'];
   const [major, minor] = String(version).split('.').map(Number);
-  if (!(major > 0 || major === 0 && minor >= 3)) emit('frontend/package.json', 'package', 'The constrained small-control contract requires pith-ui 0.3.0 or later.');
+  if (!(major > 0 || major === 0 && minor >= 4)) emit('frontend/package.json', 'package', 'The constrained small-control contract requires pith-ui 0.4.0 or later.');
   const builtTarget = (value: unknown, extension: string): boolean => {
     if (typeof value !== 'string' || !value.startsWith('./dist/') || !value.endsWith(extension) || /[\\?#%:]/.test(value)) return false;
     const normalized = path.posix.normalize(value);
     return normalized.startsWith('dist/') && normalized === value.slice(2) && !value.split('/').includes('..');
   };
-  if (!controls || !builtTarget(controls.types, '.d.ts') || !builtTarget(controls.import, '.js') || !entry || !builtTarget(entry.types, '.d.ts') || !builtTarget(entry.import, '.js') || installed.exports?.['./styles.css'] !== './dist/styles.css') {
-    emit('frontend/node_modules/pith-ui/package.json', 'package', 'The installed package must export pith-ui and pith-ui/app with ESM and declarations, and pith-ui/styles.css.');
+  if (!controls || !builtTarget(controls.types, '.d.ts') || !builtTarget(controls.import, '.js') || JSON.stringify(Object.keys(installed.exports??{}).sort())!==JSON.stringify(['.','./styles.css']) || installed.exports?.['./styles.css'] !== './dist/styles.css') {
+    emit('frontend/node_modules/pith-ui/package.json', 'package', 'The installed package must export only pith-ui with ESM/declarations and pith-ui/styles.css.');
   }
   const inspectAlias = (file: string, value: unknown, key = ''): void => {
     if (typeof value === 'string' && (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(value) || key === controlsEntry || key === appEntry || key.startsWith('pith-ui/'))) emit(file, 'alias', 'UI package aliases and sibling/source redirects are forbidden.');
@@ -198,9 +198,19 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
       return !seen.has(node.text) && bindings.has(node.text) && resolvesControlFactory(bindings.get(node.text)!, new Set([...seen, node.text]));
     };
     if (file === 'frontend/src/ui-mount.ts') {
-      if (!allowMount(source, allowed, resolvesFactory)) fail(source, 'mount', 'ui-mount.ts must only export mountApplication: obtain #app, check HTMLElement, then return createApplication(root, options).');
+      if (!allowMount(source, allowed)) fail(source, 'mount', 'ui-mount.ts must validate #app, mount a locally composed control tree, and return its connected Desk ports.');
     }
+    if(file==='frontend/src/ui-native-io.ts')allowNativeFileIO(source,allowed);
     if (file === 'frontend/src/ui-bootstrap.ts') allowBootstrap(source, allowed);
+    if(file==='frontend/src/ui-native-io.ts')walk(source,node=>{
+      const p=property(node),name=p&&ts.isIdentifier(p.object)?p.object.text:'';
+      if(p&&['picker','link'].includes(name)){
+        const methods=name==='picker'?['type','accept','multiple','hidden','dataset','files','value','addEventListener','removeEventListener','click','remove']:['href','download','hidden','click','remove'];
+        if(!methods.includes(p.key??''))fail(node,'native','Native file elements cannot carry UI structure or styling.');
+        if(p.key==='hidden'&&ts.isBinaryExpression(node.parent)&&node.parent.left===node&&node.parent.operatorToken.kind===ts.SyntaxKind.EqualsToken&&node.parent.right.kind!==ts.SyntaxKind.TrueKeyword)fail(node,'native','Native capability elements must stay hidden.');
+      }
+      if(ts.isReturnStatement(node)&&node.expression&&['picker','link'].some(name=>identifier(node.expression,name)))fail(node,'native','Native elements must never escape their adapter.');
+    });
     if (nativeFiles.has(file)) walk(source, node => {
       const p = property(node);
       if (!p) return;
@@ -221,7 +231,7 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     };
     walk(source, node => {
       if ((ts.isParameter(node) || ts.isVariableDeclaration(node)) && ts.isIdentifier(node.name) && node.type) {
-        walk(node.type, type => { if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && appTypes.has(type.typeName.text)) values.add(node.name.getText(source)); });
+        const type=node.type;if(ts.isTypeReferenceNode(type)&&ts.isIdentifier(type.typeName)&&appTypes.has(type.typeName.text))values.add(node.name.getText(source));
       }
     });
     const inspectOptions = (node: ts.Node, seen = new Set<string>(), small = false): void => {
@@ -230,7 +240,7 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
       if (ts.isObjectLiteralExpression(node)) for (const prop of node.properties) {
         if (ts.isSpreadAssignment(prop)) { inspectOptions(prop.expression, seen, small); continue; }
         const key = prop.name && (ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)) ? prop.name.text : prop.name && ts.isComputedPropertyName(prop.name) ? stringValue(prop.name.expression, bindings) : undefined;
-        if (key && (visualOptions.has(key) && !(small && key === 'children') || small && ['appearance', 'density', 'size', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'gap', 'padding', 'radius'].includes(key) || /^render(?:$|[A-Z_])/.test(key))) fail(prop, 'options', 'UI options must contain semantic data, actions and owned controls, not render callbacks, DOM slots, classes, HTML or styles.');
+        if (key && (visualOptions.has(key) && !(small && ['children','header','footer','navigation','content','actions'].includes(key)) || small && ['appearance', 'density', 'size', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'gap', 'padding', 'radius'].includes(key) || /^render(?:$|[A-Z_])/.test(key))) fail(prop, 'options', 'UI options must contain semantic data, actions and owned controls, not render callbacks, DOM slots, classes, HTML or styles.');
         if (ts.isPropertyAssignment(prop)) inspectOptions(prop.initializer, seen, small);
       }
       if (ts.isArrayLiteralExpression(node)) for (const item of node.elements) inspectOptions(item, seen, small);
@@ -238,8 +248,8 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     const modulePath = (node: ts.Node, expression: ts.Node): void => {
       const specifier = stringValue(expression, bindings);
       if (specifier === undefined) { fail(node, 'import', 'Dynamic module paths must be statically known; unresolved UI import aliases are forbidden.'); return; }
-      if (specifier === controlsEntry || specifier === appEntry || specifier === cssEntry) return;
-      if (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(specifier)) { fail(node, 'import', 'UI imports and types must use pith-ui, pith-ui/app or pith-ui/styles.css; private and source imports are forbidden.'); return; }
+      if (specifier === controlsEntry || specifier === cssEntry) return;
+      if (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(specifier)) { fail(node, 'import', 'UI imports and types must use pith-ui or pith-ui/styles.css; private and source imports are forbidden.'); return; }
       if (production && (!specifier.startsWith('.') || !path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier)).startsWith('frontend/src/'))) fail(node, 'import', 'Production modules may import only local frontend sources or the approved published UI entries.');
     };
     walk(source, node => {
@@ -371,29 +381,38 @@ function allowNativeProtocol(detail: ts.Node, source: ts.SourceFile, file: strin
   return identifiersWithin(fn.body, declaredName).filter(node => node !== variable.name).length === 4 && identifiersWithin(fn.body, action.name.text).filter(node => node !== action.name).length === 6;
 }
 
-function allowMount(source: ts.SourceFile, allowed: Set<ts.Node>, factory: (node: ts.Node) => boolean): boolean {
-  const declarations = source.statements.filter(node => !ts.isImportDeclaration(node));
-  if (declarations.length !== 1 || !ts.isFunctionDeclaration(declarations[0])) return false;
-  const fn = declarations[0];
-  if (fn.name?.text !== 'mountApplication' || !fn.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) || fn.parameters.length !== 1 || !ts.isIdentifier(fn.parameters[0].name) || !fn.body || fn.body.statements.length !== 3) return false;
-  const [decl, guard, result] = fn.body.statements;
-  if (!ts.isVariableStatement(decl) || decl.declarationList.declarations.length !== 1) return false;
-  const root = decl.declarationList.declarations[0];
-  if (!ts.isIdentifier(root.name) || !root.initializer || !ts.isCallExpression(root.initializer)) return false;
-  const getter = root.initializer, p = property(getter.expression);
-  if (!p || !identifier(p.object, 'document') || p.key !== 'getElementById' || getter.arguments.length !== 1 || stringValue(getter.arguments[0]) !== 'app') return false;
-  if (!ts.isIfStatement(guard) || guard.elseStatement) return false;
-  const condition = unwrap(guard.expression);
-  if (!ts.isPrefixUnaryExpression(condition) || condition.operator !== ts.SyntaxKind.ExclamationToken) return false;
-  const instance = unwrap(condition.operand);
-  if (!ts.isBinaryExpression(instance) || instance.operatorToken.kind !== ts.SyntaxKind.InstanceOfKeyword || !identifier(instance.left, root.name.text) || !identifier(instance.right, 'HTMLElement')) return false;
-  const rejected = ts.isBlock(guard.thenStatement) ? guard.thenStatement.statements : [guard.thenStatement];
-  if (rejected.length !== 1 || !ts.isThrowStatement(rejected[0])) return false;
-  if (!ts.isReturnStatement(result) || !result.expression || !ts.isCallExpression(result.expression)) return false;
-  const call = result.expression;
-  if (!factory(call.expression) || call.arguments.length !== 2 || !identifier(call.arguments[0], root.name.text) || !identifier(call.arguments[1], fn.parameters[0].name.text)) return false;
-  allowed.add(p.object); allowed.add(instance.right); allowed.add(call);
-  return true;
+function allowMount(source:ts.SourceFile,allowed:Set<ts.Node>):boolean{
+  const declarations=source.statements.filter(statement=>!ts.isImportDeclaration(statement));
+  if(declarations.length!==1||!ts.isFunctionDeclaration(declarations[0]))return false;
+  const fn=declarations[0];if(fn.name?.text!=='mountApplication'||!fn.modifiers?.some(m=>m.kind===ts.SyntaxKind.ExportKeyword)||fn.parameters.length!==1||!identifier(fn.parameters[0].name,'options')||!fn.body||fn.body.statements.length!==5)return false;
+  const [decl,guard,composition,mounted,result]=fn.body.statements;
+  if(!ts.isVariableStatement(decl)||decl.declarationList.declarations.length!==1)return false;
+  const root=decl.declarationList.declarations[0];if(!identifier(root.name,'root')||!root.initializer||!ts.isCallExpression(root.initializer))return false;
+  const lookup=root.initializer,p=property(lookup.expression);if(!p||!identifier(p.object,'document')||p.key!=='getElementById'||lookup.arguments.length!==1||stringValue(lookup.arguments[0])!=='app')return false;
+  if(!ts.isIfStatement(guard)||guard.elseStatement)return false;const condition=unwrap(guard.expression);if(!ts.isPrefixUnaryExpression(condition)||condition.operator!==ts.SyntaxKind.ExclamationToken)return false;
+  const instance=unwrap(condition.operand);if(!ts.isBinaryExpression(instance)||instance.operatorToken.kind!==ts.SyntaxKind.InstanceOfKeyword||!identifier(instance.left,'root')||!identifier(instance.right,'HTMLElement'))return false;
+  const rejection=ts.isBlock(guard.thenStatement)?guard.thenStatement.statements:[guard.thenStatement];if(rejection.length!==1||!ts.isThrowStatement(rejection[0]))return false;
+  const declaration=(statement:ts.Statement,name:string)=>ts.isVariableStatement(statement)&&statement.declarationList.declarations.length===1&&identifier(statement.declarationList.declarations[0].name,name)?statement.declarationList.declarations[0].initializer:undefined;
+  const compose=declaration(composition,'composition');if(!compose||!ts.isCallExpression(compose)||!identifier(compose.expression,'createDeskComposition')||compose.arguments.length!==1||!identifier(compose.arguments[0],'options'))return false;
+  const call=declaration(mounted,'mounted');if(!call||!ts.isCallExpression(call)||!identifier(call.expression,'mount')||call.arguments.length!==3||!identifier(call.arguments[0],'root')||call.arguments[1].getText(source)!=='composition.content')return false;
+  const opts=call.arguments[2];if(!ts.isObjectLiteralExpression(opts)||objectKeys(opts).join(',')!=='appearance,viewport,onStateChange')return false;
+  const values=opts.properties.map(prop=>ts.isPropertyAssignment(prop)?prop.initializer.getText(source):'');if(values[0]!=='options.appearance'||stringValue((opts.properties[1] as ts.PropertyAssignment).initializer)!=='window'||values[2]!=='options.onUIStateChange')return false;
+  if(!ts.isReturnStatement(result)||!result.expression||result.expression.getText(source)!=='composition.connect(mounted)')return false;
+  allowed.add(p.object);allowed.add(instance.right);return true;
+}
+
+/** Only hidden native picking/download elements; no generated-control inspection. */
+function allowNativeFileIO(source:ts.SourceFile,allowed:Set<ts.Node>):void{
+  const fn=source.statements.find(statement=>ts.isFunctionDeclaration(statement)&&statement.name?.text==='createNativeFileIO');if(!fn||!ts.isFunctionDeclaration(fn)||!fn.body)return;
+  const valid=new Set<string>();
+  for(const[name,tag]of [['picker','input'],['link','a']] as const){
+    const declarations:ts.VariableDeclaration[]=[];walk(fn.body,node=>{if(ts.isVariableDeclaration(node)&&identifier(node.name,name))declarations.push(node);});if(declarations.length!==1)continue;
+    const call=declarations[0].initializer;if(!call||!ts.isCallExpression(call)||call.arguments.length!==1||stringValue(call.arguments[0])!==tag)continue;const prop=property(call.expression);if(!prop||!identifier(prop.object,'document')||prop.key!=='createElement')continue;
+    let hidden=false,file=tag==='a',multiple=tag==='a';walk(fn.body,node=>{if(!ts.isBinaryExpression(node)||node.operatorToken.kind!==ts.SyntaxKind.EqualsToken)return;const item=property(node.left);if(!item||!identifier(item.object,name))return;if(item.key==='hidden'&&node.right.kind===ts.SyntaxKind.TrueKeyword)hidden=true;if(item.key==='type'&&stringValue(node.right)==='file')file=true;if(item.key==='multiple'&&node.right.kind===ts.SyntaxKind.TrueKeyword)multiple=true;});if(!hidden||!file||!multiple)continue;
+    valid.add(name);allowed.add(prop.object);
+  }
+  walk(fn.body,node=>{if(!ts.isCallExpression(node)||node.arguments.length!==1)return;const prop=property(node.expression),body=prop&&property(prop.object);if(prop?.key==='append'&&body?.key==='body'&&identifier(body.object,'document')&&ts.isIdentifier(node.arguments[0])&&valid.has(node.arguments[0].text))allowed.add(body.object);});
+  walk(source,node=>{const prop=property(node);if(prop?.key==='open'&&identifier(prop.object,'window')&&ts.isCallExpression(node.parent)&&node.parent.expression===node&&node.parent.arguments.length===3&&stringValue(node.parent.arguments[1])==='_blank'&&stringValue(node.parent.arguments[2])==='noopener,noreferrer')allowed.add(prop.object);});
 }
 
 function allowBootstrap(source: ts.SourceFile, allowed: Set<ts.Node>): void {

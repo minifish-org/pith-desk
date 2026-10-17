@@ -1,5 +1,5 @@
 import {createTextEditDialog, type TextEditDialog, type TextEditOptions} from 'pith-ui';
-import type {Application} from 'pith-ui/app';
+import type {Application} from './ui-types';
 
 export type TextEditor = Pick<TextEditDialog, 'update' | 'read' | 'focus' | 'close' | 'isOpen' | 'destroy'>;
 

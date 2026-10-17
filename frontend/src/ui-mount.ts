@@ -1,7 +1,11 @@
-import {createApplication, type ApplicationOptions} from 'pith-ui/app';
+import {mount} from 'pith-ui';
+import type {ApplicationOptions} from './ui-types';
+import {createDeskComposition} from './ui-view';
 
-export function mountApplication(options: ApplicationOptions) {
+export function mountApplication(options: ApplicationOptions = {}) {
   const root = document.getElementById('app');
   if (!(root instanceof HTMLElement)) throw new Error('The application mount is missing.');
-  return createApplication(root, options);
+  const composition = createDeskComposition(options);
+  const mounted = mount(root, composition.content, {appearance: options.appearance, viewport: 'window', onStateChange: options.onUIStateChange});
+  return composition.connect(mounted);
 }

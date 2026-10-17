@@ -4,7 +4,8 @@
 
 ```sh
 GOWORK=off npm run build:ui
-node --experimental-strip-types --test frontend/tests/*.test.mjs
+node --experimental-strip-types --test frontend/tests/*.test.mjs frontend/tests/*.test.ts scripts/*.test.mjs scripts/*.test.ts
+npm run test:ui
 GOWORK=off CGO_ENABLED=0 go test ./...
 GOWORK=off CGO_ENABLED=0 go vet ./...
 GOWORK=off CGO_ENABLED=1 go test -race ./internal/...
@@ -21,6 +22,37 @@ MCP settings and explicit process environments, MCP cancellation and reconnect,
 canonical session titles, deletion/recovery, Markdown exports, resource discovery,
 generated-file evidence, and authenticated native actions. Existing workspace
 and permission tests remain part of the suite.
+
+## Component composition boundary
+
+Desk consumes an exact registry version of Pith UI through its root component
+entry and stylesheet. The consumption checks reject app/private imports,
+source aliases, generated-node inspection, HTML slots and style overrides.
+Only the mount/bootstrap adapters and hidden native file-picker/download
+capabilities touch DOM outside library controls.
+
+The browser suite reads actual controls through a test-only semantic query
+driver; it does not change their DOM or add production test hooks. Behavioral
+assertions cover edits, drafts, stale requests, read-only resources, provider
+switches during saving, queue ownership, native picker target changes,
+streaming selection/scrolling, copy availability, modals and the real Go Host.
+Use the freshly rebuilt embedded frontend before running the Host cases.
+
+## Component migration resource check (2026-10-17)
+
+The component composition was measured against the pre-migration Desk commit
+`52c0d4d` with its exact published Pith UI 0.3.1 dependency. Both variants used
+production assets, the same simulated API and 120-message conversation, separate
+warmups and five alternating pairs. Median renderer main-thread CPU increased
+9.9% for streaming and 5.5% for typing. Forced-GC JS heap increased 15.4% after
+streaming and 16.4% after typing. JS plus CSS totals 373,019 bytes, 10.6% below
+that comparison build and below the separately approved 486,100-byte ceiling.
+
+These are Chromium renderer measurements, not whole-machine energy or native
+WebKit/process memory. No native-memory improvement or human acceptance is
+inferred. Screenshots, raw samples, temporary profiles and benchmark code remain
+outside the repository. Recheck production asset hashes when upgrading the
+published package so this evidence cannot silently describe a different build.
 
 ## Snapshot ownership and real Host transport (2026-10-12)
 

@@ -1,4 +1,5 @@
-import { thinkingLabel, type Application, type SettingsSession, type MCPSession, type ModelSession, type SettingsPanelState, type ModelPickerState, type MCPConnectionsState, type MCPConnectionDraft, type SettingsDraft, type ProviderActionsState, type ProviderAction, type ProviderActionTarget, type ActionResult, type MCPCallbacks, type SettingsCallbacks } from 'pith-ui/app';
+import {thinkingLabel} from 'pith-ui';
+import type { Application, SettingsSession, MCPSession, ModelSession, SettingsPanelState, ModelPickerState, MCPConnectionsState, MCPConnectionDraft, SettingsDraft, ProviderActionsState, ProviderAction, ProviderActionTarget, ActionResult, MCPCallbacks, SettingsCallbacks } from './ui-types';
 import type { ApiMutate, ApiRequest } from './api.ts';
 import type { AppearanceMode, MCPServerView as MCPConnection, ModelCatalog, ProviderChoice } from './contract.generated.ts';
 import type { AppView, UIActivity } from './feature-api.ts';

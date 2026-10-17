@@ -1,4 +1,4 @@
-import type { Application } from 'pith-ui/app';
+import type { Application } from './ui-types';
 import {openTextEditor, type TextEditor} from './text-editor.ts';
 import type { ApiMutate } from './api.ts';
 import type { Message } from './contract.generated.ts';

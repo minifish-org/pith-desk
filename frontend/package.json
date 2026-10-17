@@ -9,7 +9,7 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "pith-ui": "0.3.1"
+    "pith-ui": "0.4.5"
   },
   "devDependencies": {
     "marked": "16.4.2",

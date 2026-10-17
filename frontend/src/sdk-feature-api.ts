@@ -1,7 +1,7 @@
 import type { ApiMutate, ApiRequest } from './api.ts';
 import type { State } from './app-state.ts';
 import type { Confirmation } from './confirmation.ts';
-import type { Application } from 'pith-ui/app';
+import type { Application } from './ui-types';
 export type SDKFeatureAPI = {
     ui: Application;
     confirm: (options: Confirmation) => void;

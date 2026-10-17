@@ -4,7 +4,7 @@ import { createDrafts, draftKey } from './drafts.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
 import { imagePreviewBlob } from './image-data.ts';
 import type { ActionResult } from 'pith-ui';
-import type { Application } from 'pith-ui/app';
+import type { Application } from './ui-types';
 import {openTextEditor, type TextEditor} from './text-editor.ts';
 type ImageInput = ImageContent & {
     type: 'image';

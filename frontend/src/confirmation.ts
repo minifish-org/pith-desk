@@ -1,5 +1,5 @@
 import {createConfirmDialog, type ConfirmationMessage, type ConfirmDialog, type ConfirmState} from 'pith-ui';
-import type {Application} from 'pith-ui/app';
+import type {Application} from './ui-types';
 
 export type Confirmation = {
   title: string; action: string; description: ConfirmationMessage; hint?: string;

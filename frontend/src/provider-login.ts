@@ -1,4 +1,4 @@
-import type { ProviderLoginSession } from 'pith-ui/app';
+import type { ProviderLoginSession } from './ui-types';
 import type { SDKFeatureAPI } from './sdk-feature-api.ts';
 export function createProviderLoginUI(api: Pick<SDKFeatureAPI, 'ui' | 'state' | 'mutate' | 'error' | 'refreshProviderAuth'>, onDialogClose?: () => void) {
     let loginSignature = '';
