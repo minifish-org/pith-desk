@@ -44,8 +44,8 @@ The component composition was measured against the pre-migration Desk commit
 `52c0d4d` with its exact published Pith UI 0.3.1 dependency. Both variants used
 production assets, the same simulated API and 120-message conversation, separate
 warmups and five alternating pairs. Median renderer main-thread CPU increased
-9.9% for streaming and 5.5% for typing. Forced-GC JS heap increased 15.4% after
-streaming and 16.4% after typing. JS plus CSS totals 373,019 bytes, 10.6% below
+11.1% for streaming and 18.5% for typing. Forced-GC JS heap increased 15.5% after
+streaming and 16.5% after typing. JS plus CSS totals 373,284 bytes, 10.5% below
 that comparison build and below the separately approved 486,100-byte ceiling.
 
 These are Chromium renderer measurements, not whole-machine energy or native
