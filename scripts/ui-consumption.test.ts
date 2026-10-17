@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { checkUIConsumption, readConsumptionInput } from './ui-consumption.ts';
 
-const version = '0.2.0';
+const version = '0.6.0';
 const integrity = 'sha512-' + Buffer.alloc(64).toString('base64');
 const packageJSON = {
   name: 'pith-desk-frontend', private: true, type: 'module',
@@ -24,7 +24,6 @@ const installedPackage = {
   name: 'pith-ui', version,
   exports: {
     '.': { types: './dist/index.d.ts', import: './dist/index.js' },
-    './app': { types: './dist/app/index.d.ts', import: './dist/app/index.js' },
     './styles.css': './dist/styles.css',
   },
 };
@@ -34,7 +33,7 @@ const baselineFiles: Record<string, string> = {
   'frontend/node_modules/pith-ui/package.json': JSON.stringify(installedPackage),
   'frontend/index.html': '<!doctype html><html><head><meta charset="utf-8"><title>Pith Desk</title></head><body><div id="app"></div><script type="module" src="/src/main.ts"></script></body></html>',
   'frontend/src/style.css': '@import "pith-ui/styles.css";\n',
-  'frontend/src/main.ts': "import type { ApplicationState } from 'pith-ui/app';\nexport const snapshot: ApplicationState | undefined = undefined;\n",
+  'frontend/src/main.ts': "import type { ApplicationState } from './ui-contract';\nexport const snapshot: ApplicationState | undefined = undefined;\n",
 };
 
 function inspect(files: Record<string, string> = {}, symlinks: string[] = []) {
@@ -49,11 +48,12 @@ function rejected(text: string, path = 'frontend/src/feature.ts') {
 }
 
 const mountModule = `
-  import { createApplication, type ApplicationOptions } from 'pith-ui/app';
+  import { mountDesk } from './ui-assemblies/desk';
+  import type { ApplicationOptions } from './ui-contract';
   export function mountApplication(options: ApplicationOptions) {
     const root = document.getElementById('app');
     if (!(root instanceof HTMLElement)) throw new Error('Application mount is missing.');
-    return createApplication(root, options);
+    return mountDesk(root, options);
   }
 `;
 
@@ -103,7 +103,7 @@ const nativeModule = `
   }
 `;
 
-test('only the named mount module may obtain app, check its HTMLElement type and pass it to createApplication', () => {
+test('only the named mount module may obtain app, check its HTMLElement type and pass it to the canonical local mountDesk', () => {
   assert.deepEqual(source(mountModule, 'frontend/src/ui-mount.ts'), []);
   rejected(mountModule, 'frontend/src/feature.ts');
 });
@@ -113,10 +113,10 @@ test('the mount exception rejects altered lookup, missing type checks and mount 
     mountModule.replace("getElementById('app')", "getElementById('other')"),
     mountModule.replace("document.getElementById('app')", "document.querySelector('#app')"),
     mountModule.replace("if (!(root instanceof HTMLElement)) throw new Error('Application mount is missing.');", ''),
-    mountModule.replace('return createApplication(root, options);', 'return root;'),
-    mountModule.replace('return createApplication(root, options);', 'exportedRoot = root; return createApplication(root, options);'),
-    mountModule.replace('return createApplication(root, options);', 'root.style.padding = "8px"; return createApplication(root, options);'),
-    mountModule.replace('return createApplication(root, options);', 'root.replaceChildren(); return createApplication(root, options);'),
+    mountModule.replace('return mountDesk(root, options);', 'return root;'),
+    mountModule.replace('return mountDesk(root, options);', 'exportedRoot = root; return mountDesk(root, options);'),
+    mountModule.replace('return mountDesk(root, options);', 'root.style.padding = "8px"; return mountDesk(root, options);'),
+    mountModule.replace('return mountDesk(root, options);', 'root.replaceChildren(); return mountDesk(root, options);'),
     mountModule + "\ndocument.querySelector('dialog');",
     mountModule + "\ndocument.createElement('button');",
   ]) rejected(text, 'frontend/src/ui-mount.ts');
@@ -124,7 +124,7 @@ test('the mount exception rejects altered lookup, missing type checks and mount 
 
 test('the mounting function cannot add rendering or node slots to the app options', () => {
   for (const options of ['{ ...options, renderHeader: () => "header" }', '{ ...options, children: root }', '{ ...options, style: { padding: 8 } }']) {
-    rejected(mountModule.replace('createApplication(root, options)', `createApplication(root, ${options})`), 'frontend/src/ui-mount.ts');
+    rejected(mountModule.replace('mountDesk(root, options)', `mountDesk(root, ${options})`), 'frontend/src/ui-mount.ts');
   }
 });
 
@@ -238,19 +238,19 @@ test('namespace and dynamic app factories cannot bypass the single mount adapter
   ]) rejected(text);
 });
 
-test('the published custom model defaults helper is pure data through named, alias and namespace imports', () => {
+test('the local custom model defaults helper is pure data through named, alias and namespace imports', () => {
   for (const text of [
-    "import {customModelDefaults} from 'pith-ui/app'; export const model = customModelDefaults();",
-    "import {customModelDefaults as defaults} from 'pith-ui/app'; export const model = defaults();",
-    "import * as ui from 'pith-ui/app'; export const model = ui.customModelDefaults();",
+    "import {customModelDefaults} from './ui-assemblies/custom-connection'; export const model = customModelDefaults();",
+    "import {customModelDefaults as defaults} from './ui-assemblies/custom-connection'; export const model = defaults();",
+    "import * as ui from './ui-assemblies/custom-connection'; export const model = ui.customModelDefaults();",
   ]) assert.deepEqual(source(text), []);
 });
 
 test('an application factory cannot impersonate the pure custom model defaults helper', () => {
   for (const text of [
-    "import {createApplication as customModelDefaults} from 'pith-ui/app'; const model = customModelDefaults();",
-    "import * as ui from 'pith-ui/app'; const customModelDefaults = ui.createApplication; customModelDefaults();",
-    "const ui = await import('pith-ui/app'); const customModelDefaults = ui.createApplication; customModelDefaults();",
+    "import {mountParts as customModelDefaults} from 'pith-ui'; const model = customModelDefaults();",
+    "import * as ui from 'pith-ui'; const customModelDefaults = ui.mountParts; customModelDefaults();",
+    "const ui = await import('pith-ui'); const customModelDefaults = ui.mountParts; customModelDefaults();",
   ]) {
     const issues = source(text);
     assert.ok(issues.some(issue => issue.code === 'mount'), text);
@@ -275,10 +275,10 @@ test('business file, blob, URL, networking and literal tool data remain outside 
   `), []);
 });
 
-test('approved app imports, app types and the single library stylesheet pass', () => {
+test('formal parts imports, local application types and the single library stylesheet pass', () => {
   assert.deepEqual(inspect({ 'frontend/src/feature.ts': `
-    import { createApplication as createUI } from 'pith-ui/app';
-    import type { ApplicationState } from 'pith-ui/app';
+    import { createButtonPart as createUI } from 'pith-ui';
+    import type { ApplicationState } from './ui-contract';
     import 'pith-ui/styles.css';
     export type State = ApplicationState;
     export { createUI };
@@ -299,12 +299,12 @@ test('HTML-looking tool output, paths, CSS samples and business formatting remai
 
 for (const [label, text] of [
   ['root named import', "import { createButton } from 'pith-ui';"],
-  ['root type import', "import type { UIBlock } from 'pith-ui';"],
-  ['root namespace alias', "import * as approvedUI from 'pith-ui';"],
-  ['root re-export', "export { createApplication } from 'pith-ui';"],
-  ['root star re-export', "export * from 'pith-ui';"],
-  ['root dynamic import', "void import('pith-ui');"],
-  ['root import type query', "type UI = typeof import('pith-ui');"],
+  ['legacy app type import', "import type { ApplicationState } from 'pith-ui/app';"],
+  ['legacy app namespace alias', "import * as approvedUI from 'pith-ui/app';"],
+  ['legacy app re-export', "export { createApplication } from 'pith-ui/app';"],
+  ['legacy app star re-export', "export * from 'pith-ui/app';"],
+  ['legacy app dynamic import', "void import('pith-ui/app');"],
+  ['legacy app import type query', "type UI = typeof import('pith-ui/app');"],
   ['private package path', "import { icon } from 'pith-ui/dist/dom.js';"],
   ['private app subpath', "import { internals } from 'pith-ui/app/internal';"],
   ['relative installed implementation', "import { icon } from '../node_modules/pith-ui/dist/dom.js';"],
@@ -318,7 +318,7 @@ for (const [label, text] of [
 
 test('a local barrel cannot launder a root package import', () => {
   const issues = inspect({
-    'frontend/src/ui-proxy.ts': "export { createButton as createApplication } from 'pith-ui';",
+    'frontend/src/ui-proxy.ts': "export { createApplication } from 'pith-ui/app';",
     'frontend/src/feature.ts': "import { createApplication } from './ui-proxy'; export { createApplication };",
   });
   assert.ok(issues.some(issue => issue.file === 'frontend/src/ui-proxy.ts'));
@@ -384,7 +384,7 @@ for (const [label, suffix] of [
   ['destructured internal handle', 'const { element } = app'],
   ['aliased part accessor', "const owned = app; owned.part('messages')"],
 ] as const) {
-  test(`rejects ${label} from the application handle`, () => rejected(`import { createApplication } from 'pith-ui/app'; const app = createApplication(); ${suffix};`));
+  test(`rejects ${label} from the application handle`, () => rejected(`import { createFramePart } from 'pith-ui'; const app = createFramePart({}); ${suffix};`));
 }
 
 for (const [label, options] of [
@@ -394,14 +394,14 @@ for (const [label, options] of [
   ['class option', '{ className: "pui-custom" }'],
   ['style option', '{ style: { padding: 8 } }'],
   ['HTML option', '{ html: "<button>Save</button>" }'],
-  ['DOM children slot', '{ children: providedNode }'],
+  ['DOM children slot', '{ children: [] as Node[] }'],
   ['DOM header slot', '{ header: providedNode }'],
 ] as const) {
-  test(`rejects a free ${label} on application construction`, () => rejected(`import { createApplication } from 'pith-ui/app'; const app = createApplication(${options});`));
+  test(`rejects a free ${label} on part construction`, () => rejected(`import { createFramePart } from 'pith-ui'; const app = createFramePart(${options});`));
 }
 
 test('application options cannot launder rendering callbacks through aliases and spreads', () => {
-  rejected(`import { createApplication as mount } from 'pith-ui/app'; const rendering = { renderHeader: () => 'header' }; const alias = rendering; mount({ ...alias });`);
+  rejected(`import { createFramePart as mount } from 'pith-ui'; const rendering = { renderHeader: () => 'header' }; const alias = rendering; mount({ ...alias });`);
 });
 
 test('public node slots and rendering callback types cannot be added in the consumer', () => {
@@ -423,15 +423,17 @@ test('the lockfile must resolve the same exact package to the public npm registr
   assert.ok(inspect({ 'frontend/package-lock.json': JSON.stringify(different) }).length > 0);
 });
 
-test('installed package metadata must match the pinned version and expose the approved app entry', () => {
+test('installed package metadata must match the pinned version and expose only the formal parts and stylesheet entries', () => {
   assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify({ ...installedPackage, version: '0.1.4' }) }).length > 0);
-  const missingApp = structuredClone(installedPackage); delete (missingApp.exports as Record<string, unknown>)['./app'];
-  assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(missingApp) }).length > 0);
+  const missingRoot = structuredClone(installedPackage); delete (missingRoot.exports as Record<string, unknown>)['.'];
+  assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(missingRoot) }).length > 0);
+  const legacy = {...installedPackage,exports:{...installedPackage.exports,'./app':{types:'./dist/app/index.d.ts',import:'./dist/app/index.js'}}};
+  assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(legacy) }).length > 0);
 });
 
 test('installed entry export targets cannot escape the built dist directory', () => {
   const escaped = structuredClone(installedPackage);
-  escaped.exports['./app'].import = './dist/../../src/app.js';
+  escaped.exports['.'].import = './dist/../../src/app.js';
   assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(escaped) }).length > 0);
 });
 
@@ -473,4 +475,78 @@ test('diagnostics identify the offending file, source line and a useful reason',
   const issue = issues.find(item => item.file === 'frontend/src/feature.ts');
   assert.ok(issue); assert.equal(issue.line, 2);
   assert.ok(typeof issue.message === 'string' && issue.message.trim().length > 0);
+});
+
+test('opaque parts and child composition are permitted without native access', () => {
+  const text = `
+    import {createButtonPart,createStackPart,mountParts,type Part} from 'pith-ui';
+    import {composePermissionControl} from './permission-control.js';
+    import {composeTextEditor} from './text-edit.js';
+    export function mountExample(mount: HTMLElement) {
+      const permission = composePermissionControl({mode:'ask',description:''});
+      const editor = composeTextEditor({value:''});
+      const child = createButtonPart({label:'Save',onAction() {}});
+      const children: Part[] = [child,editor.part,permission.control];
+      const group = createStackPart({children});
+      return mountParts(mount,group);
+    }
+  `;
+  assert.deepEqual(source(text,'frontend/src/ui-assemblies/example.ts'),[]);
+  rejected(text,'frontend/src/feature.ts');
+});
+
+test('formal factories are recognized through named, namespace and dynamic aliases', () => {
+  for (const text of [
+    `import {createStackPart as stack,mountParts as mount} from 'pith-ui'; export function mountExample(root:HTMLElement) {return mount(root,stack({children:[]}));}`,
+    `import * as parts from 'pith-ui'; export function mountExample(root:HTMLElement) {return parts.mountParts(root,parts.createStackPart({children:[]}));}`,
+    `const parts=await import('pith-ui'); const stack=parts.createStackPart,mount=parts.mountParts; export function mountExample(root:HTMLElement) {return mount(root,stack({children:[]}));}`,
+  ]) assert.deepEqual(source(text,'frontend/src/ui-assemblies/example.ts'),[]);
+});
+
+test('a composition directory does not permit DOM operations or additional native parameters', () => {
+  for(const text of [
+    `export function mountExample(root:HTMLElement) {return root;}`,
+    `export function mountExample(root:HTMLElement) {return {root};}`,
+    `export function mountExample(root:HTMLElement) {const alias=root;return alias;}`,
+    `import {mountParts,createStackPart} from 'pith-ui'; export function mountExample(root:HTMLElement) {root.style.padding='8px';return mountParts(root,createStackPart({children:[]}));}`,
+    `import {mountParts,createStackPart} from 'pith-ui'; export function mountExample(root:HTMLElement,other:HTMLElement) {return mountParts(root,createStackPart({children:[]}));}`,
+    `export function composeExample(root:HTMLElement) {return {part:root};}`,
+    `const node=document.createElement('button');`,
+    `const html=<button>Save</button>;`,
+  ]) rejected(text,'frontend/src/ui-assemblies/example.tsx');
+});
+
+test('a same-named local mountParts function cannot gain native mount authority', () => {
+  rejected(`function mountParts(root:unknown,part:unknown) {} export function mountExample(root:HTMLElement) {return mountParts(root,{});}`,'frontend/src/ui-assemblies/example.ts');
+});
+
+test('the native mount exception requires the canonical local desk module', () => {
+  for(const path of ['./other-desk','./ui-assemblies/desk-copy','pith-ui/app']) {
+    rejected(mountModule.replace("'./ui-assemblies/desk'",JSON.stringify(path)),'frontend/src/ui-mount.ts');
+  }
+  assert.deepEqual(source(mountModule.replace("'./ui-assemblies/desk'","'./ui-assemblies/desk.js'"),'frontend/src/ui-mount.ts'),[]);
+});
+
+test('opaque references cannot recover native internals or part accessor methods', () => {
+  for(const tail of ['editor.element','editor.part.element','editor.part.style','editor.part.querySelector("button")','editor.part("message")','permission.control.element','permission.control()']) {
+    rejected(`import {composeTextEditor} from './text-edit'; import {composePermissionControl} from './permission-control'; const editor=composeTextEditor({value:''});const permission=composePermissionControl({mode:'ask'});${tail};`,'frontend/src/ui-assemblies/example.ts');
+  }
+  rejected(`import {createInputPart} from 'pith-ui'; const input=createInputPart({value:''});input.control;`,'frontend/src/ui-assemblies/example.ts');
+});
+
+test('part construction still checks aliased, nested and spread style or rendering escapes', () => {
+  for(const expression of [
+    `const free={style:{padding:8}};const alias=free;stack({...alias});`,
+    `const free={renderHeader:()=>'<h1>Header</h1>'};stack({children:[],...free});`,
+    `const content={css:'padding:8px'};stack({children:[],content});`,
+    `const key='class'+'Name';stack({[key]:'custom'});`,
+  ]) rejected(`import {createStackPart as stack} from 'pith-ui';${expression}`,'frontend/src/ui-assemblies/example.ts');
+});
+
+test('part factory calls outside the composition directory do not gain native mounting authority', () => {
+  for(const text of [
+    `import {mountParts as attach} from 'pith-ui';attach(undefined as any,part);`,
+    `import * as ui from 'pith-ui';const attach=ui.mountParts;attach(undefined as any,part);`,
+    `const ui=await import('pith-ui');ui.mountParts(undefined as any,part);`,
+  ]) assert.ok(source(text).some(issue=>issue.code==='mount'),text);
 });
