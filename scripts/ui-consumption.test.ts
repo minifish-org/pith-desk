@@ -496,7 +496,7 @@ for (const [label, text] of [
   ['typography option', "import * as ui from 'pith-ui'; ui.createText({text:'Hello',fontSize:18});"],
 ] as const) test(`small controls reject ${label} escapes`, () => rejected(text));
 
-test('small control imports require a package with the constrained 0.3 contract', () => {
+test('small control imports require a package with the constrained 0.4 contract', () => {
   const old='0.2.2';
   const input={...baselineFiles,
     'frontend/package.json':JSON.stringify({...packageJSON,dependencies:{'pith-ui':old}}),
@@ -515,4 +515,10 @@ test('public regions compose opaque controls without introducing app interfaces'
 
 test('native file IO never permits selectors, visible controls or arbitrary markup',()=>{
   for(const text of ["document.querySelector('input')","const node=document.createElement('button')","const picker=document.createElement('input');picker.type='text';document.body.append(picker)","document.body.innerHTML='<input>'"] )rejected(text,'frontend/src/ui-native-io.ts');
+});
+
+test('native hidden file and download capabilities cannot become visible UI',()=>{
+  const io=`export function createNativeFileIO(){const picker=document.createElement('input');picker.type='file';picker.multiple=true;picker.hidden=true;document.body.append(picker);return {choose(){picker.click();}};}`;
+  assert.deepEqual(source(io,'frontend/src/ui-native-io.ts'),[]);
+  for(const extra of ["picker.hidden=false;","picker.style.padding='8px';","picker.className='pui-button';","picker.innerHTML='<button>Save</button>';","return picker;"]){const changed=io.replace('return {choose()',extra+'return {choose()');rejected(changed,'frontend/src/ui-native-io.ts');}
 });
