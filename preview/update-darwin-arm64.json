@@ -1,8 +1,8 @@
 {
-  "version": "0.1.0-rc.27",
-  "notes": "New in rc.27:\n\n- Upgrade to Pith UI 0.2.2 for consistent chat, navigation, forms, menus and dialogs, keeping the existing palette, logo, layout and system font.\n- Remove focus outlines, glows and focus border highlights while preserving hover, text selection, input behavior and permission/error states.\n\nApple Silicon preview. Open the `.tar.gz` and move **Pith Desk.app** to Applications.\nAd-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n",
-  "date": "2026-10-16T14:50:46.362Z",
-  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.27/pith-desk-0.1.0-rc.27-darwin-arm64.tar.gz",
-  "size": 9629890,
-  "signature": "qet7ax1E5GzSeYxcmFD+RragQlpg/sXqaydLUXfw4H3vCpWxx5316F2HAdaiJKZ9UZz5TJS9BLAiItc6jBZoAw=="
+  "version": "0.1.0-rc.28",
+  "notes": "New in rc.28:\n\n- Upgrade to Pith UI 0.6.3 and assemble application regions from constrained UI parts.\n- Preserve the existing chat, navigation, settings and file layouts and interactions, along with the palette, logo, configuration and conversation data.\n\nApple Silicon preview. Open the `.tar.gz` and move **Pith Desk.app** to Applications.\nAd-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n",
+  "date": "2026-10-17T17:06:19.040Z",
+  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.28/pith-desk-0.1.0-rc.28-darwin-arm64.tar.gz",
+  "size": 9647051,
+  "signature": "2qbx+4x+fTMiP/4YtCWZM1+4oMvHrKDRpB20waIkBOcaWgeQ6aNq/t6w8zCrNWuIRtNhx5XHoR4UZzZcUUXdCQ=="
 }
