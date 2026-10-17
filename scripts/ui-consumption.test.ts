@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { checkUIConsumption, readConsumptionInput } from './ui-consumption.ts';
 
-const version = '0.2.0';
+const version = '0.3.0';
 const integrity = 'sha512-' + Buffer.alloc(64).toString('base64');
 const packageJSON = {
   name: 'pith-desk-frontend', private: true, type: 'module',
@@ -298,13 +298,6 @@ test('HTML-looking tool output, paths, CSS samples and business formatting remai
 });
 
 for (const [label, text] of [
-  ['root named import', "import { createButton } from 'pith-ui';"],
-  ['root type import', "import type { UIBlock } from 'pith-ui';"],
-  ['root namespace alias', "import * as approvedUI from 'pith-ui';"],
-  ['root re-export', "export { createApplication } from 'pith-ui';"],
-  ['root star re-export', "export * from 'pith-ui';"],
-  ['root dynamic import', "void import('pith-ui');"],
-  ['root import type query', "type UI = typeof import('pith-ui');"],
   ['private package path', "import { icon } from 'pith-ui/dist/dom.js';"],
   ['private app subpath', "import { internals } from 'pith-ui/app/internal';"],
   ['relative installed implementation', "import { icon } from '../node_modules/pith-ui/dist/dom.js';"],
@@ -316,9 +309,9 @@ for (const [label, text] of [
   test(`rejects ${label}`, () => rejected(text));
 }
 
-test('a local barrel cannot launder a root package import', () => {
+test('a local barrel cannot launder a private package import', () => {
   const issues = inspect({
-    'frontend/src/ui-proxy.ts': "export { createButton as createApplication } from 'pith-ui';",
+    'frontend/src/ui-proxy.ts': "export { createButton as createApplication } from 'pith-ui/dist/primitives.js';",
     'frontend/src/feature.ts': "import { createApplication } from './ui-proxy'; export { createApplication };",
   });
   assert.ok(issues.some(issue => issue.file === 'frontend/src/ui-proxy.ts'));
@@ -473,4 +466,47 @@ test('diagnostics identify the offending file, source line and a useful reason',
   const issue = issues.find(item => item.file === 'frontend/src/feature.ts');
   assert.ok(issue); assert.equal(issue.line, 2);
   assert.ok(typeof issue.message === 'string' && issue.message.trim().length > 0);
+});
+
+
+test('published constrained controls compose independently of the application entry', () => {
+  assert.deepEqual(source(`
+    import {createButton as action, createStack, createDialog, type Control} from 'pith-ui';
+    import type {Application} from 'pith-ui/app';
+    const button = action({label:'Save',intent:'primary',onAction:async()=>({ok:true})});
+    const content = createStack({children:[button]});
+    const dialog = createDialog({title:'Edit',content});
+    export function attach(app:Application) {return app.attachDialog(dialog);}
+    export type Item = Control;
+  `), []);
+  for (const text of [
+    "import * as ui from 'pith-ui'; const button=ui.createButton({label:'Save'}); button.update({label:'Saving'});",
+    "export {createButton} from 'pith-ui';",
+    "export * from 'pith-ui';",
+    "void import('pith-ui');",
+    "type UI = typeof import('pith-ui');",
+  ]) assert.deepEqual(source(text), []);
+});
+
+for (const [label, text] of [
+  ['named handle', "import {createButton as action} from 'pith-ui'; const button=action({label:'Save'}); button.element;"],
+  ['namespace alias', "import * as UI from 'pith-ui'; const ui=UI; const factory=ui.createButton; const button=factory({label:'Save'}); button['element'];"],
+  ['typed handle', "import type {Control} from 'pith-ui'; function alter(button:Control) {button.classList.add('custom');}"],
+  ['destructured handle', "import {createDialog} from 'pith-ui'; const {element:node}=createDialog({title:'Edit'});"],
+  ['style option', "import {createStack} from 'pith-ui'; const options={children:[],style:{gap:3}}; createStack(options);"],
+  ['density option', "import {createButton} from 'pith-ui'; createButton({label:'Save',density:'compact'});"],
+  ['typography option', "import * as ui from 'pith-ui'; ui.createText({text:'Hello',fontSize:18});"],
+] as const) test(`small controls reject ${label} escapes`, () => rejected(text));
+
+test('small control imports require a package with the constrained 0.3 contract', () => {
+  const old='0.2.2';
+  const input={...baselineFiles,
+    'frontend/package.json':JSON.stringify({...packageJSON,dependencies:{'pith-ui':old}}),
+    'frontend/package-lock.json':JSON.stringify({...packageLock,packages:{'':{dependencies:{'pith-ui':old}},'node_modules/pith-ui':{version:old,resolved:`https://registry.npmjs.org/pith-ui/-/pith-ui-${old}.tgz`,integrity}}}),
+    'frontend/node_modules/pith-ui/package.json':JSON.stringify({...installedPackage,version:old}),
+    'frontend/src/feature.ts':"import {createButton} from 'pith-ui';",
+  };
+  assert.ok(checkUIConsumption({files:input}).length>0);
+  const missing=structuredClone(installedPackage); delete (missing.exports as Record<string,unknown>)['.'];
+  assert.ok(inspect({'frontend/node_modules/pith-ui/package.json':JSON.stringify(missing)}).length>0);
 });
