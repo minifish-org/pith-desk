@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { checkUIConsumption, readConsumptionInput } from './ui-consumption.ts';
 
-const version = '0.3.0';
+const version = '0.4.1';
 const integrity = 'sha512-' + Buffer.alloc(64).toString('base64');
 const packageJSON = {
   name: 'pith-desk-frontend', private: true, type: 'module',
@@ -24,7 +24,6 @@ const installedPackage = {
   name: 'pith-ui', version,
   exports: {
     '.': { types: './dist/index.d.ts', import: './dist/index.js' },
-    './app': { types: './dist/app/index.d.ts', import: './dist/app/index.js' },
     './styles.css': './dist/styles.css',
   },
 };
@@ -34,7 +33,7 @@ const baselineFiles: Record<string, string> = {
   'frontend/node_modules/pith-ui/package.json': JSON.stringify(installedPackage),
   'frontend/index.html': '<!doctype html><html><head><meta charset="utf-8"><title>Pith Desk</title></head><body><div id="app"></div><script type="module" src="/src/main.ts"></script></body></html>',
   'frontend/src/style.css': '@import "pith-ui/styles.css";\n',
-  'frontend/src/main.ts': "import type { ApplicationState } from 'pith-ui/app';\nexport const snapshot: ApplicationState | undefined = undefined;\n",
+  'frontend/src/main.ts': "import type {MountState as ApplicationState} from 'pith-ui';\nexport const snapshot: ApplicationState | undefined = undefined;\n",
 };
 
 function inspect(files: Record<string, string> = {}, symlinks: string[] = []) {
@@ -49,11 +48,15 @@ function rejected(text: string, path = 'frontend/src/feature.ts') {
 }
 
 const mountModule = `
-  import { createApplication, type ApplicationOptions } from 'pith-ui/app';
-  export function mountApplication(options: ApplicationOptions) {
+  import {mount} from 'pith-ui';
+  import type {ApplicationOptions} from './ui-types';
+  import {createDeskComposition} from './ui-view';
+  export function mountApplication(options: ApplicationOptions = {}) {
     const root = document.getElementById('app');
     if (!(root instanceof HTMLElement)) throw new Error('Application mount is missing.');
-    return createApplication(root, options);
+    const composition = createDeskComposition(options);
+    const mounted = mount(root, composition.content, {appearance: options.appearance, viewport: 'window', onStateChange: options.onUIStateChange});
+    return composition.connect(mounted);
   }
 `;
 
@@ -113,10 +116,10 @@ test('the mount exception rejects altered lookup, missing type checks and mount 
     mountModule.replace("getElementById('app')", "getElementById('other')"),
     mountModule.replace("document.getElementById('app')", "document.querySelector('#app')"),
     mountModule.replace("if (!(root instanceof HTMLElement)) throw new Error('Application mount is missing.');", ''),
-    mountModule.replace('return createApplication(root, options);', 'return root;'),
-    mountModule.replace('return createApplication(root, options);', 'exportedRoot = root; return createApplication(root, options);'),
-    mountModule.replace('return createApplication(root, options);', 'root.style.padding = "8px"; return createApplication(root, options);'),
-    mountModule.replace('return createApplication(root, options);', 'root.replaceChildren(); return createApplication(root, options);'),
+    mountModule.replace('return composition.connect(mounted);', 'return root;'),
+    mountModule.replace('return composition.connect(mounted);', 'exportedRoot = root; return composition.connect(mounted);'),
+    mountModule.replace('return composition.connect(mounted);', 'root.style.padding = "8px"; return composition.connect(mounted);'),
+    mountModule.replace('return composition.connect(mounted);', 'root.replaceChildren(); return composition.connect(mounted);'),
     mountModule + "\ndocument.querySelector('dialog');",
     mountModule + "\ndocument.createElement('button');",
   ]) rejected(text, 'frontend/src/ui-mount.ts');
@@ -124,7 +127,7 @@ test('the mount exception rejects altered lookup, missing type checks and mount 
 
 test('the mounting function cannot add rendering or node slots to the app options', () => {
   for (const options of ['{ ...options, renderHeader: () => "header" }', '{ ...options, children: root }', '{ ...options, style: { padding: 8 } }']) {
-    rejected(mountModule.replace('createApplication(root, options)', `createApplication(root, ${options})`), 'frontend/src/ui-mount.ts');
+    rejected(mountModule.replace('createDeskComposition(options)', `createDeskComposition(${options})`), 'frontend/src/ui-mount.ts');
   }
 });
 
@@ -240,9 +243,9 @@ test('namespace and dynamic app factories cannot bypass the single mount adapter
 
 test('the published custom model defaults helper is pure data through named, alias and namespace imports', () => {
   for (const text of [
-    "import {customModelDefaults} from 'pith-ui/app'; export const model = customModelDefaults();",
-    "import {customModelDefaults as defaults} from 'pith-ui/app'; export const model = defaults();",
-    "import * as ui from 'pith-ui/app'; export const model = ui.customModelDefaults();",
+    "import {customModelDefaults} from 'pith-ui'; export const model = customModelDefaults();",
+    "import {customModelDefaults as defaults} from 'pith-ui'; export const model = defaults();",
+    "import * as ui from 'pith-ui'; export const model = ui.customModelDefaults();",
   ]) assert.deepEqual(source(text), []);
 });
 
@@ -253,7 +256,7 @@ test('an application factory cannot impersonate the pure custom model defaults h
     "const ui = await import('pith-ui/app'); const customModelDefaults = ui.createApplication; customModelDefaults();",
   ]) {
     const issues = source(text);
-    assert.ok(issues.some(issue => issue.code === 'mount'), text);
+    assert.ok(issues.some(issue => issue.code === 'import'), text);
   }
 });
 
@@ -275,14 +278,9 @@ test('business file, blob, URL, networking and literal tool data remain outside 
   `), []);
 });
 
-test('approved app imports, app types and the single library stylesheet pass', () => {
-  assert.deepEqual(inspect({ 'frontend/src/feature.ts': `
-    import { createApplication as createUI } from 'pith-ui/app';
-    import type { ApplicationState } from 'pith-ui/app';
-    import 'pith-ui/styles.css';
-    export type State = ApplicationState;
-    export { createUI };
-  ` }), []);
+test('only public component imports and CSS pass; the removed app entry is rejected',()=>{
+  assert.deepEqual(source("import {createButton,type Control} from 'pith-ui'; import 'pith-ui/styles.css'; export const button=createButton({label:'Save'});"),[]);
+  rejected("import {createApplication} from 'pith-ui/app';");
 });
 
 test('HTML-looking tool output, paths, CSS samples and business formatting remain data', () => {
@@ -416,15 +414,15 @@ test('the lockfile must resolve the same exact package to the public npm registr
   assert.ok(inspect({ 'frontend/package-lock.json': JSON.stringify(different) }).length > 0);
 });
 
-test('installed package metadata must match the pinned version and expose the approved app entry', () => {
+test('installed package metadata must match the pinned version and expose only the approved component entries', () => {
   assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify({ ...installedPackage, version: '0.1.4' }) }).length > 0);
-  const missingApp = structuredClone(installedPackage); delete (missingApp.exports as Record<string, unknown>)['./app'];
+  const missingApp = structuredClone(installedPackage); (missingApp.exports as Record<string,unknown>)['./app']={types:'./dist/app/index.d.ts',import:'./dist/app/index.js'};
   assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(missingApp) }).length > 0);
 });
 
 test('installed entry export targets cannot escape the built dist directory', () => {
   const escaped = structuredClone(installedPackage);
-  escaped.exports['./app'].import = './dist/../../src/app.js';
+  escaped.exports['.'].import = './dist/../../src/app.js';
   assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(escaped) }).length > 0);
 });
 
@@ -472,7 +470,7 @@ test('diagnostics identify the offending file, source line and a useful reason',
 test('published constrained controls compose independently of the application entry', () => {
   assert.deepEqual(source(`
     import {createButton as action, createStack, createDialog, type Control} from 'pith-ui';
-    import type {Application} from 'pith-ui/app';
+    import type {Application} from './ui-types';
     const button = action({label:'Save',intent:'primary',onAction:async()=>({ok:true})});
     const content = createStack({children:[button]});
     const dialog = createDialog({title:'Edit',content});
@@ -509,4 +507,12 @@ test('small control imports require a package with the constrained 0.3 contract'
   assert.ok(checkUIConsumption({files:input}).length>0);
   const missing=structuredClone(installedPackage); delete (missing.exports as Record<string,unknown>)['.'];
   assert.ok(inspect({'frontend/node_modules/pith-ui/package.json':JSON.stringify(missing)}).length>0);
+});
+
+test('public regions compose opaque controls without introducing app interfaces',()=>{
+  assert.deepEqual(source("import {createPane,createStack,createText} from 'pith-ui';const pane=createPane({header:createText({text:'Title'}),content:createStack({children:[]})});"),[]);
+});
+
+test('native file IO never permits selectors, visible controls or arbitrary markup',()=>{
+  for(const text of ["document.querySelector('input')","const node=document.createElement('button')","const picker=document.createElement('input');picker.type='text';document.body.append(picker)","document.body.innerHTML='<input>'"] )rejected(text,'frontend/src/ui-native-io.ts');
 });
