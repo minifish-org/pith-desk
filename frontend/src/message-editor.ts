@@ -1,4 +1,5 @@
-import type { Application, MessageEditorSession } from 'pith-ui/app';
+import type { Application } from 'pith-ui/app';
+import {openTextEditor, type TextEditor} from './text-editor.ts';
 import type { ApiMutate } from './api.ts';
 import type { Message } from './contract.generated.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
@@ -6,14 +7,14 @@ import type { AppView, UIActivity } from './feature-api.ts';
 export function createMessageEditor(api: { ui: Application; view: AppView; activity: UIActivity; mutate: ApiMutate; followLatest: () => void }) {
   let target: { id: string; messageId: string; expectedLastMessageId: string; imageCount: number } | null = null;
   let error = '';
-  let editor: MessageEditorSession | undefined;
+  let editor: TextEditor | undefined;
   function valid(): boolean {
     return !!target && target.id === api.view.state.activeId && target.expectedLastMessageId === api.view.state.messages.at(-1)?.id && api.view.state.messages.some(message => message.id === target!.messageId && message.role === 'user');
   }
   function render(): void {
     if (!target || !editor) return;
     if (!valid()) error = 'The conversation changed. Reopen the message to send this edit. Your text is kept here so you can copy it.';
-    editor.update({ title: 'Edit message', value: editor.read(), submitLabel: 'Send again', error,
+    editor.update({ title: 'Edit message', submitLabel: 'Send again', error,
       disabled: api.activity.busy || api.view.state.running || !valid() || (!editor.read().trim() && !target.imageCount),
       inputDisabled: api.activity.busy,
       note: 'Send again to replace this message and its following replies.' + (target.imageCount ? ' ' + target.imageCount + ' attached image' + (target.imageCount === 1 ? '' : 's') + ' will be kept.' : ''),
@@ -26,7 +27,7 @@ export function createMessageEditor(api: { ui: Application; view: AppView; activ
     const opened = { id, messageId: message.id, expectedLastMessageId: api.view.state.messages.at(-1)!.id, imageCount: message.images?.length || 0 };
     target = opened;
     error = '';
-    editor = api.ui.workspace.openMessageEditor({ title: 'Edit message', value: message.text, submitLabel: 'Send again' }, {
+    editor = openTextEditor(api.ui, message.text, { title: 'Edit message', submitLabel: 'Send again',
       onInput: render,
       onClose() { if (target === opened) { target = null; editor = undefined; } },
       async onSubmit(text) {
@@ -43,5 +44,5 @@ export function createMessageEditor(api: { ui: Application; view: AppView; activ
     render();
     editor.focus();
   }
-  return { open, render, close: () => { target = null; editor?.close(); editor = undefined; }, destroy: () => { target = null; editor?.destroy(); editor = undefined; } };
+  return { open, render, close: () => { target = null; editor?.destroy(); editor = undefined; }, destroy: () => { target = null; editor?.destroy(); editor = undefined; } };
 }

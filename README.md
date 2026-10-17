@@ -288,11 +288,16 @@ The frontend retains the authenticated loopback HTTP/WebSocket transport.
 Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
 Desk consumes the exact npm version in `frontend/package-lock.json`. Its UI
-uses only `pith-ui/app` and `pith-ui/styles.css`: the workspace, settings,
-resources and files scenes own controls, layout, typography, menus, dialogs,
-focus, scrolling and local interaction state. Controllers retain requests,
+uses the constrained small controls from `pith-ui`, optional application scenes
+from `pith-ui/app`, and `pith-ui/styles.css`. Confirmations and message/queue
+editors use independent small dialogs attached through `Application.attachDialog`;
+the workspace, settings, resources and files scenes retain the existing main
+interface. The library owns controls, layout, typography, menus, dialogs,
+scrolling and local interaction state. Controllers retain requests,
 identities, drafts, credentials, permissions and native capabilities. The
-installed package's `APP.md`, `APP-API.md` and declarations define the contract.
+installed package's `AI.md`, `API.md`, `APP.md`, `APP-API.md` and declarations
+define the contract. Small controls expose content, state, finite semantic options
+and callbacks, with no consumer typography, spacing, density or DOM customization.
 Missing UI capabilities belong in Pith UI, followed by a registry release and
 an exact dependency update here; do not use a source alias or local package.
 
@@ -347,3 +352,8 @@ The interface draws on the workspace-and-conversation layout of DeepSeek Harness
 ## License
 
 Pith Desk is licensed under the [GNU Affero General Public License v3](LICENSE), consistent with its Pith dependency. Dependency notices are in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md). See [CONTRIBUTING.md](CONTRIBUTING.md) for development and contribution guidance, and [SECURITY.md](SECURITY.md) for private security reporting.
+
+Library-internal regressions for pending controls, reading anchors, literal find,
+UTF-8 preview paging and safe diff rendering live in Pith UI's TypeScript unit suite (`pending-controls`, `reader-ordering`,
+`preview-paging`, `diff-rendering`). Desk's browser regressions continue to verify those behaviors through
+the published application interface; consumer tests do not import private internals.

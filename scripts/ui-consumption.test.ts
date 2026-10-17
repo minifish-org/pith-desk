@@ -462,7 +462,7 @@ test('TypeScript and Vite source aliases cannot redirect the UI entry to a sibli
 });
 
 test('diagnostics identify the offending file, source line and a useful reason', () => {
-  const issues = source("// business state\nimport { createButton } from 'pith-ui';\n");
+  const issues = source("// business state\nimport { createButton } from 'pith-ui/dist/primitives.js';\n");
   const issue = issues.find(item => item.file === 'frontend/src/feature.ts');
   assert.ok(issue); assert.equal(issue.line, 2);
   assert.ok(typeof issue.message === 'string' && issue.message.trim().length > 0);

@@ -4,9 +4,9 @@ test.beforeEach(async({page})=>{
   await page.route('**/small-controls.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body><div id="app"></div></body></html>'}));
   await page.goto('/small-controls.html');
   await page.evaluate(async()=>{
-    const library='/node_modules/pith-ui/dist/app/index.js',controller='/src/confirmation.ts',styles='/node_modules/pith-ui/dist/styles.css';
-    const [{createApplication},{createConfirmation}]=await Promise.all([import(library),import(controller),import(styles)]);
-    const ui=createApplication(document.getElementById('app')!);
+    const library='/src/ui-mount.ts',controller='/src/confirmation.ts',styles='/node_modules/pith-ui/dist/styles.css';
+    const [{mountApplication},{createConfirmation}]=await Promise.all([import(library),import(controller),import(styles)]);
+    const ui=mountApplication();
     const confirm=createConfirmation(ui);
     const state={unavailable:false,calls:0,release:undefined as undefined|((ok:boolean)=>void)};
     const open=(subject:string)=>confirm({title:'Remove connection',action:'Remove',description:{before:'Remove ',subject,after:'?'},unavailable:()=>state.unavailable,

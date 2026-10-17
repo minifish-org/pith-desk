@@ -15,6 +15,7 @@ export interface ConsumptionIssue {
   readonly message: string;
 }
 
+const controlsEntry = 'pith-ui';
 const appEntry = 'pith-ui/app';
 const cssEntry = 'pith-ui/styles.css';
 const nativeFiles = new Set(['frontend/src/ui-native.ts', 'frontend/src/native-menu.ts', 'frontend/src/app-lifecycle.ts']);
@@ -88,16 +89,19 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
   }
   if (installed.name !== 'pith-ui' || installed.version !== version) emit('frontend/node_modules/pith-ui/package.json', 'package', 'Installed pith-ui metadata must match the exact dependency.');
   const entry = installed.exports?.['./app'];
+  const controls = installed.exports?.['.'];
+  const [major, minor] = String(version).split('.').map(Number);
+  if (!(major > 0 || major === 0 && minor >= 3)) emit('frontend/package.json', 'package', 'The constrained small-control contract requires pith-ui 0.3.0 or later.');
   const builtTarget = (value: unknown, extension: string): boolean => {
     if (typeof value !== 'string' || !value.startsWith('./dist/') || !value.endsWith(extension) || /[\\?#%:]/.test(value)) return false;
     const normalized = path.posix.normalize(value);
     return normalized.startsWith('dist/') && normalized === value.slice(2) && !value.split('/').includes('..');
   };
-  if (!entry || !builtTarget(entry.types, '.d.ts') || !builtTarget(entry.import, '.js') || installed.exports?.['./styles.css'] !== './dist/styles.css') {
-    emit('frontend/node_modules/pith-ui/package.json', 'package', 'The installed package must export pith-ui/app with ESM and declarations, and pith-ui/styles.css.');
+  if (!controls || !builtTarget(controls.types, '.d.ts') || !builtTarget(controls.import, '.js') || !entry || !builtTarget(entry.types, '.d.ts') || !builtTarget(entry.import, '.js') || installed.exports?.['./styles.css'] !== './dist/styles.css') {
+    emit('frontend/node_modules/pith-ui/package.json', 'package', 'The installed package must export pith-ui and pith-ui/app with ESM and declarations, and pith-ui/styles.css.');
   }
   const inspectAlias = (file: string, value: unknown, key = ''): void => {
-    if (typeof value === 'string' && (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(value) || key === appEntry || key.startsWith('pith-ui/'))) emit(file, 'alias', 'UI package aliases and sibling/source redirects are forbidden.');
+    if (typeof value === 'string' && (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(value) || key === controlsEntry || key === appEntry || key.startsWith('pith-ui/'))) emit(file, 'alias', 'UI package aliases and sibling/source redirects are forbidden.');
     else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) inspectAlias(file, v, k);
   };
   inspectAlias('frontend/package.json', pkg.imports);
@@ -131,6 +135,8 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     for (const error of (source as ts.SourceFile & { parseDiagnostics: readonly ts.DiagnosticWithLocation[] }).parseDiagnostics) emit(file, 'syntax', ts.flattenDiagnosticMessageText(error.messageText, '\n'), source, undefined, error.start);
     const bindings = new Map<string, ts.Expression>();
     const factories = new Set<string>();
+    const controlFactories = new Set<string>();
+    const controlNamespaces = new Set<string>();
     const namespaces = new Set<string>();
     const appTypes = new Set<string>();
     const values = new Set<string>();
@@ -144,6 +150,14 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
         if (names && ts.isNamespaceImport(names)) namespaces.add(names.name.text);
         if (names && ts.isNamedImports(names)) for (const spec of names.elements) {
           if ((spec.propertyName ?? spec.name).text === 'createApplication') factories.add(spec.name.text);
+          if (spec.isTypeOnly || node.importClause?.isTypeOnly) appTypes.add(spec.name.text);
+        }
+      }
+      if (ts.isImportDeclaration(node) && stringValue(node.moduleSpecifier) === controlsEntry) {
+        const names = node.importClause?.namedBindings;
+        if (names && ts.isNamespaceImport(names)) controlNamespaces.add(names.name.text);
+        if (names && ts.isNamedImports(names)) for (const spec of names.elements) {
+          if (/^create[A-Z]/.test((spec.propertyName ?? spec.name).text)) controlFactories.add(spec.name.text);
           if (spec.isTypeOnly || node.importClause?.isTypeOnly) appTypes.add(spec.name.text);
         }
       }
@@ -167,6 +181,22 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
       if (seen.has(node.text) || !bindings.has(node.text)) return false;
       return resolvesFactory(bindings.get(node.text)!, new Set([...seen, node.text]));
     };
+    const resolvesControlNamespace = (node: ts.Node, seen = new Set<string>()): boolean => {
+      node = unwrap(node);
+      if (ts.isAwaitExpression(node)) return resolvesControlNamespace(node.expression, seen);
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) return stringValue(node.arguments[0], bindings) === controlsEntry;
+      if (!ts.isIdentifier(node)) return false;
+      if (controlNamespaces.has(node.text)) return true;
+      return !seen.has(node.text) && bindings.has(node.text) && resolvesControlNamespace(bindings.get(node.text)!, new Set([...seen, node.text]));
+    };
+    const resolvesControlFactory = (node: ts.Node, seen = new Set<string>()): boolean => {
+      node = unwrap(node);
+      const p = property(node);
+      if (p?.key && /^create[A-Z]/.test(p.key)) return resolvesControlNamespace(p.object);
+      if (!ts.isIdentifier(node)) return false;
+      if (controlFactories.has(node.text)) return true;
+      return !seen.has(node.text) && bindings.has(node.text) && resolvesControlFactory(bindings.get(node.text)!, new Set([...seen, node.text]));
+    };
     if (file === 'frontend/src/ui-mount.ts') {
       if (!allowMount(source, allowed, resolvesFactory)) fail(source, 'mount', 'ui-mount.ts must only export mountApplication: obtain #app, check HTMLElement, then return createApplication(root, options).');
     }
@@ -181,7 +211,7 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     });
     const isApp = (node: ts.Node, seen = new Set<string>()): boolean => {
       node = unwrap(node);
-      if (ts.isCallExpression(node)) return resolvesFactory(node.expression) || identifier(node.expression, 'mountApplication');
+      if (ts.isCallExpression(node)) return resolvesFactory(node.expression) || resolvesControlFactory(node.expression) || identifier(node.expression, 'mountApplication');
       if (ts.isIdentifier(node)) {
         if (values.has(node.text)) return true;
         if (seen.has(node.text) || !bindings.has(node.text)) return false;
@@ -194,22 +224,22 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
         walk(node.type, type => { if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && appTypes.has(type.typeName.text)) values.add(node.name.getText(source)); });
       }
     });
-    const inspectOptions = (node: ts.Node, seen = new Set<string>()): void => {
+    const inspectOptions = (node: ts.Node, seen = new Set<string>(), small = false): void => {
       node = unwrap(node);
-      if (ts.isIdentifier(node) && bindings.has(node.text) && !seen.has(node.text)) { inspectOptions(bindings.get(node.text)!, new Set([...seen, node.text])); return; }
+      if (ts.isIdentifier(node) && bindings.has(node.text) && !seen.has(node.text)) { inspectOptions(bindings.get(node.text)!, new Set([...seen, node.text]), small); return; }
       if (ts.isObjectLiteralExpression(node)) for (const prop of node.properties) {
-        if (ts.isSpreadAssignment(prop)) { inspectOptions(prop.expression, seen); continue; }
+        if (ts.isSpreadAssignment(prop)) { inspectOptions(prop.expression, seen, small); continue; }
         const key = prop.name && (ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)) ? prop.name.text : prop.name && ts.isComputedPropertyName(prop.name) ? stringValue(prop.name.expression, bindings) : undefined;
-        if (key && (visualOptions.has(key) || /^render(?:$|[A-Z_])/.test(key))) fail(prop, 'options', 'Application options must contain semantic data and actions, not render callbacks, DOM slots, classes, HTML or styles.');
-        if (ts.isPropertyAssignment(prop)) inspectOptions(prop.initializer, seen);
+        if (key && (visualOptions.has(key) && !(small && key === 'children') || small && ['appearance', 'density', 'size', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'gap', 'padding', 'radius'].includes(key) || /^render(?:$|[A-Z_])/.test(key))) fail(prop, 'options', 'UI options must contain semantic data, actions and owned controls, not render callbacks, DOM slots, classes, HTML or styles.');
+        if (ts.isPropertyAssignment(prop)) inspectOptions(prop.initializer, seen, small);
       }
-      if (ts.isArrayLiteralExpression(node)) for (const item of node.elements) inspectOptions(item, seen);
+      if (ts.isArrayLiteralExpression(node)) for (const item of node.elements) inspectOptions(item, seen, small);
     };
     const modulePath = (node: ts.Node, expression: ts.Node): void => {
       const specifier = stringValue(expression, bindings);
       if (specifier === undefined) { fail(node, 'import', 'Dynamic module paths must be statically known; unresolved UI import aliases are forbidden.'); return; }
-      if (specifier === appEntry || specifier === cssEntry) return;
-      if (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(specifier)) { fail(node, 'import', 'UI imports and types must use pith-ui/app or pith-ui/styles.css; root, private and source imports are forbidden.'); return; }
+      if (specifier === controlsEntry || specifier === appEntry || specifier === cssEntry) return;
+      if (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(specifier)) { fail(node, 'import', 'UI imports and types must use pith-ui, pith-ui/app or pith-ui/styles.css; private and source imports are forbidden.'); return; }
       if (production && (!specifier.startsWith('.') || !path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier)).startsWith('frontend/src/'))) fail(node, 'import', 'Production modules may import only local frontend sources or the approved published UI entries.');
     };
     walk(source, node => {
@@ -261,6 +291,7 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
           if (ts.isIdentifier(name) && isDOMName(name.text)) fail(entry, 'dom', 'Global DOM capabilities cannot be recovered by destructuring.');
         }
       }
+      if (ts.isCallExpression(node) && resolvesControlFactory(node.expression)) for (const arg of node.arguments) inspectOptions(arg, new Set(), true);
       if (ts.isCallExpression(node) && resolvesFactory(node.expression)) {
         if (!allowed.has(node)) fail(node, 'mount', 'createApplication may only be called by the precise ui-mount.ts adapter.');
         for (const arg of node.arguments) inspectOptions(arg);

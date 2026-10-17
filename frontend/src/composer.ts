@@ -3,7 +3,9 @@ import type { DraftScope, ImageContent, QueuedMessage, DraftImage as WireDraftIm
 import { createDrafts, draftKey } from './drafts.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
 import { imagePreviewBlob } from './image-data.ts';
-import type { ActionResult, Application, MessageEditorSession } from 'pith-ui/app';
+import type { ActionResult } from 'pith-ui';
+import type { Application } from 'pith-ui/app';
+import {openTextEditor, type TextEditor} from './text-editor.ts';
 type ImageInput = ImageContent & {
     type: 'image';
 };
@@ -41,7 +43,7 @@ export function createComposer(api: API) {
     let draftLoading = false;
     let composerDraftReady: Promise<void> = Promise.resolve();
     let draftLoadGeneration = 0;
-    let queueEditor: MessageEditorSession | undefined;
+    let queueEditor: TextEditor | undefined;
     async function submitQueueEdit(text: string): Promise<ActionResult> {
             const target = queueEditTarget;
             const entry = target && app.state.queuedMessages.find(entry => entry.id === target.messageId);
@@ -104,7 +106,7 @@ export function createComposer(api: API) {
         if (!queueEditTarget || !queueEditor) return;
         const pending = queueEditTarget.conversationId === app.state.activeId && app.state.queuedMessages.some(entry => entry.id === queueEditTarget!.messageId);
         const entry = app.state.queuedMessages.find(entry => entry.id === queueEditTarget!.messageId);
-        queueEditor.update({ title: 'Edit pending message', value: queueEditor.read(), submitLabel: 'Save message',
+        queueEditor.update({ title: 'Edit pending message', submitLabel: 'Save message',
             disabled: activity.busy || !pending || (!queueEditor.read().trim() && !entry?.imageCount), inputDisabled: activity.busy,
             note: entry?.imageCount ? entry.imageCount + ' attached image' + (entry.imageCount === 1 ? '' : 's') + ' will be kept.' : '',
             error: !pending ? 'This message is no longer pending. Your draft is kept here so you can copy it.' : '',
@@ -115,7 +117,7 @@ export function createComposer(api: API) {
         queueEditor?.destroy();
         const target = { conversationId: app.state.activeId, messageId: entry.id };
         queueEditTarget = target;
-        queueEditor = ui.workspace.openQueueEditor({ value: entry.text, title: 'Edit pending message', submitLabel: 'Save message' }, {
+        queueEditor = openTextEditor(ui, entry.text, { title: 'Edit pending message', purpose: 'pending-message', submitLabel: 'Save message',
             onInput: renderQueueEditor,
             onClose: () => { if (queueEditTarget === target) { queueEditTarget = null; queueEditor = undefined; } },
             onSubmit: submitQueueEdit,
@@ -286,5 +288,5 @@ export function createComposer(api: API) {
             render();
         }
     }
-    return { destroy() { queueEditTarget = null; queueEditor?.destroy(); queueEditor = undefined; }, rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, drafts, get draftImages() { return draftImages; }, get readingImages() { return readingImages; }, get draftLoading() { return draftLoading; }, get draftGeneration() { return draftGeneration; }, get composerScope() { return composerScope; }, get resolvingReferences() { return resolvingReferences; }, set resolvingReferences(value: boolean) { resolvingReferences = value; }, closeQueueEditor() { queueEditTarget = null; queueEditor?.close(); queueEditor = undefined; } };
+    return { destroy() { queueEditTarget = null; queueEditor?.destroy(); queueEditor = undefined; }, rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, drafts, get draftImages() { return draftImages; }, get readingImages() { return readingImages; }, get draftLoading() { return draftLoading; }, get draftGeneration() { return draftGeneration; }, get composerScope() { return composerScope; }, get resolvingReferences() { return resolvingReferences; }, set resolvingReferences(value: boolean) { resolvingReferences = value; }, closeQueueEditor() { queueEditTarget = null; queueEditor?.destroy(); queueEditor = undefined; } };
 }
