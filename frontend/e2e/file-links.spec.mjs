@@ -31,14 +31,24 @@ test('local Word links download binary files with their Unicode names without en
 });
 
 test('native save cancellation and failure never fall back to an automatic browser download', async ({ page }) => {
-  await page.evaluate(() => { window.review.nativeDownload = true; });
-  await page.getByRole('link', { name: '下载 Word 文档' }).click();
-  expect(await page.getByRole('link',{name:'下载 Word 文档'}).getAttribute('aria-disabled')).not.toBe('true');
+  const downloads = [];
+  page.on('download', download => downloads.push(download.suggestedFilename()));
+  await page.evaluate(() => { window.review.nativeDownload = true; window.review.holdSave = true; });
+  const link = page.getByRole('link', { name: '下载 Word 文档' });
+  await link.click();
+  await page.waitForFunction(() => !!window.releaseSave);
+  await expect(link).toHaveAttribute('aria-disabled', 'true');
+  await link.dispatchEvent('click');
+  expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST']);
+  await page.evaluate(() => { window.review.holdSave = false; window.releaseSave(); });
+  await expect(link).not.toHaveAttribute('aria-disabled', 'true');
   expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST']);
   await page.evaluate(() => { window.review.failMutation = '/api/conversation-file'; });
-  await page.getByRole('link', { name: '下载 Word 文档' }).click();
+  await link.click();
   await expect(page.locator('ui=[id$=inline-error]')).toContainText('Fixture action rejected');
+  await expect(link).not.toHaveAttribute('aria-disabled', 'true');
   expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST', 'POST']);
+  expect(downloads).toEqual([]);
 });
 
 test('a delayed save retains its original conversation after another workspace becomes active', async ({ page }) => {
