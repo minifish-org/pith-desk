@@ -24,3 +24,13 @@ test('streaming and draft input leave unchanged historical message content untou
   });
   expect(changes).toEqual([]);
 });
+
+test('unchanged welcome actions retain their focus through an unrelated snapshot',async({page})=>{
+  await page.addInitScript(installFixture);
+  await page.addInitScript(()=>{window.reviewState.messages=[];});
+  await page.goto('/');
+  const action=page.getByRole('button',{name:'Explore my workspace',exact:true});
+  await action.focus();
+  await page.evaluate(()=>{window.reviewState.runtime.usage.input++;window.emitReview();});
+  await expect(action).toBeFocused();
+});
