@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from './test.ts';
 
 test.beforeEach(async({page})=>{
   await page.route('**/small-controls.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body><div id="app"></div></body></html>'}));
@@ -16,14 +16,14 @@ test.beforeEach(async({page})=>{
 });
 
 test('independent confirmation retains app modal guards, safe emphasis and availability',async({page})=>{
-  const modal=page.locator('.pui-owned-controls dialog[open]');
+  const modal=page.locator('ui=.pui-owned-controls dialog[open]');
   await expect(modal).toHaveCount(1);
-  await expect(modal.locator('strong')).toHaveText('<original>');
+  await expect(modal.locator('ui=strong')).toHaveText('<original>');
   expect(await page.evaluate(()=>(window as any).smallFixture.ui.read().hasModal)).toBe(true);
   await page.evaluate(()=>{const f=(window as any).smallFixture;f.state.unavailable=true;f.confirm.render();});
   await expect(modal.getByRole('button',{name:'Remove',exact:true})).toBeDisabled();
   await modal.getByRole('button',{name:'Cancel',exact:true}).click();
-  await expect(page.locator('.pui-owned-controls')).toHaveCount(0);
+  await expect(page.locator('ui=.pui-owned-controls')).toHaveCount(0);
   await expect.poll(()=>page.evaluate(()=>(window as any).smallFixture.ui.read().hasModal)).toBe(false);
 });
 
@@ -33,14 +33,14 @@ test('old confirmation results do not update a replacement and failures stay in 
   await expect(modal.getByRole('button',{name:'Remove',exact:true})).toBeDisabled();
   expect(await page.evaluate(()=>(window as any).smallFixture.state.calls)).toBe(1);
   await modal.getByRole('button',{name:'Cancel',exact:true}).click();
-  await expect(page.locator('.pui-owned-controls')).toHaveCount(0);
+  await expect(page.locator('ui=.pui-owned-controls')).toHaveCount(0);
   await page.evaluate(()=>{const f=(window as any).smallFixture,release=f.state.release;f.open('replacement');release(false);});
-  await expect(modal.locator('strong')).toHaveText('replacement');
-  await expect(modal.locator('.pui-notice')).toBeHidden();
+  await expect(modal.locator('ui=strong')).toHaveText('replacement');
+  await expect(modal.locator('ui=.pui-notice')).toBeHidden();
   await modal.getByRole('button',{name:'Remove',exact:true}).click();
   await page.evaluate(()=>(window as any).smallFixture.state.release(false));
-  await expect(modal.locator('.pui-notice')).toHaveText('Fixture rejected');
+  await expect(modal.locator('ui=.pui-notice')).toHaveText('Fixture rejected');
   await expect(modal.getByRole('button',{name:'Remove',exact:true})).toBeEnabled();
   await page.evaluate(()=>(window as any).smallFixture.confirm.destroy());
-  await expect(page.locator('.pui-owned-controls')).toHaveCount(0);
+  await expect(page.locator('ui=.pui-owned-controls')).toHaveCount(0);
 });

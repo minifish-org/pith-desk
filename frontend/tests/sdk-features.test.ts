@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type {Application, LoadingSession} from 'pith-ui/app';
+import type {Application, LoadingSession} from '../src/ui-types.ts';
 import type {ApiRequest} from '../src/api.ts';
 import type {Confirmation} from '../src/confirmation.ts';
 import type {SDKFeatureAPI} from '../src/sdk-feature-api.ts';

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './test.ts';
 import { installFixture } from './fixture.mjs';
 
 // Characterize the accepted queue policy before sharing its editor UI.
@@ -10,18 +10,18 @@ async function fixture(page: Page, imageOnly = false) {
     scope.reviewState.queuedMessages = [{ id: 'queued', mode: 'follow-up', text: imageOnly ? '' : 'Pending 中文', imageCount: imageOnly ? 1 : 0 }];
   }, { imageOnly });
   await page.goto('/');
-  await expect(page.locator('[data-queue-action="edit"]')).toBeEnabled();
-  await page.locator('[data-queue-action="edit"]').click();
-  await expect(page.locator('.pui-text-edit textarea')).toBeFocused();
+  await expect(page.locator('ui=[data-queue-action="edit"]')).toBeEnabled();
+  await page.locator('ui=[data-queue-action="edit"]').click();
+  await expect(page.locator('ui=.pui-text-edit textarea')).toBeFocused();
 }
 
 test('running tasks permit editing a pending message; failures keep its draft and target', async ({ page }) => {
   await fixture(page);
-  await page.locator('.pui-text-edit textarea').fill('Revised pending 中文');
+  await page.locator('ui=.pui-text-edit textarea').fill('Revised pending 中文');
   await page.evaluate(() => { (window as any).review.failMutation = '/api/queue/edit'; });
   await page.getByRole('button', { name: 'Save message', exact: true }).click();
-  await expect(page.locator('.pui-text-edit .pui-notice')).toHaveText('Fixture action rejected');
-  await expect(page.locator('.pui-text-edit textarea')).toHaveValue('Revised pending 中文');
+  await expect(page.locator('ui=.pui-text-edit .pui-notice')).toHaveText('Fixture action rejected');
+  await expect(page.locator('ui=.pui-text-edit textarea')).toHaveValue('Revised pending 中文');
   expect(await page.evaluate(() => (window as any).review.requests.filter((entry: any) => entry.path === '/api/queue/edit').map((entry: any) => entry.body))).toEqual([
     { id: 'a', messageId: 'queued', text: 'Revised pending 中文' },
   ]);
@@ -29,11 +29,11 @@ test('running tasks permit editing a pending message; failures keep its draft an
 
 test('a removed pending message keeps copyable text and cannot be submitted', async ({ page }) => {
   await fixture(page);
-  await page.locator('.pui-text-edit textarea').fill('Keep this draft');
+  await page.locator('ui=.pui-text-edit textarea').fill('Keep this draft');
   await page.evaluate(() => { (window as any).reviewState.queuedMessages = []; (window as any).emitReview(); });
   await expect(page.getByRole('button', { name: 'Save message', exact: true })).toBeDisabled();
-  await expect(page.locator('.pui-text-edit textarea')).toHaveValue('Keep this draft');
-  await expect(page.locator('.pui-text-edit textarea')).toBeEnabled();
+  await expect(page.locator('ui=.pui-text-edit textarea')).toHaveValue('Keep this draft');
+  await expect(page.locator('ui=.pui-text-edit textarea')).toBeEnabled();
   expect(await page.evaluate(() => (window as any).review.requests.some((entry: any) => entry.path === '/api/queue/edit'))).toBe(false);
 });
 
@@ -41,7 +41,7 @@ test('switching conversations does not retarget an open pending editor', async (
   await fixture(page);
   await page.evaluate(() => { (window as any).reviewState.activeId = 'b'; (window as any).emitReview(); });
   await expect(page.getByRole('button', { name: 'Save message', exact: true })).toBeDisabled();
-  await expect(page.locator('.pui-text-edit textarea')).toHaveValue('Pending 中文');
+  await expect(page.locator('ui=.pui-text-edit textarea')).toHaveValue('Pending 中文');
 });
 
 test('an image-only queued message remains saveable and cancel sends no write', async ({ page }) => {

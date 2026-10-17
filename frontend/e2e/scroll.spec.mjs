@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './test.ts';
 import { verifyScroll } from './scroll-fixture.mjs';
 
 test('text, image decoding and composer resizing follow latest while manual reading stays anchored', async ({ page }) => {

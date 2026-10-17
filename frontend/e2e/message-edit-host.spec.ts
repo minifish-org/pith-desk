@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect } from './test.ts';
 import { test } from './host-fixture.mjs';
 
 test('edit and resend replaces the active suffix, sends revised context once, and survives restart', async ({ page, host }) => {
@@ -17,10 +17,10 @@ test('edit and resend replaces the active suffix, sends revised context once, an
   const before = (await host.command('state')).state;
   expect(before.messages).toHaveLength(4);
   const original = before.messages[0];
-  await page.locator(`[data-edit-message="${original.id}"]`).click();
-  await page.locator('.pui-text-edit textarea').fill('Revised question 中文');
+  await page.locator(`ui=[data-edit-message="${original.id}"]`).click();
+  await page.locator('ui=.pui-text-edit textarea').fill('Revised question 中文');
   await page.getByRole('button', { name: 'Send again', exact: true }).click();
-  await expect(page.locator('dialog:has(.pui-text-edit)')).not.toBeVisible();
+  await expect(page.locator('ui=dialog:has(.pui-text-edit)')).not.toBeVisible();
   await expect.poll(async () => {
     const snapshot = await host.command('state');
     return {requests: snapshot.requests, running: snapshot.state.running, messages: snapshot.state.messages.map(message => message.text)};
@@ -36,15 +36,15 @@ test('edit and resend replaces the active suffix, sends revised context once, an
   expect(context).not.toContain('Fixture answer');
   const savedTimes = finished.state.messages.map(message => message.timestamp);
   expect(savedTimes.every(value => value > 0)).toBe(true);
-  await expect(page.locator('.pui-messages time')).toHaveCount(2);
+  await expect(page.locator('ui=.pui-message-frame-meta')).toHaveCount(2);
   const restarted = await host.command('restart');
   await page.goto(restarted.url);
   await expect(composer).toBeEditable();
   expect(restarted.state.messages.map(message => message.timestamp)).toEqual(savedTimes);
-  await expect(page.locator('.pui-messages')).toContainText('Revised question 中文');
-  await expect(page.locator('.pui-messages')).not.toContainText('Original question');
-  await page.locator(`[data-conversation-menu="${before.activeId}"]`).click();
+  await expect(page.locator('ui=.pui-messages')).toContainText('Revised question 中文');
+  await expect(page.locator('ui=.pui-messages')).not.toContainText('Original question');
+  await page.locator(`ui=[data-conversation-menu="${before.activeId}"]`).click();
   await page.getByRole('menuitem', { name: 'Conversation branches' }).click();
-  await expect(page.locator('[id$=sdk-dialog]')).toContainText('Original question');
-  await expect(page.locator('[id$=sdk-dialog]')).toContainText('Later follow-up');
+  await expect(page.locator('ui=[id$=sdk-dialog]')).toContainText('Original question');
+  await expect(page.locator('ui=[id$=sdk-dialog]')).toContainText('Later follow-up');
 });

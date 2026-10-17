@@ -1,4 +1,4 @@
-import { test as base } from '@playwright/test';
+import { test as base } from './test.ts';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

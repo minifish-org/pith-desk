@@ -1,6 +1,6 @@
-import {test, expect} from '@playwright/test';
+import {test, expect} from './test.ts';
 import {marked} from 'marked';
-import type {Application} from 'pith-ui/app';
+import type {Application} from '../src/ui-types';
 
 type ReferenceFixture = {ui: Application};
 
@@ -8,9 +8,9 @@ test.beforeEach(async ({page}) => {
   await page.route('**/references-parity.html', route => route.fulfill({contentType: 'text/html', body: '<!doctype html><html><body><div id="app"></div></body></html>'}));
   await page.goto('/references-parity.html');
   await page.evaluate(async () => {
-    const library = '/node_modules/pith-ui/dist/app/index.js', styles = '/node_modules/pith-ui/dist/styles.css';
-    const [{createApplication}] = await Promise.all([import(library), import(styles)]);
-    const ui = createApplication(document.getElementById('app')!);
+    const library = '/src/ui-mount.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const [{mountApplication:createApplication}] = await Promise.all([import(library), import(styles)]);
+    const ui = createApplication();
     (window as unknown as {referenceFixture: ReferenceFixture}).referenceFixture = {ui};
   });
 });
@@ -19,7 +19,7 @@ test('references remain editable, preserve spaces and Chinese, and replace the s
   const result = await page.evaluate(() => {
     const {ui} = (window as unknown as {referenceFixture: ReferenceFixture}).referenceFixture;
     ui.workspace.resetDraft('Review OLD please');
-    const input = document.querySelector<HTMLTextAreaElement>('textarea[id$="composer-input"]')!;
+    const input = window.uiQuery<HTMLTextAreaElement>('textarea[id$="composer-input"]')!;
     input.setSelectionRange(7, 10);
     ui.workspace.insertReferences(['README.md', 'docs/中文 draft.md', 'quote".txt']);
     const result = {value: ui.workspace.readDraft(), cursor: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input};
@@ -32,7 +32,7 @@ test('Markdown reference round trips backticks and edge spaces without changing 
   const paths = ['README.md', 'docs/中文 draft.md', 'tick`file.md', '`edge`', 'a``b`file.txt', ' leading.md', 'trailing.md ', '   '];
   const references = await page.evaluate(paths => {
     const {ui} = (window as unknown as {referenceFixture: ReferenceFixture}).referenceFixture;
-    const input = document.querySelector<HTMLTextAreaElement>('textarea[id$="composer-input"]')!;
+    const input = window.uiQuery<HTMLTextAreaElement>('textarea[id$="composer-input"]')!;
     const result = paths.map(path => {
       ui.workspace.resetDraft(''); ui.workspace.insertReferences([path]);
       return {path, draft: ui.workspace.readDraft(), start: input.selectionStart, end: input.selectionEnd};
@@ -52,14 +52,14 @@ test('Markdown reference round trips backticks and edge spaces without changing 
 
 test('real DOM drops classify empty-MIME PNG and JPEG as images while SVG remains a reference intent', async ({page}) => {
   const result = await page.evaluate(async () => {
-    const library = '/node_modules/pith-ui/dist/app/index.js'; const {createApplication} = await import(library);
+    const library = '/src/ui-mount.ts'; const {mountApplication:createApplication} = await import(library);
     (window as unknown as {referenceFixture: ReferenceFixture}).referenceFixture.ui.destroy();
     const images: Array<Array<{name: string; type: string}>> = [], references: Array<{paths: readonly string[]; uris?: string}> = [];
-    const ui = createApplication(document.getElementById('app')!, {workspace: {
+    const ui = createApplication({workspace: {
       onImages: (files: File[]) => images.push(files.map(file => ({name: file.name, type: file.type}))),
       onDropReferences: (input: {paths: readonly string[]; uris?: string}) => references.push(input),
     }});
-    const form = document.querySelector<HTMLTextAreaElement>('textarea[id$="composer-input"]')!.closest('form')!;
+    const form = window.uiQuery<HTMLTextAreaElement>('textarea[id$="composer-input"]')!.closest('.pui-drop-area')!;
     for (const value of [{name: 'PHOTO.PNG', type: ''}, {name: 'photo', type: 'image/jpeg'}, {name: 'icon.svg', type: 'image/svg+xml'}]) {
       const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], value.name, {type: value.type}));
       form.dispatchEvent(new DragEvent('drop', {bubbles: true, cancelable: true, dataTransfer: transfer}));
@@ -68,4 +68,32 @@ test('real DOM drops classify empty-MIME PNG and JPEG as images while SVG remain
     ui.destroy(); return result;
   });
   expect(result).toEqual({images: [[{name: 'PHOTO.PNG', type: ''}], [{name: 'photo', type: 'image/jpeg'}]], references: [{paths: [], uris: ''}]});
+});
+
+test('a native image picker cannot add a result to another blank workspace draft', async ({page}) => {
+  const result = await page.evaluate(async () => {
+    const {mountApplication} = await import('/src/ui-mount.ts');
+    (window as unknown as {referenceFixture: ReferenceFixture}).referenceFixture.ui.destroy();
+    const received: string[][] = [];
+    const ui = mountApplication({workspace: {onImages: files => {received.push(files.map(file => file.name));}}});
+    const selectWorkspace = (selected: string) => ui.workspace.updateNavigation({groups: ['first', 'second'].map(id => ({id, name: id, path: '/tmp/' + id, selected: id === selected, children: []}))});
+    const deliver = () => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['image'], 'picked.png', {type: 'image/png'}));
+      const picker = document.querySelector<HTMLInputElement>('input[type=file]')!;
+      picker.files = transfer.files;
+      picker.dispatchEvent(new Event('change', {bubbles: true}));
+    };
+    selectWorkspace('first');
+    ui.workspace.updateConversation({id: '', messages: [], working: false});
+    ui.workspace.pickImages();
+    selectWorkspace('second');
+    deliver();
+    const stale = received.slice();
+    ui.workspace.pickImages();
+    deliver();
+    ui.destroy();
+    return {stale, received};
+  });
+  expect(result).toEqual({stale: [], received: [['picked.png']]});
 });

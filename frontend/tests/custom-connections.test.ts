@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import type {Application, CustomConnectionState, LoadingSession} from 'pith-ui/app';
+import type {Application, CustomConnectionState, LoadingSession} from '../src/ui-types.ts';
 import type {ApiRequest} from '../src/api.ts';
 import type {ModelsJsonModel} from '../src/contract.generated.ts';
 import type {SDKFeatureAPI} from '../src/sdk-feature-api.ts';
@@ -31,7 +31,7 @@ function harness(connection?: Connection) {
 
 test('the initial independent model uses the published shared defaults rather than a second literal', async () => {
   const source = await readFile(new URL('../src/custom-connections.ts', import.meta.url), 'utf8');
-  assert.match(source, /import\s*\{[^}]*\bcustomModelDefaults\b[^}]*\}\s*from\s*['"]pith-ui\/app['"]/);
+  assert.match(source, /import\s*\{[^}]*\bcustomModelDefaults\b[^}]*\}\s*from\s*['"]pith-ui['"]/);
   assert.match(source, /models:\s*\[\s*customModelDefaults\(\)\s*\]/);
   assert.doesNotMatch(source, /\b(?:128000|8192)\b/, 'Starting model limits belong to the library');
 });

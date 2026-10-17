@@ -1,11 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './test.ts';
 import { readFile } from 'node:fs/promises';
 import { installFixture } from './fixture.mjs';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(installFixture);
   await page.goto('/');
-  await page.waitForFunction(() => window.reviewSocket?.onmessage && !document.querySelector('[id$=composer-input]').readOnly);
+  await page.waitForFunction(() => window.reviewSocket?.onmessage && !window.uiQuery('[id$=composer-input]').readOnly);
   await page.evaluate(() => {
     window.reviewState.messages = [{ id: 'download-answer', role: 'assistant', text: '[下载 Word 文档](output/报告%20v1.docx)', status: 'done' }];
     window.emitReview();
@@ -14,8 +14,8 @@ test.beforeEach(async ({ page }) => {
 
 test('local Word links download binary files with their Unicode names without entering the artifact list', async ({ page }, testInfo) => {
   const link = page.getByRole('link', { name: '下载 Word 文档' });
-  await expect(link).toHaveAttribute('data-download-path', 'output/报告 v1.docx');
-  await expect(page.locator('[id$=artifacts-control]')).toBeHidden();
+  await expect(link).toHaveAttribute('data-download-path', JSON.stringify({conversationId:'a',path:'output/报告 v1.docx'}));
+  await expect(page.locator('ui=[id$=artifacts-control]')).toBeHidden();
   const received = page.waitForEvent('download');
   await link.click();
   const download = await received;
@@ -33,11 +33,11 @@ test('local Word links download binary files with their Unicode names without en
 test('native save cancellation and failure never fall back to an automatic browser download', async ({ page }) => {
   await page.evaluate(() => { window.review.nativeDownload = true; });
   await page.getByRole('link', { name: '下载 Word 文档' }).click();
-  await expect(page.getByRole('link', { name: '下载 Word 文档' })).toHaveAttribute('aria-disabled', 'false');
+  expect(await page.getByRole('link',{name:'下载 Word 文档'}).getAttribute('aria-disabled')).not.toBe('true');
   expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST']);
   await page.evaluate(() => { window.review.failMutation = '/api/conversation-file'; });
   await page.getByRole('link', { name: '下载 Word 文档' }).click();
-  await expect(page.locator('[id$=inline-error]')).toContainText('Fixture action rejected');
+  await expect(page.locator('ui=[id$=inline-error]')).toContainText('Fixture action rejected');
   expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST', 'POST']);
 });
 
@@ -62,12 +62,12 @@ test('file URLs use the local save action while external links and Markdown sani
     window.reviewState.messages[0].text = '[Absolute](/tmp/work/report.docx) [File URI](file:///tmp/work/report%20v1.docx) [Website](https://example.com/report) [Bad](javascript:alert(1)) <a href="javascript:alert(1)" data-download-path="/secret">Forged</a><img src="https://example.com/track"><script>window.unsafeLink=true</script>';
     window.emitReview();
   });
-  await expect(page.getByRole('link', { name: 'Absolute', exact: true })).toHaveAttribute('data-download-path', '/tmp/work/report.docx');
-  await expect(page.getByRole('link', { name: 'File URI', exact: true })).toHaveAttribute('data-download-path', '/tmp/work/report v1.docx');
+  await expect(page.getByRole('link', { name: 'Absolute', exact: true })).toHaveAttribute('data-download-path', JSON.stringify({conversationId:'a',path:'/tmp/work/report.docx'}));
+  await expect(page.getByRole('link', { name: 'File URI', exact: true })).toHaveAttribute('data-download-path', JSON.stringify({conversationId:'a',path:'/tmp/work/report v1.docx'}));
   const website = page.getByRole('link', { name: 'Website', exact: true });
   await expect(website).toHaveAttribute('href', 'https://example.com/report');
   await expect(website).toHaveAttribute('rel', 'noopener noreferrer');
-  await expect(page.locator('.pui-markdown img, .pui-markdown script')).toHaveCount(0);
+  await expect(page.locator('ui=.pui-markdown img, .pui-markdown script')).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Forged', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => window.unsafeLink)).toBeUndefined();
 });

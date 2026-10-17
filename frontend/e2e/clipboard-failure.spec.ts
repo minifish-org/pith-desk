@@ -1,4 +1,4 @@
-import {test, expect} from '@playwright/test';
+import {test, expect} from './test.ts';
 import {installFixture} from './fixture.mjs';
 
 for (const kind of ['message', 'code'] as const) test(`a rejected ${kind} copy reports its error and remains retryable`, async ({page}) => {
@@ -12,9 +12,9 @@ for (const kind of ['message', 'code'] as const) test(`a rejected ${kind} copy r
   await expect(page.getByRole('textbox', {name: 'Message Pith'})).toBeEditable();
   const button = kind === 'message'
     ? page.getByRole('button', {name: 'Copy message', exact: true})
-    : page.locator('[data-copy-code]').first();
+    : page.locator('ui=[data-copy-code]').first();
   await button.click();
-  await expect(page.locator('[id$=inline-error]')).toContainText('Clipboard denied');
+  await expect(page.locator('ui=[id$=inline-error]')).toContainText('Clipboard denied');
   await expect(button).toBeEnabled();
   expect(await page.evaluate(() => (window as any).copyAttempts)).toBe(1);
   await button.click();
