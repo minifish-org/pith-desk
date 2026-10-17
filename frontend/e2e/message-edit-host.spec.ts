@@ -43,7 +43,8 @@ test('edit and resend replaces the active suffix, sends revised context once, an
   expect(restarted.state.messages.map(message => message.timestamp)).toEqual(savedTimes);
   await expect(page.locator('ui=.pui-messages')).toContainText('Revised question 中文');
   await expect(page.locator('ui=.pui-messages')).not.toContainText('Original question');
-  await page.locator(`ui=[data-conversation-menu="${before.activeId}"]`).click();
+  const selected = (await host.command('state')).state.conversations.find(item => item.id === before.activeId);
+  await page.getByRole('button', {name: 'Conversation actions for ' + selected.title, exact: true}).click();
   await page.getByRole('menuitem', { name: 'Conversation branches' }).click();
   await expect(page.locator('ui=[id$=sdk-dialog]')).toContainText('Original question');
   await expect(page.locator('ui=[id$=sdk-dialog]')).toContainText('Later follow-up');

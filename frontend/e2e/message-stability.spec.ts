@@ -3,9 +3,10 @@ import {installFixture} from './fixture.mjs';
 
 test('streaming and draft input leave unchanged historical message content untouched', async ({page}) => {
   await page.addInitScript(installFixture);
-  await page.addInitScript(() => {window.reviewState.messages[0].timestamp = 1791899580000;});
+  await page.addInitScript(() => {window.reviewState.messages[0].timestamp = 1791899580000; window.reviewState.messages[0].text = 'Saved historical text 中文 '.repeat(1000);});
   await page.goto('/');
   await page.waitForFunction(() => window.reviewSocket?.onmessage && !window.uiQuery<HTMLTextAreaElement>('[id$=composer-input]')!.readOnly);
+  expect((await page.locator('[data-reading-id="user"]').getAttribute('data-render-version'))!.length).toBeLessThanOrEqual(32);
   await page.evaluate(() => {
     const row = document.querySelector('[data-reading-id="user"]')!;
     const changes: string[] = [];

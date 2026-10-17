@@ -15,7 +15,8 @@ test('real Host broadcasts to two browsers and delayed HTTP cannot revert newer 
   await ready(page, host.url);
   await ready(second, host.url);
   const target = host.state.conversations[1];
-  await page.locator(`ui=[data-toggle-workspace="${target.workspaceId}"]`).click();
+  const workspace = host.state.workspaces.find(item => item.id === target.workspaceId);
+  await page.locator('.pui-split-navigation summary').filter({hasText: workspace.name}).click();
   let captured, release;
   const held = new Promise((resolve) => { captured = resolve; });
   const unblock = new Promise((resolve) => { release = resolve; });
@@ -26,7 +27,7 @@ test('real Host broadcasts to two browsers and delayed HTTP cannot revert newer 
     await route.fulfill({ response });
   });
   try {
-    await page.locator(`ui=[data-conversation="${target.id}"]`).click();
+    await page.getByRole('button', {name: target.title, exact: true}).click();
     await held;
     await host.command('rename', { id: target.id, title: 'Newer streamed title 中文' });
     await expect(page.locator('ui=[id$=conversation-label]')).toHaveText('Newer streamed title 中文');
@@ -76,7 +77,7 @@ test('committed create and send survive failed refresh and WS reconnect without 
     await expect(page.locator('ui=[id$=connection-status]')).toBeHidden();
   };
   hold = true; failRead = true;
-  await page.locator(`ui=[data-new-workspace="${host.state.workspaces[0].id}"]`).click();
+  await page.getByRole('button', {name: 'New conversation in ' + host.state.workspaces[0].name, exact: true}).click();
   await expect(page.locator('ui=[id$=inline-error]')).toContainText('Change saved');
   expect((await host.command('state')).state.conversations).toHaveLength(before + 1);
   await reconnect();
@@ -130,7 +131,8 @@ test('real SDK history, drafts and completion survive isolated restart; download
   await expect(composer).toHaveValue('Persistent draft 中文');
 
   const download = page.waitForEvent('download');
-  await page.locator(`ui=[data-conversation-menu="${id}"]`).click();
+  const selected = (await host.command('state')).state.conversations.find(item => item.id === id);
+  await page.getByRole('button', {name: 'Conversation actions for ' + selected.title, exact: true}).click();
   await page.getByRole('menuitem', { name: 'Export Markdown' }).click();
   const exported = await download;
   expect(exported.suggestedFilename()).toMatch(/\.md$/);
