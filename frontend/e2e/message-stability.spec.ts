@@ -34,3 +34,12 @@ test('unchanged welcome actions retain their focus through an unrelated snapshot
   await page.evaluate(()=>{window.reviewState.runtime.usage.input++;window.emitReview();});
   await expect(action).toBeFocused();
 });
+
+test('reusing an availability object still applies a changed message action state',async({page})=>{
+  await page.route('**/message-availability.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto('/message-availability.html');
+  await page.evaluate(async()=>{const {mountApplication}=await import('/src/ui-mount.ts');const ui=mountApplication();const availability={copy:false};ui.workspace.updateConversation({id:'saved',messages:[{id:'answer',role:'assistant',text:'Saved response',status:'done',actions:{copy:'Copy response'}}],working:false});ui.workspace.updateMessageAvailability(availability);Object.assign(window,{messageAvailability:{ui,availability}});});
+  const copy=page.getByRole('button',{name:'Copy response',exact:true});await expect(copy).toBeEnabled();
+  await page.evaluate(()=>{const state=Reflect.get(window,'messageAvailability');state.availability.copy=true;state.ui.workspace.updateMessageAvailability(state.availability);});
+  await expect(copy).toBeDisabled();
+});
