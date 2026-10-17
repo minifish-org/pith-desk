@@ -1,4 +1,4 @@
-import type { Application, WorkspaceCallbacks } from 'pith-ui/app';
+import type { Application, WorkspaceCallbacks } from './ui-contract.ts';
 const imageExtension = /\.(?:png|jpe?g|gif|webp)$/i;
 
 export function isImagePath(path: string): boolean {

@@ -1,4 +1,4 @@
-import type { Application, ConfirmationState, SceneSession } from 'pith-ui/app';
+import type { Application, ConfirmationState, SceneSession } from './ui-contract.ts';
 
 export type Confirmation = {
   title: string; action: string; description: ConfirmationState['description']; hint?: string;

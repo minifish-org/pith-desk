@@ -1,5 +1,5 @@
 import {expect, test} from '@playwright/test';
-import type {Application} from 'pith-ui/app';
+import type {Application} from '../src/ui-contract.ts';
 
 interface CustomFixture {ui: Application; custom(id?: string): Promise<void>; reads: string[]; destroy(): void;}
 
@@ -7,9 +7,9 @@ test.beforeEach(async ({page}) => {
   await page.route('**/custom-defaults.html', route => route.fulfill({contentType: 'text/html', body: '<!doctype html><html><body><div id="app"></div></body></html>'}));
   await page.goto('/custom-defaults.html');
   await page.evaluate(async () => {
-    const library = '/node_modules/pith-ui/dist/app/index.js', styles = '/node_modules/pith-ui/dist/styles.css', controller = '/src/custom-connections.ts';
-    const [{createApplication}, {createCustomUI}] = await Promise.all([import(library), import(controller), import(styles)]);
-    const ui: Application = createApplication(document.getElementById('app')!), reads: string[] = [];
+    const library = '/src/ui-assemblies/desk.ts', styles = '/node_modules/pith-ui/dist/styles.css', controller = '/src/custom-connections.ts';
+    const [{mountDesk}, {createCustomUI}] = await Promise.all([import(library), import(controller), import(styles)]);
+    const ui: Application = mountDesk(document.getElementById('app')!), reads: string[] = [];
     const custom = createCustomUI({ui, settings() {}, error: () => '', mutate: async () => true,
       request: async (_path: string, {query}: {query: {id: string}}) => {
         reads.push(query.id);
@@ -26,7 +26,7 @@ test.beforeEach(async ({page}) => {
 
 test('a new connection and added models share defaults without copying the edited first row', async ({page}) => {
   await page.evaluate(() => (window as unknown as {customFixture: CustomFixture}).customFixture.custom());
-  const rows = page.locator('[id$="custom-models"] fieldset');
+  const rows = page.locator('fieldset.pui-custom-model');
   await expect(rows).toHaveCount(1);
   await expect(rows.first().getByLabel('Context tokens', {exact: true})).toHaveValue('128000');
   await expect(rows.first().getByLabel('Max output tokens', {exact: true})).toHaveValue('8192');
@@ -45,7 +45,7 @@ test('a new connection and added models share defaults without copying the edite
 
 test('editing keeps absent and saved limits while Add model uses fresh starting values', async ({page}) => {
   await page.evaluate(() => (window as unknown as {customFixture: CustomFixture}).customFixture.custom('saved'));
-  const rows = page.locator('[id$="custom-models"] fieldset');
+  const rows = page.locator('fieldset.pui-custom-model');
   await expect(rows).toHaveCount(2);
   await expect(rows.first().getByLabel('Model ID', {exact: true})).toHaveValue('unknown-limits');
   await expect(rows.first().getByLabel('Context tokens', {exact: true})).toHaveValue('');

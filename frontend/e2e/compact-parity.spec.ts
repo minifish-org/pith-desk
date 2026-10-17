@@ -6,7 +6,7 @@ for (const scenario of ['empty', 'running', 'no active conversation'] as const) 
     await page.addInitScript(installFixture);
     await page.goto('/');
     const compact = page.getByRole('button', {name: 'Compress context', exact: true});
-    await expect(page.locator('[id$=composer-input]')).toBeEditable();
+    await expect(page.locator('.pui-composer textarea[aria-label="Message Pith"]')).toBeEditable();
     await expect(compact).toBeEnabled();
     await page.evaluate(value => {
       const scope = window as unknown as {
@@ -19,6 +19,6 @@ for (const scenario of ['empty', 'running', 'no active conversation'] as const) 
       scope.emitReview();
     }, scenario);
     await expect(compact).toBeDisabled();
-    await expect(page.locator('[id$=inline-error]')).not.toContainText('This action is no longer available.');
+    await expect(page.locator('.pui-inline-error')).not.toContainText('This action is no longer available.');
   });
 }

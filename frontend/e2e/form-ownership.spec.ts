@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import type {ActionResult, Application, SettingsSession} from 'pith-ui/app';
+import type {ActionResult, Application, SettingsSession} from '../src/ui-contract.ts';
 
 type FormFixture = {ui: Application; panel: SettingsSession; calls: unknown[]; result?: ActionResult; release?: (value: boolean) => void; destroy(): void};
 
@@ -10,9 +10,9 @@ test.beforeEach(async ({page}) => {
 
 test('provider actions report to their own form while the SDK dialog is closed',async ({page}) => {
   await page.evaluate(async () => {
-    const library = '/node_modules/pith-ui/dist/app/index.js', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
-    const [{createApplication}, {createSDKUI}] = await Promise.all([import(library), import(adapter), import(styles)]);
-    const ui = createApplication(document.getElementById('app')!), calls: unknown[] = [];
+    const library = '/src/ui-assemblies/desk.ts', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const [{mountDesk}, {createSDKUI}] = await Promise.all([import(library), import(adapter), import(styles)]);
+    const ui = mountDesk(document.getElementById('app')!), calls: unknown[] = [];
     const sdk = createSDKUI({ui, state: () => ({runs: []}), busy: () => false, mutate: async (path: string, payload: unknown) => {calls.push({path, payload}); return false;}, error: () => 'Provider rejected'});
     const fixture: FormFixture = {ui, calls, panel: undefined!, destroy() {sdk.destroy(); ui.destroy();}};
     fixture.panel = ui.settings.openSettings({baseUrl: 'https://example.com', hasApiKey: true, ready: true}, {
@@ -23,12 +23,12 @@ test('provider actions report to their own form while the SDK dialog is closed',
     (window as unknown as {formFixture: FormFixture}).formFixture = fixture;
   });
   await page.getByRole('button', {name: 'Sign in with provider', exact: true}).click();
-  await expect(page.locator('[id$="settings-error"]')).toHaveText('Provider rejected');
+  await expect(page.locator('.pui-settings-panel > form > .pui-form-error')).toHaveText('Provider rejected');
   const result = await page.evaluate(() => {
     const fixture = (window as unknown as {formFixture: FormFixture}).formFixture;
-    const result = {saved: fixture.result?.ok, settings: document.querySelector('[id$="settings-error"]')!.textContent,
-      appearance: document.querySelector('[id$="appearance-error"]')!.textContent,
-      sdkOpen: document.querySelector<HTMLDialogElement>('[id$="sdk-dialog"]')!.open, calls: fixture.calls};
+    const result = {saved: fixture.result?.ok, settings: document.querySelector('.pui-settings-panel > form > .pui-form-error')!.textContent,
+      appearance: document.querySelector('.pui-settings-section:has(select[aria-label="Appearance"]) > .pui-form-error')!.textContent,
+      sdkOpen: document.querySelector<HTMLDialogElement>('dialog.pui-feature-modal')?.open ?? false, calls: fixture.calls};
     fixture.destroy(); return result;
   });
   expect(result).toEqual({saved: false, settings: 'Provider rejected', appearance: '', sdkOpen: false, calls: [{path: '/api/oauth/start', payload: {provider: 'example'}}]});
@@ -36,9 +36,9 @@ test('provider actions report to their own form while the SDK dialog is closed',
 
 test('a replaced provider form cannot receive an older action failure',async ({page}) => {
   await page.evaluate(async () => {
-    const library = '/node_modules/pith-ui/dist/app/index.js', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
-    const [{createApplication}, {createSDKUI}] = await Promise.all([import(library), import(adapter), import(styles)]);
-    const ui = createApplication(document.getElementById('app')!), calls: unknown[] = [];
+    const library = '/src/ui-assemblies/desk.ts', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const [{mountDesk}, {createSDKUI}] = await Promise.all([import(library), import(adapter), import(styles)]);
+    const ui = mountDesk(document.getElementById('app')!), calls: unknown[] = [];
     const fixture: FormFixture = {ui, calls, panel: undefined!, destroy() {sdk.destroy(); ui.destroy();}};
     const sdk = createSDKUI({ui, state: () => ({runs: []}), busy: () => false,
       mutate: (path: string, payload: unknown) => {calls.push({path, payload}); return new Promise<boolean>(resolve => {fixture.release = resolve;});}, error: () => 'Old provider rejected'});
@@ -58,8 +58,8 @@ test('a replaced provider form cannot receive an older action failure',async ({p
   await expect.poll(() => page.evaluate(() => (window as unknown as {formFixture: FormFixture}).formFixture.result?.ok)).toBe(false);
   const result = await page.evaluate(() => {
     const fixture = (window as unknown as {formFixture: FormFixture}).formFixture;
-    const result = {saved: fixture.result?.ok, settings: document.querySelector('[id$="settings-error"]')!.textContent,
-      appearance: document.querySelector('[id$="appearance-error"]')!.textContent, calls: fixture.calls};
+    const result = {saved: fixture.result?.ok, settings: document.querySelector('.pui-settings-panel > form > .pui-form-error')!.textContent,
+      appearance: document.querySelector('.pui-settings-section:has(select[aria-label="Appearance"]) > .pui-form-error')!.textContent, calls: fixture.calls};
     fixture.destroy(); return result;
   });
   expect(result).toEqual({saved: false, settings: '', appearance: '', calls: [{path: '/api/oauth/start', payload: {provider: 'example'}}]});

@@ -1,4 +1,4 @@
-import type { Application, NavigationStatus, RenameConversationState, SceneSession, WorkspacePickerState } from 'pith-ui/app';
+import type { Application, NavigationStatus, RenameConversationState, SceneSession, WorkspacePickerState } from './ui-contract.ts';
 import type { ApiDownload, ApiMutate, ApiRequest } from './api.ts';
 import type { Confirmation } from './confirmation.ts';
 import type { Conversation, RunSummary, Workspace } from './contract.generated.ts';

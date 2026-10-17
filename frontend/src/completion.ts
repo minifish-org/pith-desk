@@ -1,7 +1,7 @@
 import type { Conversation } from './contract.generated';
 import type { State } from './app-state';
 import type { ApiRequest } from './api';
-import type { Application, NavigationStatus } from 'pith-ui/app';
+import type { Application, NavigationStatus } from './ui-contract.ts';
 type CompletionState = Pick<State, 'activeId' | 'conversations' | 'workspaces' | 'runs'>;
 interface Notice { id: string; runID: string; title: string; workspace: string }
 

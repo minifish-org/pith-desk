@@ -1,4 +1,4 @@
-import { customModelDefaults, type CustomConnectionSession, type LoadingSession } from 'pith-ui/app';
+import { customModelDefaults, type CustomConnectionSession, type LoadingSession } from './ui-contract.ts';
 import type { ModelsJsonModel as ModelDefinition } from './contract.generated.ts';
 import type { SDKFeatureAPI } from './sdk-feature-api.ts';
 type API = Pick<SDKFeatureAPI, 'ui' | 'request' | 'settings' | 'mutate' | 'error'>;

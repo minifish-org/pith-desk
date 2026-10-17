@@ -6,6 +6,7 @@ type ContentTestWindow = Window & {
   reviewState: { messages: Message[]; settings: { appearance: string } };
   reviewSocket?: { onmessage?: unknown };
   copiedMessages: string[];
+  review: {requests: Array<{path: string;body?: unknown}>};
   emitReview(): void;
 };
 
@@ -25,7 +26,7 @@ test.beforeEach(async ({ page }) => {
     ];
   });
   await page.goto('/');
-  await page.waitForFunction(() => (window as ContentTestWindow).reviewSocket?.onmessage && !(document.querySelector('[id$=composer-input]') as HTMLTextAreaElement).readOnly);
+  await page.waitForFunction(() => (window as ContentTestWindow).reviewSocket?.onmessage && !(document.querySelector('textarea[aria-label="Message Pith"]') as HTMLTextAreaElement).readOnly);
 });
 
 test('library integration preserves per-message copy eligibility, host branch actions and stream transition', async ({ page }) => {
@@ -34,9 +35,12 @@ test('library integration preserves per-message copy eligibility, host branch ac
   await expect(page.locator('[data-reading-id="stream"] button')).toHaveCount(0);
   await expect(page.locator('[data-reading-id="empty"] button')).toHaveCount(0);
   await expect(page.locator('[data-reading-id="user"]').getByRole('button', { name: 'Edit message', exact: true })).toBeVisible();
-  await expect(page.locator('[data-reading-id="final"]').getByRole('button', { name: 'Branch from this message', exact: true })).toHaveAttribute('data-node', 'final-node');
+  const branch = page.locator('[data-reading-id="final"]').getByRole('button', { name: 'Branch from this message', exact: true });
+  await expect(branch).toBeVisible();
   await page.locator('[data-reading-id="progress"]').getByRole('button', { name: 'Copy response', exact: true }).click();
   expect(await page.evaluate(() => (window as ContentTestWindow).copiedMessages)).toEqual(['Progress message remains individually copyable.']);
+  await branch.click();
+  expect(await page.evaluate(() => (window as ContentTestWindow).review.requests.filter(request => request.path === '/api/branch').map(request => request.body))).toEqual([{id: 'a',nodeId: 'final-node'}]);
   await page.evaluate(() => { const app = window as ContentTestWindow; app.reviewState.messages.find((message) => message.id === 'stream')!.status = 'done'; app.emitReview(); });
   await expect(page.locator('[data-reading-id="stream"]').getByRole('button', { name: 'Copy response', exact: true })).toBeVisible();
 });

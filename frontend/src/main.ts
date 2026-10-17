@@ -1,4 +1,4 @@
-import type { ActionResult, ConversationAction, MCPConnectionAction, MCPConnectionTarget, WorkspaceAction } from 'pith-ui/app';
+import type { ActionResult, ConversationAction, MCPConnectionAction, MCPConnectionTarget, WorkspaceAction } from './ui-contract.ts';
 import './style.css';
 import {createApp} from './app';
 import {readAppBootstrap} from './ui-bootstrap';

@@ -1,6 +1,6 @@
 import type { ApiRequest } from './api';
 import type { UpdateStatus } from './contract.generated';
-import type { SettingsSession, UpdateAction } from 'pith-ui/app';
+import type { SettingsSession, UpdateAction } from './ui-contract.ts';
 
 export function mountUpdates(panel: SettingsSession, request: ApiRequest): { act: (action: UpdateAction) => Promise<void>; check: () => Promise<void>; dispose: () => void } {
   let disposed = false;

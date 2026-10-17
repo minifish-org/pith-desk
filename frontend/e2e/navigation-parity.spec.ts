@@ -7,13 +7,13 @@ for (const populated of [false, true]) test(`expanding ${populated ? 'a populate
     if (populated) (window as any).reviewState.conversations.push({id: 'other-conversation', title: 'Other conversation', workspaceId: 'other', updatedAt: '', permissionMode: 'ask'});
   }, populated);
   await page.goto('/');
-  await page.waitForFunction(() => !!(window as any).reviewSocket?.onmessage && !document.querySelector<HTMLTextAreaElement>('[id$=composer-input]')!.readOnly);
+  await page.waitForFunction(() => !!(window as any).reviewSocket?.onmessage && !document.querySelector<HTMLTextAreaElement>('.pui-composer textarea[aria-label="Message Pith"]')!.readOnly);
   const before = await page.evaluate(() => ({activeId: (window as any).reviewState.activeId, count: (window as any).reviewState.conversations.length}));
-  const toggle = page.locator('[data-toggle-workspace="other"]');
+  const toggle = page.getByRole('button', {name: 'Other workspace', exact: true});
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-  if (populated) await expect(page.locator('[data-conversation="other-conversation"]')).toBeVisible();
+  if (populated) await expect(page.getByRole('button', {name: 'Other conversation', exact: true})).toBeVisible();
   const after = await page.evaluate(() => ({
     activeId: (window as any).reviewState.activeId,
     count: (window as any).reviewState.conversations.length,

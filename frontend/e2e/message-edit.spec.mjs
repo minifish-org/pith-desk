@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
     ];
   }, { text: userText, timestamp });
   await page.goto('/');
-  await page.waitForFunction(() => window.reviewSocket?.onmessage && !document.querySelector('[id$=composer-input]').readOnly);
+  await page.waitForFunction(() => window.reviewSocket?.onmessage && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly);
 });
 
 test('user copy preserves all paragraphs and both roles show their saved local time', async ({ page }, testInfo) => {
@@ -31,11 +31,11 @@ test('user copy preserves all paragraphs and both roles show their saved local t
   }
   await expect(user.getByRole('button', { name: 'Edit message', exact: true })).toBeEnabled();
   await page.setViewportSize({ width: 900, height: 600 });
-  await page.locator('[id$=chat-scroll]').screenshot({ path: `output/playwright/message-actions-${testInfo.project.name}.png` });
+  await page.locator('.pui-chat-scroll').screenshot({ path: `output/playwright/message-actions-${testInfo.project.name}.png` });
 });
 
 test('editing cancels without a mutation, and a rejected resend keeps the edited text and old reply', async ({ page }) => {
-  await page.locator('[data-edit-message="user"]').click();
+  await page.locator('[data-reading-id="user"]').getByRole('button', {name: 'Edit message', exact: true}).click();
   const text = page.locator('.pui-text-edit textarea');
   await expect(text).toHaveValue(userText);
   await expect(text).toBeFocused();
@@ -43,7 +43,7 @@ test('editing cancels without a mutation, and a rejected resend keeps the edited
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await page.evaluate(() => window.review.requests.filter(entry => entry.path === '/api/edit-message'))).toEqual([]);
   await page.evaluate(() => { window.review.failMutation = '/api/edit-message'; });
-  await page.locator('[data-edit-message="user"]').click();
+  await page.locator('[data-reading-id="user"]').getByRole('button', {name: 'Edit message', exact: true}).click();
   await text.fill('Revised question 中文');
   await page.getByRole('button', { name: 'Send again', exact: true }).click();
   await expect(page.locator('.pui-text-edit .pui-notice')).toHaveText('Fixture action rejected');
@@ -55,7 +55,7 @@ test('editing cancels without a mutation, and a rejected resend keeps the edited
 });
 
 test('editing cannot resend into a changed conversation or overwrite a newer reply', async ({ page }) => {
-  await page.locator('[data-edit-message="user"]').click();
+  await page.locator('[data-reading-id="user"]').getByRole('button', {name: 'Edit message', exact: true}).click();
   await page.locator('.pui-text-edit textarea').fill('Keep this edit');
   await page.evaluate(() => { window.reviewState.activeId = 'b'; window.emitReview(); });
   await expect(page.getByRole('button', { name: 'Send again', exact: true })).toBeDisabled();
@@ -71,6 +71,6 @@ test('editing cannot resend into a changed conversation or overwrite a newer rep
 
 test('running tasks disable editing while user copy stays available', async ({ page }) => {
   await page.evaluate(() => { window.reviewState.running = true; window.emitReview(); });
-  await expect(page.locator('[data-edit-message="user"]')).toBeDisabled();
-  await expect(page.locator('[data-copy-message="user"]')).toBeEnabled();
+  await expect(page.locator('[data-reading-id="user"]').getByRole('button', {name: 'Edit message', exact: true})).toBeDisabled();
+  await expect(page.locator('[data-reading-id="user"]').getByRole('button', {name: 'Copy message', exact: true})).toBeEnabled();
 });

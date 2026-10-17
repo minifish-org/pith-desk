@@ -14,7 +14,7 @@ for (const kind of ['message', 'code'] as const) test(`a rejected ${kind} copy r
     ? page.getByRole('button', {name: 'Copy message', exact: true})
     : page.locator('[data-copy-code]').first();
   await button.click();
-  await expect(page.locator('[id$=inline-error]')).toContainText('Clipboard denied');
+  await expect(page.locator('.pui-inline-error')).toContainText('Clipboard denied');
   await expect(button).toBeEnabled();
   expect(await page.evaluate(() => (window as any).copyAttempts)).toBe(1);
   await button.click();

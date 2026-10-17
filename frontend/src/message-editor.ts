@@ -1,4 +1,4 @@
-import type { Application, MessageEditorSession } from 'pith-ui/app';
+import type { Application, MessageEditorSession } from './ui-contract.ts';
 import type { ApiMutate } from './api.ts';
 import type { Message } from './contract.generated.ts';
 import type { AppView, UIActivity } from './feature-api.ts';

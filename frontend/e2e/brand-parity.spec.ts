@@ -9,7 +9,7 @@ for (const appearance of ['light', 'dark'] as const) {
       scope.reviewState.settings.appearance = value;
     }, appearance);
     await page.goto('/');
-    await expect(page.locator('[id$=composer-input]')).toBeEditable();
+    await expect(page.locator('.pui-composer textarea[aria-label="Message Pith"]')).toBeEditable();
     const brand = page.locator('.pui-brand');
     const mark = brand.locator('.pui-logo-mark');
     await expect(mark).toBeVisible();

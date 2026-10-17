@@ -1,7 +1,8 @@
-import {createApplication, type ApplicationOptions} from 'pith-ui/app';
+import {mountDesk} from './ui-assemblies/desk.ts';
+import type {ApplicationOptions} from './ui-contract.ts';
 
 export function mountApplication(options: ApplicationOptions) {
   const root = document.getElementById('app');
   if (!(root instanceof HTMLElement)) throw new Error('The application mount is missing.');
-  return createApplication(root, options);
+  return mountDesk(root, options);
 }

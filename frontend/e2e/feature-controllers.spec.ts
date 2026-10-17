@@ -1,6 +1,6 @@
 import {test, expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
-import type {Application} from 'pith-ui/app';
+import type {Application} from '../src/ui-contract.ts';
 
 const fixed = JSON.parse(readFileSync(new URL('../../internal/desk/testdata/state.active.json', import.meta.url), 'utf8'));
 type ControllerFixture = {ui: Application};
@@ -9,9 +9,9 @@ test.beforeEach(async ({page}) => {
   await page.route('**/controller-test.html', route => route.fulfill({contentType: 'text/html', body: '<!doctype html><html><head><title>Real DOM controller regression</title></head><body><div id="app"></div></body></html>'}));
   await page.goto('/controller-test.html');
   await page.evaluate(async () => {
-    const library = '/node_modules/pith-ui/dist/app/index.js', styles = '/node_modules/pith-ui/dist/styles.css';
-    const [{createApplication}] = await Promise.all([import(library), import(styles)]);
-    const ui = createApplication(document.getElementById('app')!);
+    const library = '/src/ui-assemblies/desk.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const [{mountDesk}] = await Promise.all([import(library), import(styles)]);
+    const ui = mountDesk(document.getElementById('app')!);
     (window as unknown as {controllerFixture: ControllerFixture}).controllerFixture = {ui};
   });
 });
@@ -35,7 +35,7 @@ test('composer ignores an older draft after the selected conversation changes', 
     replies[0].resolve({text: 'older draft must not replace it', revision: 1});
     await new Promise(resolve => setTimeout(resolve, 0));
     const result = {text: ui.workspace.readDraft(), scope: composer.composerScope.id, activeId: state.activeId,
-      readOnly: document.querySelector<HTMLTextAreaElement>('[id$="composer-input"]')!.readOnly, count, finalCount: rendered.length, requests: replies.map(reply => reply.id)};
+      readOnly: document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Pith"]')!.readOnly, count, finalCount: rendered.length, requests: replies.map(reply => reply.id)};
     composer.destroy(); ui.destroy(); return result;
   }, fixed);
   expect(result.text).toBe('current draft 中文');
@@ -59,7 +59,7 @@ test('a resource response cannot replace a newer history dialog', async ({page})
     const resources = createResourceUI(api), histories = createHistoryUI(api);
     const resource = resources.resource(state.workspaces[0].id, 'instructions', 'AGENTS.md');
     await histories.history();
-    const dialog = document.querySelector<HTMLDialogElement>('[id$="sdk-dialog"]')!;
+    const dialog = document.querySelector<HTMLDialogElement>('dialog.pui-feature-modal')!;
     const history = dialog.innerHTML;
     release({content: 'delayed private workspace resource'}); await resource;
     const result = {history, current: dialog.innerHTML, open: dialog.open, requests};
@@ -81,12 +81,12 @@ test('closing the shared dialog invalidates an in-flight history read', async ({
     let release!: (value: unknown) => void;
     const api = {ui, state: () => fixed, mutate: async () => true, error: () => '', request: () => new Promise(resolve => {release = resolve;})};
     const controller = createHistoryUI(api), reading = controller.history();
-    const native = document.querySelector<HTMLDialogElement>('[id$="sdk-dialog"]')!;
+    const native = document.querySelector<HTMLDialogElement>('dialog.pui-feature-modal')!;
     const closed = new Promise<void>(resolve => native.addEventListener('close', () => resolve(), {once:true}));
     native.close();
     release([{id: 'late-node', role: 'user', text: 'late history', active: true}]); await reading;
     await closed;
-    const result = {content: document.querySelector('[id$="sdk-content"]')!.innerHTML, open: native.open};
+    const result = {content: native.innerHTML, open: native.open};
     controller.destroy(); ui.destroy(); return result;
   }, fixed);
   expect(result.content).toBe(''); expect(result.open).toBe(false);
@@ -96,12 +96,12 @@ test('closing the shared dialog invalidates an in-flight history read', async ({
 // routing, image delivery and selection insertion; host fakes must not copy them.
 test('native drops outside composer do not insert paths', async ({page}) => {
   const result = await page.evaluate(async () => {
-    const path = '/src/workspace-files.ts', library = '/node_modules/pith-ui/dist/app/index.js';
-    const [{installWorkspaceFileDrop}, {createApplication}] = await Promise.all([import(path), import(library)]);
+    const path = '/src/workspace-files.ts', library = '/src/ui-assemblies/desk.ts';
+    const [{installWorkspaceFileDrop}, {mountDesk}] = await Promise.all([import(path), import(library)]);
     (window as unknown as {controllerFixture: ControllerFixture}).controllerFixture.ui.destroy();
     const resolved: unknown[] = [], errors: string[] = [];
     let controller: ReturnType<typeof installWorkspaceFileDrop>;
-    const ui = createApplication(document.getElementById('app')!, {workspace: {onDropReferences: (input: {paths: readonly string[]; uris?: string}) => controller.references(input)}});
+    const ui = mountDesk(document.getElementById('app')!, {workspace: {onDropReferences: (input: {paths: readonly string[]; uris?: string}) => controller.references(input)}});
     controller = installWorkspaceFileDrop({ui, native: true, busy: () => false, context: () => 'workspace/chat/1', workspaceID: () => 'workspace', disposed: () => false,
       resolve: async (workspace: string, paths: string[]) => {resolved.push({workspace, paths}); return ['file.md'];}, pending() {}, changed() {}, error: (message: string) => errors.push(message)});
     ui.workspace.resetDraft('Review ');
@@ -115,13 +115,13 @@ test('native drops outside composer do not insert paths', async ({page}) => {
 
 test('mixed images still arrive when native paths resolve before the DOM drop', async ({page}) => {
   const result = await page.evaluate(async () => {
-    const path = '/src/workspace-files.ts', library = '/node_modules/pith-ui/dist/app/index.js';
-    const [{installWorkspaceFileDrop}, {createApplication}] = await Promise.all([import(path), import(library)]);
+    const path = '/src/workspace-files.ts', library = '/src/ui-assemblies/desk.ts';
+    const [{installWorkspaceFileDrop}, {mountDesk}] = await Promise.all([import(path), import(library)]);
     (window as unknown as {controllerFixture: ControllerFixture}).controllerFixture.ui.destroy();
     const images: string[][] = [], resolved: unknown[] = [], errors: string[] = [], changes: string[] = [], pending: boolean[] = [];
     let release!: (paths: string[]) => void;
     let controller: ReturnType<typeof installWorkspaceFileDrop>;
-    const ui = createApplication(document.getElementById('app')!, {workspace: {
+    const ui = mountDesk(document.getElementById('app')!, {workspace: {
       onImages: (files: File[]) => images.push(files.map(file => file.name)),
       onDropReferences: (input: {paths: readonly string[]; uris?: string}) => controller.references(input),
     }});
@@ -130,7 +130,7 @@ test('mixed images still arrive when native paths resolve before the DOM drop', 
       pending: (value: boolean) => pending.push(value), changed: () => changes.push(ui.workspace.readDraft()), error: (message: string) => errors.push(message)};
     controller = installWorkspaceFileDrop(options);
     ui.workspace.resetDraft('Review OLD please');
-    const input = document.querySelector<HTMLTextAreaElement>('[id$="composer-input"]')!, form = input.closest('form')!;
+    const input = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Pith"]')!, form = input.closest('form')!;
     input.setSelectionRange(7, 10);
     const rect = input.getBoundingClientRect();
     ui.workspace.receiveNativeDrop({paths: ['/workspace/docs/中文 draft.md', '/workspace/photo.png'], x: rect.x + 8, y: rect.y + 8});

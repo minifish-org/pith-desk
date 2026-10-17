@@ -2,7 +2,7 @@ import type {ApiDownload, ApiMutate, ApiRequest} from './api.ts';
 import type {Artifact, Workspace, ResourceInventory as WorkspaceResources} from './contract.generated.ts';
 import type {AppView, UIActivity} from './feature-api.ts';
 import {imagePreviewBlob} from './image-data.ts';
-import type {Application, AppFileAction, AppFileTarget, AppFilePreviewState, AppResourceKind, AppResourceTarget, FilePreviewSession, ResourcesSession, ResourcesState} from 'pith-ui/app';
+import type {Application, AppFileAction, AppFileTarget, AppFilePreviewState, AppResourceKind, AppResourceTarget, FilePreviewSession, ResourcesSession, ResourcesState} from './ui-contract.ts';
 
 type API = {
     ui: Application;

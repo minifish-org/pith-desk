@@ -1,4 +1,4 @@
-import type {AppResourceKind, ResourceDraft} from 'pith-ui/app';
+import type {AppResourceKind, ResourceDraft} from './ui-contract.ts';
 import type {SDKFeatureAPI} from './sdk-feature-api.ts';
 
 type API = Pick<SDKFeatureAPI, 'ui' | 'state' | 'request' | 'mutate' | 'workspaceBusy' | 'busy' | 'refreshResources' | 'confirm' | 'error'>;

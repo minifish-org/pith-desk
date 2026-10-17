@@ -1,4 +1,4 @@
-import type {ActionResult, ProviderAction, ProviderActionsState, ProviderActionTarget} from 'pith-ui/app';
+import type {ActionResult, ProviderAction, ProviderActionsState, ProviderActionTarget} from './ui-contract.ts';
 import type {ProviderChoice} from './app-state.ts';
 import type {MutationInput, MutationPath} from './api.ts';
 import {createCustomUI} from './custom-connections.ts';

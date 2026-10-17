@@ -1,4 +1,4 @@
-import type { Application, FullAccessState, SceneSession } from 'pith-ui/app';
+import type { Application, FullAccessState, SceneSession } from './ui-contract.ts';
 import type { ApiDownload, ApiMutate, ApiRequest } from './api.ts';
 import type { PermissionMode, RuntimeStatus, Workspace } from './contract.generated.ts';
 import { formatCost } from './costs.ts';

@@ -3,7 +3,7 @@ import type { DraftScope, ImageContent, QueuedMessage, DraftImage as WireDraftIm
 import { createDrafts, draftKey } from './drafts.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
 import { imagePreviewBlob } from './image-data.ts';
-import type { ActionResult, Application, MessageEditorSession } from 'pith-ui/app';
+import type { ActionResult, Application, MessageEditorSession } from './ui-contract.ts';
 type ImageInput = ImageContent & {
     type: 'image';
 };

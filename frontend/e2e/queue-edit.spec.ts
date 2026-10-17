@@ -10,8 +10,8 @@ async function fixture(page: Page, imageOnly = false) {
     scope.reviewState.queuedMessages = [{ id: 'queued', mode: 'follow-up', text: imageOnly ? '' : 'Pending 中文', imageCount: imageOnly ? 1 : 0 }];
   }, { imageOnly });
   await page.goto('/');
-  await expect(page.locator('[data-queue-action="edit"]')).toBeEnabled();
-  await page.locator('[data-queue-action="edit"]').click();
+  await expect(page.getByRole('button', {name: 'Edit pending message', exact: true})).toBeEnabled();
+  await page.getByRole('button', {name: 'Edit pending message', exact: true}).click();
   await expect(page.locator('.pui-text-edit textarea')).toBeFocused();
 }
 

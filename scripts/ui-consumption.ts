@@ -15,13 +15,15 @@ export interface ConsumptionIssue {
   readonly message: string;
 }
 
-const appEntry = 'pith-ui/app';
+const partsEntry = 'pith-ui';
+const assemblyDirectory = 'frontend/src/ui-assemblies/';
+const canonicalDeskModule = assemblyDirectory + 'desk';
 const cssEntry = 'pith-ui/styles.css';
 const nativeFiles = new Set(['frontend/src/ui-native.ts', 'frontend/src/native-menu.ts', 'frontend/src/app-lifecycle.ts']);
 const metaNames = new Set(['desk-token', 'desk-native-clipboard', 'desk-native-file-drop', 'desk-native-menus']);
 const nativeEvents = new Set(['focus', 'blur', 'visibilitychange', 'pagehide', 'beforeunload', 'keydown', 'pith:flush-drafts', 'pith:file-drop', 'pith:native-menu']);
-const internalParts = new Set(['element', 'field', 'part', 'form', 'control', 'body', 'dialog', 'internals', 'style', 'className', 'classList', 'innerHTML', 'outerHTML', 'querySelector', 'querySelectorAll']);
-const visualOptions = new Set(['class', 'className', 'classList', 'style', 'css', 'html', 'innerHTML', 'outerHTML', 'children', 'header', 'element', 'node']);
+const internalParts = new Set(['element', 'field', 'form', 'control', 'body', 'dialog', 'internals', 'style', 'className', 'classList', 'innerHTML', 'outerHTML', 'querySelector', 'querySelectorAll']);
+const visualOptions = new Set(['class', 'className', 'classList', 'style', 'css', 'html', 'innerHTML', 'outerHTML', 'header', 'element', 'node']);
 const domGlobals = new Set(['document', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'Document', 'DocumentFragment', 'DOMParser', 'DOMImplementation', 'MutationObserver', 'ResizeObserver', 'IntersectionObserver', 'CSSStyleSheet', 'CSSStyleDeclaration', 'Image', 'Option', 'customElements']);
 const nativeTypes = new Set(['Event', 'CustomEvent', 'KeyboardEvent', 'BeforeUnloadEvent', 'EventListener', 'EventListenerOrEventListenerObject']);
 const safeWindowData = new Set(['location', 'localStorage', 'sessionStorage', 'fetch', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'crypto']);
@@ -87,17 +89,17 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     emit('frontend/package-lock.json', 'package', 'The lock must pin the same registry tarball version and SHA-512 integrity; file, link and alternate tarballs are forbidden.');
   }
   if (installed.name !== 'pith-ui' || installed.version !== version) emit('frontend/node_modules/pith-ui/package.json', 'package', 'Installed pith-ui metadata must match the exact dependency.');
-  const entry = installed.exports?.['./app'];
+  const entry = installed.exports?.['.'];
   const builtTarget = (value: unknown, extension: string): boolean => {
     if (typeof value !== 'string' || !value.startsWith('./dist/') || !value.endsWith(extension) || /[\\?#%:]/.test(value)) return false;
     const normalized = path.posix.normalize(value);
     return normalized.startsWith('dist/') && normalized === value.slice(2) && !value.split('/').includes('..');
   };
-  if (!entry || !builtTarget(entry.types, '.d.ts') || !builtTarget(entry.import, '.js') || installed.exports?.['./styles.css'] !== './dist/styles.css') {
-    emit('frontend/node_modules/pith-ui/package.json', 'package', 'The installed package must export pith-ui/app with ESM and declarations, and pith-ui/styles.css.');
+  if (!entry || !builtTarget(entry.types, '.d.ts') || !builtTarget(entry.import, '.js') || installed.exports?.['./styles.css'] !== './dist/styles.css' || Object.keys(installed.exports ?? {}).sort().join(',') !== '.,./styles.css') {
+    emit('frontend/node_modules/pith-ui/package.json', 'package', 'The installed package must expose only the formal pith-ui parts entry with ESM/declarations and pith-ui/styles.css.');
   }
   const inspectAlias = (file: string, value: unknown, key = ''): void => {
-    if (typeof value === 'string' && (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(value) || key === appEntry || key.startsWith('pith-ui/'))) emit(file, 'alias', 'UI package aliases and sibling/source redirects are forbidden.');
+    if (typeof value === 'string' && (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(value) || key === partsEntry || key.startsWith('pith-ui/'))) emit(file, 'alias', 'UI package aliases and sibling/source redirects are forbidden.');
     else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) inspectAlias(file, v, k);
   };
   inspectAlias('frontend/package.json', pkg.imports);
@@ -130,8 +132,12 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     const fail = (node: ts.Node, code: string, message: string) => emit(file, code, message, source, node);
     for (const error of (source as ts.SourceFile & { parseDiagnostics: readonly ts.DiagnosticWithLocation[] }).parseDiagnostics) emit(file, 'syntax', ts.flattenDiagnosticMessageText(error.messageText, '\n'), source, undefined, error.start);
     const bindings = new Map<string, ts.Expression>();
-    const factories = new Set<string>();
-    const namespaces = new Set<string>();
+    type FactoryKind = 'part' | 'mount' | 'desk' | 'entry' | 'composition';
+    const factories = new Map<string, FactoryKind>();
+    const namespaces = new Map<string, 'parts' | 'desk'>();
+    const assembly = file.startsWith(assemblyDirectory);
+    const localModule = (specifier: string): string | undefined => specifier.startsWith('.') ? path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier)).replace(/\.[cm]?[jt]s$/, '') : undefined;
+    const partKind = (name: string): FactoryKind | undefined => name === 'mountParts' ? 'mount' : /^create[A-Z]\w*Part$/.test(name) ? 'part' : undefined;
     const appTypes = new Set<string>();
     const values = new Set<string>();
     const eventValues = new Set<string>();
@@ -139,36 +145,52 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     const validatorNames = new Set<string>();
     walk(source, node => {
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) bindings.set(node.name.text, node.initializer);
-      if (ts.isImportDeclaration(node) && stringValue(node.moduleSpecifier) === appEntry) {
+      if (ts.isImportDeclaration(node)) {
+        const specifier = stringValue(node.moduleSpecifier) ?? '', local = localModule(specifier);
+        const root = specifier === partsEntry, desk = local === canonicalDeskModule, entry = local === 'frontend/src/ui-mount';
+        const composition = !!local?.startsWith(assemblyDirectory);
         const names = node.importClause?.namedBindings;
-        if (names && ts.isNamespaceImport(names)) namespaces.add(names.name.text);
+        if (names && ts.isNamespaceImport(names) && (root || desk)) namespaces.set(names.name.text, root ? 'parts' : 'desk');
         if (names && ts.isNamedImports(names)) for (const spec of names.elements) {
-          if ((spec.propertyName ?? spec.name).text === 'createApplication') factories.add(spec.name.text);
-          if (spec.isTypeOnly || node.importClause?.isTypeOnly) appTypes.add(spec.name.text);
+          const imported = (spec.propertyName ?? spec.name).text, typeOnly = spec.isTypeOnly || !!node.importClause?.isTypeOnly;
+          if (typeOnly && (root || composition || local === 'frontend/src/ui-contract')) appTypes.add(spec.name.text);
+          if (typeOnly) continue;
+          if (root && !partKind(imported)) fail(spec, 'import', 'Runtime UI imports must be formal create*Part factories or mountParts; application helpers belong in local assemblies.');
+          const kind = root ? partKind(imported) : desk && imported === 'mountDesk' ? 'desk' : entry && imported === 'mountApplication' ? 'entry' : composition && /^compose[A-Z]/.test(imported) ? 'composition' : undefined;
+          if (kind) factories.set(spec.name.text, kind);
         }
       }
       if (ts.isFunctionDeclaration(node) && node.name && validDropValidator(node)) validatorNames.add(node.name.text);
       if (ts.isParameter(node) && ts.isIdentifier(node.name) && node.type && ts.isTypeReferenceNode(node.type) && ts.isIdentifier(node.type.typeName) && nativeTypes.has(node.type.typeName.text)) eventValues.add(node.name.text);
     });
-    const resolvesNamespace = (node: ts.Node, seen = new Set<string>()): boolean => {
+    const resolvesNamespace = (node: ts.Node, seen = new Set<string>()): 'parts' | 'desk' | undefined => {
       node = unwrap(node);
       if (ts.isAwaitExpression(node)) return resolvesNamespace(node.expression, seen);
-      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) return stringValue(node.arguments[0], bindings) === appEntry;
-      if (!ts.isIdentifier(node)) return false;
-      if (namespaces.has(node.text)) return true;
-      return !seen.has(node.text) && bindings.has(node.text) && resolvesNamespace(bindings.get(node.text)!, new Set([...seen, node.text]));
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        const target = stringValue(node.arguments[0], bindings);
+        return target === partsEntry ? 'parts' : target && localModule(target) === canonicalDeskModule ? 'desk' : undefined;
+      }
+      if (!ts.isIdentifier(node)) return;
+      if (namespaces.has(node.text)) return namespaces.get(node.text);
+      return !seen.has(node.text) && bindings.has(node.text) ? resolvesNamespace(bindings.get(node.text)!, new Set([...seen, node.text])) : undefined;
     };
-    const resolvesFactory = (node: ts.Node, seen = new Set<string>()): boolean => {
+    const factoryKind = (node: ts.Node, seen = new Set<string>()): FactoryKind | undefined => {
       node = unwrap(node);
       const p = property(node);
-      if (p?.key === 'createApplication') return resolvesNamespace(p.object);
-      if (!ts.isIdentifier(node)) return false;
-      if (factories.has(node.text)) return true;
-      if (seen.has(node.text) || !bindings.has(node.text)) return false;
-      return resolvesFactory(bindings.get(node.text)!, new Set([...seen, node.text]));
+      if (p?.key) {
+        const namespace = resolvesNamespace(p.object);
+        if (namespace === 'parts') return partKind(p.key);
+        if (namespace === 'desk' && p.key === 'mountDesk') return 'desk';
+      }
+      if (!ts.isIdentifier(node)) return;
+      if (factories.has(node.text)) return factories.get(node.text);
+      if (seen.has(node.text) || !bindings.has(node.text)) return;
+      return factoryKind(bindings.get(node.text)!, new Set([...seen, node.text]));
     };
+    const resolvesFactory = (node: ts.Node): boolean => factoryKind(node) !== undefined;
+    if (assembly) allowAssemblyMountParameters(source, allowed, node => factoryKind(node) === 'mount');
     if (file === 'frontend/src/ui-mount.ts') {
-      if (!allowMount(source, allowed, resolvesFactory)) fail(source, 'mount', 'ui-mount.ts must only export mountApplication: obtain #app, check HTMLElement, then return createApplication(root, options).');
+      if (!allowMount(source, allowed, node => factoryKind(node) === 'desk')) fail(source, 'mount', 'ui-mount.ts must only export mountApplication: obtain #app, check HTMLElement, then return the canonical local mountDesk(root, options).');
     }
     if (file === 'frontend/src/ui-bootstrap.ts') allowBootstrap(source, allowed);
     if (nativeFiles.has(file)) walk(source, node => {
@@ -189,6 +211,12 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
       }
       const p = property(node); return !!p && isApp(p.object, seen);
     };
+    const isComposition = (node: ts.Node, seen = new Set<string>()): boolean => {
+      node = unwrap(node);
+      if (ts.isCallExpression(node)) return factoryKind(node.expression) === 'composition';
+      if (!ts.isIdentifier(node) || seen.has(node.text) || !bindings.has(node.text)) return false;
+      return isComposition(bindings.get(node.text)!, new Set([...seen, node.text]));
+    };
     walk(source, node => {
       if ((ts.isParameter(node) || ts.isVariableDeclaration(node)) && ts.isIdentifier(node.name) && node.type) {
         walk(node.type, type => { if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && appTypes.has(type.typeName.text)) values.add(node.name.getText(source)); });
@@ -200,16 +228,17 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
       if (ts.isObjectLiteralExpression(node)) for (const prop of node.properties) {
         if (ts.isSpreadAssignment(prop)) { inspectOptions(prop.expression, seen); continue; }
         const key = prop.name && (ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)) ? prop.name.text : prop.name && ts.isComputedPropertyName(prop.name) ? stringValue(prop.name.expression, bindings) : undefined;
-        if (key && (visualOptions.has(key) || /^render(?:$|[A-Z_])/.test(key))) fail(prop, 'options', 'Application options must contain semantic data and actions, not render callbacks, DOM slots, classes, HTML or styles.');
+        if (key && (visualOptions.has(key) || /^render(?:$|[A-Z_])/.test(key))) fail(prop, 'options', 'Part options must contain literal content, semantic state, opaque parts and data callbacks, not render callbacks, DOM nodes, classes, HTML or styles.');
         if (ts.isPropertyAssignment(prop)) inspectOptions(prop.initializer, seen);
+        else if (ts.isShorthandPropertyAssignment(prop)) inspectOptions(prop.name, seen);
       }
       if (ts.isArrayLiteralExpression(node)) for (const item of node.elements) inspectOptions(item, seen);
     };
     const modulePath = (node: ts.Node, expression: ts.Node): void => {
       const specifier = stringValue(expression, bindings);
       if (specifier === undefined) { fail(node, 'import', 'Dynamic module paths must be statically known; unresolved UI import aliases are forbidden.'); return; }
-      if (specifier === appEntry || specifier === cssEntry) return;
-      if (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(specifier)) { fail(node, 'import', 'UI imports and types must use pith-ui/app or pith-ui/styles.css; root, private and source imports are forbidden.'); return; }
+      if (specifier === partsEntry || specifier === cssEntry) return;
+      if (/(?:^|[\/])pith-ui(?:[\/]|$)/.test(specifier)) { fail(node, 'import', 'UI imports and types must use formal pith-ui parts or pith-ui/styles.css; legacy app, private and source imports are forbidden.'); return; }
       if (production && (!specifier.startsWith('.') || !path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier)).startsWith('frontend/src/'))) fail(node, 'import', 'Production modules may import only local frontend sources or the approved published UI entries.');
     };
     walk(source, node => {
@@ -239,7 +268,8 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
       const p = property(node);
       if (p) {
         if ((identifier(p.object, 'globalThis') || identifier(p.object, 'window')) && isDOMName(p.key ?? '')) fail(node, 'dom', 'Aliased global DOM capabilities are forbidden.');
-        if (p.key && internalParts.has(p.key) && isApp(p.object)) fail(node, 'internal', 'Application handles do not expose internal elements, fields or parts.');
+        const opaqueControl = assembly && p.key === 'control' && isComposition(p.object) && !(ts.isCallExpression(node.parent) && node.parent.expression === node);
+        if (p.key && (internalParts.has(p.key) && !opaqueControl || p.key === 'part' && (!assembly || ts.isCallExpression(node.parent) && node.parent.expression === node)) && isApp(p.object)) fail(node, 'internal', 'UI handles expose opaque parts, not native elements, selectors, styles or part accessors.');
         const eventObject = unwrap(p.object);
         const event = ts.isIdentifier(eventObject) && eventValues.has(eventObject.text);
         if ((p.key === 'target' || p.key === 'currentTarget') && event) {
@@ -254,16 +284,17 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
       if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer) {
         if (isApp(node.initializer)) for (const entry of node.name.elements) {
           const name = entry.propertyName ?? entry.name;
-          if (ts.isIdentifier(name) && internalParts.has(name.text)) fail(entry, 'internal', 'Application internals cannot be recovered by destructuring.');
+          if (ts.isIdentifier(name) && (internalParts.has(name.text) || name.text === 'part' && !assembly)) fail(entry, 'internal', 'UI native internals cannot be recovered by destructuring.');
         }
         if (identifier(node.initializer, 'globalThis')) for (const entry of node.name.elements) {
           const name = entry.propertyName ?? entry.name;
           if (ts.isIdentifier(name) && isDOMName(name.text)) fail(entry, 'dom', 'Global DOM capabilities cannot be recovered by destructuring.');
         }
       }
-      if (ts.isCallExpression(node) && resolvesFactory(node.expression)) {
-        if (!allowed.has(node)) fail(node, 'mount', 'createApplication may only be called by the precise ui-mount.ts adapter.');
-        for (const arg of node.arguments) inspectOptions(arg);
+      if (ts.isCallExpression(node)) {
+        const kind = factoryKind(node.expression);
+        if ((kind === 'mount' || kind === 'desk') && !allowed.has(node)) fail(node, 'mount', 'Native mounting is limited to the checked ui-mount adapter and opaque part assembly adapters.');
+        if (kind === 'part' || kind === 'mount' || kind === 'desk' || kind === 'entry') for (const arg of node.arguments) inspectOptions(arg);
       }
     });
   }
@@ -338,6 +369,28 @@ function allowNativeProtocol(detail: ts.Node, source: ts.SourceFile, file: strin
   const invocation = ts.isBlock(dispatch.thenStatement) && dispatch.thenStatement.statements.length === 1 ? dispatch.thenStatement.statements[0] : dispatch.thenStatement;
   if (!ts.isExpressionStatement(invocation) || !ts.isCallExpression(invocation.expression) || invocation.expression.arguments.length !== 1 || !identifier(invocation.expression.arguments[0], action.name.text)) return false;
   return identifiersWithin(fn.body, declaredName).filter(node => node !== variable.name).length === 4 && identifiersWithin(fn.body, action.name.text).filter(node => node !== action.name).length === 6;
+}
+
+/** Only unused/standalone opaque-part adapters receive a typed mount. Every
+ * reference must forward it directly to the actual formal mountParts entry. */
+function allowAssemblyMountParameters(source: ts.SourceFile, allowed: Set<ts.Node>, isMount: (node: ts.Node) => boolean): void {
+  for (const fn of source.statements) {
+    if (!ts.isFunctionDeclaration(fn) || !fn.name || !/^mount[A-Z]/.test(fn.name.text) || !fn.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) || !fn.body) continue;
+    const parameter = fn.parameters[0];
+    if (!parameter || !ts.isIdentifier(parameter.name) || !parameter.type || !ts.isTypeReferenceNode(parameter.type) || !identifier(parameter.type.typeName, 'HTMLElement') || parameter.type.typeArguments?.length) continue;
+    const references = identifiersWithin(fn.body, parameter.name.text);
+    const calls: ts.CallExpression[] = [];
+    const valid = references.every(reference => {
+      let value: ts.Node = reference;
+      while (ts.isParenthesizedExpression(value.parent) || ts.isAsExpression(value.parent) || ts.isNonNullExpression(value.parent)) value = value.parent;
+      const call = value.parent;
+      if (!ts.isCallExpression(call) || call.arguments[0] !== value || !isMount(call.expression)) return false;
+      calls.push(call); return true;
+    });
+    if (!valid) continue;
+    allowed.add(parameter.type.typeName);
+    for (const call of calls) allowed.add(call);
+  }
 }
 
 function allowMount(source: ts.SourceFile, allowed: Set<ts.Node>, factory: (node: ts.Node) => boolean): boolean {

@@ -5,7 +5,7 @@ import { installFixture } from './fixture.mjs';
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(installFixture);
   await page.goto('/');
-  await page.waitForFunction(() => window.reviewSocket?.onmessage && !document.querySelector('[id$=composer-input]').readOnly);
+  await page.waitForFunction(() => window.reviewSocket?.onmessage && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly);
   await page.evaluate(() => {
     window.reviewState.messages = [{ id: 'download-answer', role: 'assistant', text: '[下载 Word 文档](output/报告%20v1.docx)', status: 'done' }];
     window.emitReview();
@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 test('local Word links download binary files with their Unicode names without entering the artifact list', async ({ page }, testInfo) => {
   const link = page.getByRole('link', { name: '下载 Word 文档' });
   await expect(link).toHaveAttribute('data-download-path', 'output/报告 v1.docx');
-  await expect(page.locator('[id$=artifacts-control]')).toBeHidden();
+  await expect(page.locator('.pui-artifacts-control')).toBeHidden();
   const received = page.waitForEvent('download');
   await link.click();
   const download = await received;
@@ -37,7 +37,7 @@ test('native save cancellation and failure never fall back to an automatic brows
   expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST']);
   await page.evaluate(() => { window.review.failMutation = '/api/conversation-file'; });
   await page.getByRole('link', { name: '下载 Word 文档' }).click();
-  await expect(page.locator('[id$=inline-error]')).toContainText('Fixture action rejected');
+  await expect(page.locator('.pui-inline-error')).toContainText('Fixture action rejected');
   expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST', 'POST']);
 });
 

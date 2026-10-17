@@ -17,7 +17,7 @@ test('edit and resend replaces the active suffix, sends revised context once, an
   const before = (await host.command('state')).state;
   expect(before.messages).toHaveLength(4);
   const original = before.messages[0];
-  await page.locator(`[data-edit-message="${original.id}"]`).click();
+  await page.locator(`[data-reading-id="${original.id}"]`).getByRole('button', {name: 'Edit message', exact: true}).click();
   await page.locator('.pui-text-edit textarea').fill('Revised question 中文');
   await page.getByRole('button', { name: 'Send again', exact: true }).click();
   await expect(page.locator('dialog:has(.pui-text-edit)')).not.toBeVisible();
@@ -43,8 +43,8 @@ test('edit and resend replaces the active suffix, sends revised context once, an
   expect(restarted.state.messages.map(message => message.timestamp)).toEqual(savedTimes);
   await expect(page.locator('.pui-messages')).toContainText('Revised question 中文');
   await expect(page.locator('.pui-messages')).not.toContainText('Original question');
-  await page.locator(`[data-conversation-menu="${before.activeId}"]`).click();
+  await page.getByRole('button', {name: 'Actions for ' + (restarted.state.conversations.find(entry => entry.id === before.activeId)?.title || 'Untitled conversation'), exact: true}).click();
   await page.getByRole('menuitem', { name: 'Conversation branches' }).click();
-  await expect(page.locator('[id$=sdk-dialog]')).toContainText('Original question');
-  await expect(page.locator('[id$=sdk-dialog]')).toContainText('Later follow-up');
+  await expect(page.locator('dialog.pui-feature-modal')).toContainText('Original question');
+  await expect(page.locator('dialog.pui-feature-modal')).toContainText('Later follow-up');
 });
