@@ -168,3 +168,22 @@ func TestDesktopReleaseVersionRequiresReleaseBundleIdentity(t *testing.T) {
 		t.Fatal("development executable became a release")
 	}
 }
+
+func TestDesktopReleaseVersionReadsLinuxPackageIdentity(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "pith-desk")
+	metadata := filepath.Join(root, "pith-desk-release.json")
+	if desktopReleaseVersion(executable) != "" {
+		t.Fatal("unpackaged executable became a release")
+	}
+	for _, content := range []string{`{}`, `{"version":"unknown"}`, `invalid`} {
+		os.WriteFile(metadata, []byte(content), 0o600)
+		if desktopReleaseVersion(executable) != "" {
+			t.Fatal("invalid Linux release identity accepted")
+		}
+	}
+	os.WriteFile(metadata, []byte(`{"version":"0.1.0-rc.31"}`), 0o600)
+	if desktopReleaseVersion(executable) != "0.1.0-rc.31" {
+		t.Fatal("Linux package release identity was not read")
+	}
+}
