@@ -290,7 +290,7 @@ host route drift. `build:ui` and the CI check run this check automatically.
 The frontend retains the authenticated loopback HTTP/WebSocket transport.
 Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
-Desk pins the published `pith-ui@0.8.0` package in
+Desk pins the published `pith-ui@0.8.1` package in
 `frontend/package-lock.json`. Parts come from `pith-ui`, complete regions from
 `pith-ui/recipes`, and styles from `pith-ui/styles.css`. UI owns region layout,
 controls, drafts, focus, selection, scrolling and dialog lifetime.

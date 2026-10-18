@@ -146,7 +146,7 @@ RELEASE_TAG, or PITH_DESK_RELEASE_VERSION locally. It must match that numeric
 version. The signed bundle carries pith-desk-release.json; the desktop uses
 its identity for updater comparisons and diagnostics. Local builds without a
 release tag receive a dev suffix. Follow the normal release flow above rather
-than repeating the same checks locally, in Check and in Mac release. Changes to
+than repeating the same checks locally, in Check and in Desktop release. Changes to
 the host, SDK, providers or runtime still require their affected native behavior
 checks. Release packages target Apple Silicon Mac and Ubuntu x86-64. Linux
 ARM64 remains compile-only; Intel Mac and Windows are outside the supported scope.
