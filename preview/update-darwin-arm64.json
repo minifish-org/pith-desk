@@ -1,8 +1,8 @@
 {
-  "version": "0.1.0-rc.29",
-  "notes": "New in rc.29:\n\n- Upgrade to Pith UI 0.7.1 and directly reuse its shared conversation, navigation, settings, resource and file-preview regions.\n- Preserve the existing layouts, interactions, configuration and conversation data while removing duplicated UI implementations and streamlining maintenance checks.\n\nApple Silicon preview. Open the `.tar.gz` and move **Pith Desk.app** to Applications.\nAd-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n",
-  "date": "2026-10-18T04:42:10.971Z",
-  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.29/pith-desk-0.1.0-rc.29-darwin-arm64.tar.gz",
-  "size": 9647503,
-  "signature": "tmcra0UfXb8hpIpzXLs5kne097sht342esBRf1an/5BqVzSOlvk/Vge8uXobEwTnanCwP1AsV+fkRsXPShusDQ=="
+  "version": "0.1.0-rc.30",
+  "notes": "New in rc.30:\n\n- Integrate the conversation header with the macOS title bar and remove the duplicated window title.\n- Upgrade to Pith UI 0.8.0 for the shared title-bar layout. Keep the existing sidebar, conversation, settings and other interactions unchanged.\n\nApple Silicon preview. Open the `.tar.gz` and move **Pith Desk.app** to Applications.\nAd-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n",
+  "date": "2026-10-18T12:28:20.611Z",
+  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.30/pith-desk-0.1.0-rc.30-darwin-arm64.tar.gz",
+  "size": 9650129,
+  "signature": "tHmSz3TCig5BQX7+nKcduIlbUcC0TCFJoyjN+x5VXkPuOFXuKM3Zt7pL7B86Xlc/cEdeZrLLlxNFCDayzxwNDA=="
 }
