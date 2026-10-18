@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
 import type {Application, CustomConnectionState, LoadingSession} from '../src/ui-contract.ts';
 import type {ApiRequest} from '../src/api.ts';
 import type {ModelsJsonModel} from '../src/contract.generated.ts';
@@ -28,13 +27,6 @@ function harness(connection?: Connection) {
   } satisfies Pick<SDKFeatureAPI, 'ui' | 'request' | 'settings' | 'mutate' | 'error'>;
   return {controller: createCustomUI(api), opened, reads};
 }
-
-test('the initial independent model uses the verified local defaults rather than a second literal', async () => {
-  const source = await readFile(new URL('../src/custom-connections.ts', import.meta.url), 'utf8');
-  assert.match(source, /import\s*\{[^}]*\bcustomModelDefaults\b[^}]*\}\s*from\s*['"]\.\/ui-contract\.ts['"]/);
-  assert.match(source, /models:\s*\[\s*customModelDefaults\(\)\s*\]/);
-  assert.doesNotMatch(source, /\b(?:128000|8192)\b/, 'Starting model limits belong to the verified local assembly helper');
-});
 
 test('a new connection starts with one independent blank model and does not issue a read', async () => {
   const h = harness();

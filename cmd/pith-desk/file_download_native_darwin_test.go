@@ -84,7 +84,7 @@ func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitNativeDropCondition(t, win, `document.querySelector('a[data-download-path]')?.dataset.downloadPath === 'output/报告 v1.docx' && document.querySelector('a[data-download-path]').getAttribute('aria-disabled') === 'false'`)
-	if nativeDropEval(t, win, `document.querySelector('[id$=artifacts-control]').hidden`) != true {
+	if nativeDropEval(t, win, `document.querySelector('.pui-artifacts-control').hidden`) != true {
 		t.Fatal("unrecorded shell file entered the artifact list")
 	}
 	for attempt := range 3 {
@@ -94,7 +94,7 @@ func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
 			t.Fatalf("save request count: %d", saves.Load())
 		}
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=inline-error]').textContent.includes('Fixture native save failed')`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-inline-error').textContent.includes('Fixture native save failed')`)
 	data, err := os.ReadFile(destination)
 	if err != nil || !bytes.Equal(data, content) {
 		t.Fatalf("native save bytes changed: %q %v", data, err)

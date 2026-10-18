@@ -162,7 +162,7 @@ func TestTaskDockNativeUnreadLifecycle(t *testing.T) {
 	if err := win.Page().LoadURL(server.URL); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]')?.placeholder !== undefined && document.querySelector('[id$=composer-input]')?.placeholder !== 'Connecting to Pith…'`)
+	waitNativeDropCondition(t, win, `document.querySelector('textarea[aria-label="Message Pith"]')?.placeholder !== undefined && document.querySelector('textarea[aria-label="Message Pith"]')?.placeholder !== 'Connecting to Pith…'`)
 	if err := service.SendConversation(conversation.ID, "Finish the isolated Dock fixture"); err != nil {
 		t.Fatal(err)
 	}

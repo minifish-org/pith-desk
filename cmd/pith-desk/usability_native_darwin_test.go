@@ -96,26 +96,26 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 			draft, draftErr := service.Draft(desk.DraftScope{ID: first.ID})
 			t.Logf("saved draft bytes=%d revision=%d, error: %v", len(draft.Text), draft.Revision, draftErr)
 			t.Logf("fixture requests=%d running=%v phase=%s error=%q hasKey=%v approval=%+v", requests.Load(), state.Running, state.Runtime.Phase, state.Error, state.Settings.HasAPIKey, state.PendingApproval)
-			t.Logf("UI: %v", nativeDropEval(t, win, `({ready:document.querySelector('[id$=composer-input]')?.readOnly, sendDisabled:document.querySelector('[id$=send-button]')?.disabled, approval:document.querySelector('[id$=approval]')?.textContent, failure:document.querySelector('[id$=task-failure]')?.textContent, error:document.querySelector('[id$=inline-error]')?.textContent, loaded:document.querySelector('[id$=composer-input]')?.placeholder})`))
+			t.Logf("UI: %v", nativeDropEval(t, win, `({ready:document.querySelector('textarea[aria-label="Message Pith"]')?.readOnly, sendDisabled:document.querySelector('form.pui-composer button[type=submit]')?.disabled, approval:document.querySelector('.pui-approval-card')?.textContent, failure:document.querySelector('.pui-task-failure')?.textContent, error:document.querySelector('.pui-inline-error')?.textContent, loaded:document.querySelector('textarea[aria-label="Message Pith"]')?.placeholder})`))
 		}
 	}()
 	if err := win.Page().LoadURL(server.URL); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]')?.readOnly === false && document.querySelector('[id$=workspace-label]')?.textContent !== 'No workspace'`)
-	nativeDropEval(t, win, `const input = document.querySelector('[id$=composer-input]'); input.value = 'First draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
-	nativeDropEval(t, win, `const canvas=document.createElement('canvas'); canvas.width=10; canvas.height=10; const bytes=Uint8Array.from(atob(canvas.toDataURL().split(',')[1]), c=>c.charCodeAt(0)); const transfer=new DataTransfer(); transfer.items.add(new File([bytes], 'draft.png', {type:'image/png'})); const picker=document.querySelector('[id$=image-picker]'); picker.files=transfer.files; picker.dispatchEvent(new Event('change', {bubbles:true})); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('textarea[aria-label="Message Pith"]')?.readOnly === false && document.querySelector('.pui-breadcrumb > span:first-of-type')?.textContent !== 'No workspace'`)
+	nativeDropEval(t, win, `const input = document.querySelector('textarea[aria-label="Message Pith"]'); input.value = 'First draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	nativeDropEval(t, win, `const canvas=document.createElement('canvas'); canvas.width=10; canvas.height=10; const bytes=Uint8Array.from(atob(canvas.toDataURL().split(',')[1]), c=>c.charCodeAt(0)); const transfer=new DataTransfer(); transfer.items.add(new File([bytes], 'draft.png', {type:'image/png'})); const picker=document.querySelector('form.pui-composer input[type=file]'); picker.files=transfer.files; picker.dispatchEvent(new Event('change', {bubbles:true})); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelectorAll('.pui-draft-image').length === 1`)
 
 	if err := service.OpenConversation(second.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]').value === '' && !document.querySelector('[id$=composer-input]').readOnly`)
-	nativeDropEval(t, win, `const input = document.querySelector('[id$=composer-input]'); input.value = 'Second draft'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('textarea[aria-label="Message Pith"]').value === '' && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
+	nativeDropEval(t, win, `const input = document.querySelector('textarea[aria-label="Message Pith"]'); input.value = 'Second draft'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
 	if err := service.OpenConversation(first.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]').value === 'First draft 中文' && document.querySelectorAll('.pui-draft-image').length === 1`)
+	waitNativeDropCondition(t, win, `document.querySelector('textarea[aria-label="Message Pith"]').value === 'First draft 中文' && document.querySelectorAll('.pui-draft-image').length === 1`)
 	waitSavedDraft(t, service, first.ID, "First draft 中文")
 	waitSavedDraft(t, service, second.ID, "Second draft")
 	// Recreate the host on a different random origin to verify profile storage.
@@ -135,38 +135,32 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		t.Fatal(err)
 	}
 	newOrigin, _ := json.Marshal(server.URL)
-	waitNativeDropCondition(t, win, `location.origin === `+string(newOrigin)+` && document.querySelector('[id$=composer-input]')?.value === 'First draft 中文' && !document.querySelector('[id$=composer-input]').readOnly && document.querySelectorAll('.pui-draft-image').length === 1`)
-	nativeDropEval(t, win, `document.querySelector('[data-remove-image]').click(); document.querySelector('[id$=composer-form]').requestSubmit(); return true;`)
+	waitNativeDropCondition(t, win, `location.origin === `+string(newOrigin)+` && document.querySelector('textarea[aria-label="Message Pith"]')?.value === 'First draft 中文' && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly && document.querySelectorAll('.pui-draft-image').length === 1`)
+	nativeDropEval(t, win, `document.querySelector('.pui-draft-images button[aria-label^="Remove "]').click(); document.querySelector('form.pui-composer').requestSubmit(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-diff .pui-diff-add') !== null`)
 	saveUsabilityScreenshot(t, win, "approval-diff.png")
 	waitSavedDraft(t, service, first.ID, "")
 	approved := map[string]bool{}
 	previousID := ""
 	for range 4 {
-		encodedID, _ := json.Marshal(previousID)
-		waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-diff .pui-diff-add') !== null && document.querySelector('[data-approval="allow"]')?.dataset.approvalId !== `+string(encodedID))
-		value := nativeDropEval(t, win, `({path:document.querySelector('.pui-approval-file code').textContent, id:document.querySelector('[data-approval="allow"]').dataset.approvalId})`)
-		encoded, _ := json.Marshal(value)
-		var approval struct{ Path, ID string }
-		if err := json.Unmarshal(encoded, &approval); err != nil {
-			t.Fatal(err)
-		}
-		if approved[approval.Path] || !map[string]bool{"note.md": true, "picture.png": true, "result.txt": true, "animation.html": true}[approval.Path] {
+		approval := waitNativeApproval(t, win, service, previousID)
+		path := approval.Preview.Path
+		if approved[path] || !map[string]bool{"note.md": true, "picture.png": true, "result.txt": true, "animation.html": true}[path] {
 			t.Fatalf("unexpected approval: %+v", approval)
 		}
-		if _, err := os.Stat(filepath.Join(workspacePath, approval.Path)); !os.IsNotExist(err) {
-			t.Fatalf("%s existed before its approval", approval.Path)
+		if _, err := os.Stat(filepath.Join(workspacePath, path)); !os.IsNotExist(err) {
+			t.Fatalf("%s existed before its approval", path)
 		}
-		approved[approval.Path], previousID = true, approval.ID
-		nativeDropEval(t, win, `document.querySelector('[data-approval="allow"]').click(); return true;`)
+		approved[path], previousID = true, approval.ID
+		nativeDropEval(t, win, `[...document.querySelectorAll('.pui-approval-card button')].find(button => button.textContent === 'Allow this action').click(); return true;`)
 	}
-	waitNativeDropCondition(t, win, `document.querySelectorAll('[data-preview-path]').length === 4`)
-	nativeDropEval(t, win, `document.querySelector('button[id$=artifacts-toggle]').click(); document.querySelector('[id$=artifacts]').scrollIntoView({block:'end'}); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelectorAll('.pui-artifacts-panel .pui-file-card').length === 4`)
+	nativeDropEval(t, win, `document.querySelector('button.pui-artifacts-toggle').click(); document.querySelector('.pui-artifacts-panel').scrollIntoView({block:'end'}); return true;`)
 	saveUsabilityScreenshot(t, win, "generated-file-actions.png")
-	nativeDropEval(t, win, `document.querySelector('[data-preview-path$="note.md"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=preview-dialog]').open && document.querySelector('[id$=file-preview-body] h1')?.textContent === 'Native preview'`)
+	openNativePreview(t, win, "note.md")
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-modal').open && document.querySelector('.pui-file-preview-body h1')?.textContent === 'Native preview'`)
 	saveUsabilityScreenshot(t, win, "markdown-preview.png")
-	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('[id$=file-preview-body] script, [id$=file-preview-body] img').length === 0 && document.querySelector('[id$=file-preview-body] strong')?.textContent === 'Saved Markdown'`) != true {
+	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('.pui-file-preview-body script, .pui-file-preview-body img').length === 0 && document.querySelector('.pui-file-preview-body strong')?.textContent === 'Saved Markdown'`) != true {
 		t.Fatal("Markdown preview failed sanitization")
 	}
 	var imageData bytes.Buffer
@@ -184,46 +178,46 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspacePath, "picture.png"), largeImage, 0644); err != nil {
 		t.Fatal(err)
 	}
-	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); document.querySelector('[data-preview-path$="picture.png"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=file-preview-body] img')?.naturalWidth === 2`)
-	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent === 'Plain text 中文'`)
+	openNativePreview(t, win, "picture.png")
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-body img')?.naturalWidth === 2`)
+	openNativePreview(t, win, "result.txt")
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-body .pui-file-preview-text')?.textContent === 'Plain text 中文'`)
 	largeText := "PREVIEW START\n" + strings.Repeat("中文🙂\n", (8<<20)/11-4) + "\nPREVIEW END"
 	if err := os.WriteFile(filepath.Join(workspacePath, "result.txt"), []byte(largeText), 0644); err != nil {
 		t.Fatal(err)
 	}
-	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); document.querySelector('[data-preview-path$="result.txt"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=file-preview-body] .pui-preview-pagination') !== null && document.querySelector('.pui-file-preview-text')?.textContent.startsWith('PREVIEW START')`)
-	if nativeDropEval(t, win, `new TextEncoder().encode(document.querySelector('.pui-file-preview-text').textContent).length <= 256*1024`) != true {
+	openNativePreview(t, win, "result.txt")
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-body .pui-preview-pagination') !== null && document.querySelector('.pui-file-preview-body .pui-file-preview-text')?.textContent.startsWith('PREVIEW START')`)
+	if nativeDropEval(t, win, `new TextEncoder().encode(document.querySelector('.pui-file-preview-body .pui-file-preview-text').textContent).length <= 256*1024`) != true {
 		t.Fatal("large preview rendered all bytes at once")
 	}
-	nativeDropEval(t, win, `const next=document.querySelector('[id$=file-preview-body] .pui-preview-pagination button:last-child'); while (!next.disabled) next.click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent.endsWith('PREVIEW END')`)
+	nativeDropEval(t, win, `const next=document.querySelector('.pui-file-preview-body .pui-preview-pagination button:last-child'); while (!next.disabled) next.click(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-body .pui-file-preview-text')?.textContent.endsWith('PREVIEW END')`)
 	saveUsabilityScreenshot(t, win, "large-text-preview.png")
-	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); document.querySelector('[data-preview-path$="animation.html"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-text')?.textContent.includes('<script>window.__previewUnsafe=true</script>')`)
-	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('[id$=file-preview-body] script').length === 0`) != true {
+	openNativePreview(t, win, "animation.html")
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-file-preview-body .pui-file-preview-text')?.textContent.includes('<script>window.__previewUnsafe=true</script>')`)
+	if nativeDropEval(t, win, `window.__previewUnsafe !== true && document.querySelectorAll('.pui-file-preview-body script').length === 0`) != true {
 		t.Fatal("HTML source executed in preview")
 	}
-	nativeDropEval(t, win, `document.querySelector('[data-close$="preview-dialog"]').click(); const input=document.querySelector('[id$=composer-input]'); input.value='Edit it'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('[id$=composer-form]').requestSubmit(); return true;`)
+	nativeDropEval(t, win, `document.querySelector('.pui-file-preview-modal button[aria-label^="Close "]').click(); const input=document.querySelector('textarea[aria-label="Message Pith"]'); input.value='Edit it'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('form.pui-composer').requestSubmit(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-diff .pui-diff-remove')?.textContent.includes('Saved Markdown') && document.querySelector('.pui-approval-diff .pui-diff-add')?.textContent.includes('Edited Markdown')`)
-	nativeDropEval(t, win, `document.querySelector('[data-approval="allow"]').click(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('[data-preview-path]') !== null && document.querySelector('[id$=approval]').textContent === ''`)
+	nativeDropEval(t, win, `[...document.querySelectorAll('.pui-approval-card button')].find(button => button.textContent === 'Allow this action').click(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-artifacts-panel .pui-file-card') !== null && document.querySelector('.pui-approval-card') === null`)
 	content, err := os.ReadFile(filepath.Join(workspacePath, "note.md"))
 	if err != nil || !strings.Contains(string(content), "Edited Markdown") {
 		t.Fatalf("approved edit not applied: %s %v", content, err)
 	}
 	// Reload immediately, before the autosave debounce can expire. The old
 	// document's authenticated unload save must preserve the latest text.
-	nativeDropEval(t, win, `const input=document.querySelector('[id$=composer-input]'); input.value='Last text before reload'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	nativeDropEval(t, win, `const input=document.querySelector('textarea[aria-label="Message Pith"]'); input.value='Last text before reload'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
 	if err := win.Page().LoadURL(server.URL + "?restore-draft"); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `location.search === '?restore-draft' && document.querySelector('[id$=composer-input]')?.value === 'Last text before reload' && !document.querySelector('[id$=composer-input]').readOnly`)
+	waitNativeDropCondition(t, win, `location.search === '?restore-draft' && document.querySelector('textarea[aria-label="Message Pith"]')?.value === 'Last text before reload' && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
 	waitSavedDraft(t, service, first.ID, "Last text before reload")
 	// The production quit guard saves before the host and WebView go away,
 	// including keystrokes still waiting for the normal autosave debounce.
-	nativeDropEval(t, win, `const input=document.querySelector('[id$=composer-input]'); input.value='中'.repeat(2796202)+'ab'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
+	nativeDropEval(t, win, `const input=document.querySelector('textarea[aria-label="Message Pith"]'); input.value='中'.repeat(2796202)+'ab'; input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
 	if err := flushDesktopDrafts(win); err != nil {
 		t.Fatal(err)
 	}
@@ -262,14 +256,14 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 	if err := win.Page().LoadURL(server.URL); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=composer-input]')?.readOnly === false && document.querySelector('[id$=workspace-label]')?.textContent !== 'No workspace'`)
+	waitNativeDropCondition(t, win, `document.querySelector('textarea[aria-label="Message Pith"]')?.readOnly === false && document.querySelector('.pui-breadcrumb > span:first-of-type')?.textContent !== 'No workspace'`)
 	// Reject only the first send; conversation creation and draft persistence
 	// still use the real authenticated host. No provider request is sent.
 	nativeDropEval(t, win, `const originalFetch=window.fetch; window.fetch=(url,options)=> {
   if (String(url)==='/api/send') { window.fetch=originalFetch; return Promise.resolve(new Response(JSON.stringify({error:'This send was rejected'}), {status:409, headers:{'Content-Type':'application/json'}})); }
   return originalFetch(url,options);
-}; const input=document.querySelector('[id$=composer-input]'); input.value='Keep my first draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('[id$=composer-form]').requestSubmit(); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('[id$=inline-error]')?.textContent.includes('This send was rejected') && document.querySelector('[id$=composer-input]')?.value === 'Keep my first draft 中文' && !document.querySelector('[id$=composer-input]').readOnly`)
+}; const input=document.querySelector('textarea[aria-label="Message Pith"]'); input.value='Keep my first draft 中文'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('form.pui-composer').requestSubmit(); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-inline-error')?.textContent.includes('This send was rejected') && document.querySelector('textarea[aria-label="Message Pith"]')?.value === 'Keep my first draft 中文' && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
 	id := service.Snapshot().ActiveID
 	if id == "" || len(service.Snapshot().Conversations) != 1 {
 		t.Fatal("first send did not create its conversation")
@@ -278,7 +272,31 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 	if err := win.Page().LoadURL(server.URL + "?rejected-send"); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `location.search === '?rejected-send' && document.querySelector('[id$=composer-input]')?.value === 'Keep my first draft 中文' && !document.querySelector('[id$=composer-input]').readOnly`)
+	waitNativeDropCondition(t, win, `location.search === '?rejected-send' && document.querySelector('textarea[aria-label="Message Pith"]')?.value === 'Keep my first draft 中文' && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
+}
+
+func openNativePreview(t *testing.T, win *mygo.Window, name string) {
+	t.Helper()
+	encoded, _ := json.Marshal(name)
+	nativeDropEval(t, win, `document.querySelector('.pui-file-preview-modal button[aria-label^="Close "]')?.click();
+const card = [...document.querySelectorAll('.pui-artifacts-panel .pui-file-card')].find(card => card.querySelector('strong')?.textContent === `+string(encoded)+`);
+[...card.querySelectorAll('button')].find(button => button.textContent === 'Preview').click(); return true;`)
+}
+
+func waitNativeApproval(t *testing.T, win *mygo.Window, service *desk.Service, previousID string) *desk.Approval {
+	t.Helper()
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		approval := service.Snapshot().PendingApproval
+		if approval != nil && approval.ID != previousID && approval.Preview != nil {
+			path, _ := json.Marshal(approval.Preview.Path)
+			waitNativeDropCondition(t, win, `document.querySelector('.pui-approval-file code')?.textContent === `+string(path)+` && document.querySelector('.pui-approval-diff .pui-diff-add') !== null && [...document.querySelectorAll('.pui-approval-card button')].find(button => button.textContent === 'Allow this action')?.disabled === false`)
+			return approval
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("next native approval did not arrive")
+	return nil
 }
 
 func saveUsabilityScreenshot(t *testing.T, win *mygo.Window, name string) {
