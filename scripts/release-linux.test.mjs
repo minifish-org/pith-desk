@@ -16,3 +16,15 @@ test('Ubuntu release paths preserve the literal Debian prerelease separator in B
     }
   }
 });
+
+test('Ubuntu download filenames keep the release version without GitHub-unsafe tilde characters', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/release.yml',import.meta.url),'utf8');
+  const assignments = workflow.match(/^\s*(?:package|linux_package)="build\/releases\/pith-desk_.*_amd64\.deb"$/gm) ?? [];
+  assert.equal(assignments.length,2);
+  for (const assignment of assignments) {
+    for (const shell of ['bash','/bin/bash']) {
+      const script = `version=0.1.0-rc.31\ndebian_version=0.1.0~rc.31\nunset package linux_package\n${assignment.trim()}\nprintf '%s\\n' "$package$linux_package"`;
+      assert.equal(execFileSync(shell,['-c',script],{encoding:'utf8'}).trim(),'build/releases/pith-desk_0.1.0-rc.31_amd64.deb');
+    }
+  }
+});
