@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sync"
 	"time"
 
@@ -20,10 +21,11 @@ var releaseVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A
 
 func desktopReleaseVersion(executable string) string {
 	bundle := filepath.Dir(filepath.Dir(filepath.Dir(executable)))
-	if filepath.Ext(bundle) != ".app" {
-		return ""
+	metadata := filepath.Join(filepath.Dir(executable), "pith-desk-release.json")
+	if filepath.Ext(bundle) == ".app" {
+		metadata = filepath.Join(bundle, "Contents", "Resources", "pith-desk-release.json")
 	}
-	data, err := os.ReadFile(filepath.Join(bundle, "Contents", "Resources", "pith-desk-release.json"))
+	data, err := os.ReadFile(metadata)
 	var info struct {
 		Version string `json:"version"`
 	}
@@ -68,6 +70,9 @@ func newDesktopUpdater(service *desk.Service, window *mygo.Window, dialogMu *syn
 	}
 	if !enabled {
 		u.state.Message = "Updates are available in release apps installed in a writable folder."
+		if runtime.GOOS == "linux" {
+			u.state.Message = "Install the latest Ubuntu package or archive to update Pith Desk."
+		}
 	}
 	u.check = func(ctx context.Context) (*desktopUpdate, error) {
 		up, err := mygo.Updater.Check(ctx)

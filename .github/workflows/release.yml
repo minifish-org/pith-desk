@@ -1,4 +1,4 @@
-name: Mac release
+name: Desktop release
 
 on:
   push:
@@ -13,7 +13,55 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: '0'
+      GOWORK: 'off'
+      GOMAXPROCS: '4'
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require checked source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          check_run="$(gh run list --workflow check.yml --commit "$GITHUB_SHA" --branch main --event push --status success --limit 1 --json url --jq '.[0].url // empty')"
+          if [ -z "$check_run" ]; then
+            echo "::error::Wait for Check to pass on this source commit before publishing its tag."
+            exit 1
+          fi
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci
+      - run: npm --prefix frontend ci
+      - run: npm run release:linux
+      - name: Verify Ubuntu package
+        run: |
+          version="${RELEASE_TAG#v}"
+          package="build/releases/pith-desk_${version/-/~}_amd64.deb"
+          test "$(dpkg-deb --field "$package" Package)" = pith-desk
+          test "$(dpkg-deb --field "$package" Architecture)" = amd64
+          test "$(dpkg-deb --field "$package" Version)" = "${version/-/~}"
+          dpkg-deb --field "$package" Depends
+          build/release/linux-amd64/pith-desk --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: |
+            build/releases/*-linux-amd64.tar.gz*
+            build/releases/*_amd64.deb*
+          if-no-files-found: error
   mac:
+    needs: linux
     runs-on: macos-latest
     env:
       CGO_ENABLED: '0'
@@ -44,6 +92,10 @@ jobs:
             frontend/package-lock.json
       - run: npm ci
       - run: npm --prefix frontend ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-release
+          path: build/releases
       - name: Package preview or signed release
         id: package
         env:
@@ -88,6 +140,7 @@ jobs:
           name: release-metadata
           path: |
             build/releases/*.tar.gz.json
+            build/releases/*.deb.json
             build/releases/update-darwin-arm64.json
           if-no-files-found: error
       - name: Publish tagged build
@@ -96,11 +149,14 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           PREVIEW: ${{ steps.package.outputs.preview }}
         run: |
+          version="${RELEASE_TAG#v}"
           archive="build/releases/pith-desk-${RELEASE_TAG#v}-darwin-arm64.tar.gz"
+          linux_archive="build/releases/pith-desk-${version}-linux-amd64.tar.gz"
+          linux_package="build/releases/pith-desk_${version/-/~}_amd64.deb"
           if [ "$PREVIEW" = true ]; then
-            gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon preview)" --notes-file docs/RELEASE_PREVIEW.md
+            gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" "$linux_archive" "$linux_archive.sha256" "$linux_package" "$linux_package.sha256" --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon and Ubuntu preview)" --notes-file docs/RELEASE_PREVIEW.md
           else
-            gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" --verify-tag --generate-notes
+            gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" "$linux_archive" "$linux_archive.sha256" "$linux_package" "$linux_package.sha256" --verify-tag --generate-notes
           fi
       - name: Publish update feed after release assets
         env:

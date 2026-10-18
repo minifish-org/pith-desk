@@ -16,7 +16,7 @@ Pith Desk uses [Pith](https://github.com/minifish-org/pith) as a versioned Go li
 
 ## Try it
 
-Download the Apple Silicon (ARM64) preview from [Releases](https://github.com/minifish-org/pith-desk/releases). Open the `darwin-arm64.tar.gz` package and move **Pith Desk.app** to Applications; the same package serves automatic updates. New Mac releases target M-series Macs only. The earlier `v0.1.0-rc.1` universal preview remains available unchanged. The current preview is ad-hoc signed and **not notarized**; see [opening instructions](docs/RELEASING.md#manual-installation). Building from source remains an option for development.
+Download the Apple Silicon (ARM64) or Ubuntu x86-64 preview from [Releases](https://github.com/minifish-org/pith-desk/releases). On Mac, open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications; the same package serves automatic updates. The Mac preview is ad-hoc signed and **not notarized**; see [opening instructions](docs/RELEASING.md#manual-installation). On Ubuntu, install the `.deb` with `sudo apt install ./<downloaded-file>.deb`, or extract `linux-amd64.tar.gz` and run `./pith-desk`. See [Ubuntu dependencies and upgrades](docs/RELEASING.md#ubuntu-preview). Building from source remains an option for development.
 
 The preview includes the Pith Desk icon in Finder and the Dock, with a matching
 favicon for the browser preview.
@@ -348,7 +348,7 @@ This is an experimental local desktop product. It has no built-in computer-contr
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 
-Pith Desk supports only macOS on Apple Silicon (ARM64). Intel Mac, Linux and Windows are outside the supported scope. Native application testing and release packages target Mac ARM64. CI also checks Linux compilation without testing its desktop runtime or publishing Linux packages. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Release apps offer **Settings → Updates → Update and restart**, with confirmation when tasks are running. Older previews need one manual replacement to gain the updater. Updates require a writable app location. See [release packaging and signing](docs/RELEASING.md).
+Pith Desk publishes previews for macOS on Apple Silicon (ARM64) and Ubuntu x86-64. The Ubuntu desktop is validated on Ubuntu 26.04 with XFCE; GTK 3 and WebKitGTK 4.1 are runtime dependencies. Linux ARM64 remains compile-only. Intel Mac and Windows are outside the supported scope. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Mac releases offer **Settings → Updates → Update and restart**, with confirmation when tasks are running and a writable app location required. Update Ubuntu installations by installing a newer `.deb` or replacing the extracted archive. See [release packaging and signing](docs/RELEASING.md).
 
 The interface draws on the workspace-and-conversation layout of DeepSeek Harness, but uses its own host and Pith SDK integration. It does not load Harness plugins or copy its application runtime.
 

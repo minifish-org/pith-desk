@@ -3,6 +3,8 @@
 End users download an application, not a source checkout. Mac packages target
 Apple Silicon (ARM64) and contain the embedded UI, dependency notices and the
 Pith library. Go, Node.js and npm are development requirements only.
+Ubuntu x86-64 packages use the same backend, embedded UI and MyGo native shell,
+with GTK 3 and WebKitGTK 4.1 supplied by the operating system.
 
 ## SDK dependency validation
 
@@ -24,13 +26,13 @@ See [the SDK dependency](SDK_FEATURES.md#versioned-sdk-dependency).
    The comparison uses the last successful main Check, so an unvalidated Go
    change cannot be hidden by a later UI-only push. An unavailable or unrelated
    baseline runs the runtime checks conservatively.
-3. After Check succeeds for that exact commit, push the version tag. **Mac
-   release** requires that successful result and builds/packages the app once;
+3. After Check succeeds for that exact commit, push the version tag. **Desktop
+   release** requires that successful result and builds/packages each platform once;
    it does not rerun the test suite. A tag without a successful Check fails
    before packaging or publication.
-4. Download the shared tar.gz and checksum once. Verify checksum, version/source
-   commit, architecture/CGO, pinned SDK, signature and package contents; the
-   provenance manifest is in the release job's `release-metadata` CI artifact.
+4. Download the platform archives, Debian package and their checksums once. Verify
+   checksums, version, source commit, architecture/CGO, pinned SDK, signatures and contents; the
+   provenance manifests are in the release job's `release-metadata` CI artifact.
    Confirm the update feed version. Keep screenshots and process records local.
 
 Repeat downloaded-app cold launch and relevant native behavior only when host,
@@ -50,7 +52,34 @@ The preview is ad-hoc signed and unnotarized. If macOS blocks it and you trust
 the source, follow [Apple's Open Anyway instructions](https://support.apple.com/en-us/102445)
 in System Settings → Privacy & Security. Do not disable Gatekeeper globally.
 
-## Optional local package
+## Ubuntu preview
+
+The Linux release targets x86-64 (`amd64`) and is validated on Ubuntu 26.04 with
+XFCE. MyGo generates both a Debian package and a portable archive. The `.deb`
+declares GTK 3 and WebKitGTK 4.1 dependencies and registers **Pith Desk** in the
+applications menu plus the `pith-desk` command:
+
+```sh
+sudo apt install ./<downloaded-file>.deb
+pith-desk
+```
+
+Install a newer `.deb` the same way to upgrade. Use `sudo apt remove pith-desk`
+to uninstall. The package version uses Debian's `~` prerelease separator.
+
+For a portable installation, extract `pith-desk-<version>-linux-amd64.tar.gz`
+into its own directory and run `./pith-desk`. If WebKitGTK is missing, install
+`libwebkit2gtk-4.1-0` with apt. Keep the executable, release identity, icon and
+dependency notices together. Replace the directory with a newer archive to
+upgrade. Ubuntu packages use these manual upgrade paths; the Mac update feed
+does not serve Linux packages. User settings and conversations are stored
+outside either installation.
+
+For an independent local package, run `RELEASE_TAG=v<version> npm run release:linux`.
+The packager cross-compiles with `CGO_ENABLED=0` and `GOWORK=off`, verifies ELF
+architecture and Go build metadata, and records checksums and source provenance.
+
+## Optional local Mac package
 
 For an independent local archive, after validating the affected change:
 
@@ -90,9 +119,10 @@ verified release process; it cannot be tested on a host without a certificate.
 
 ## GitHub releases
 
-The Mac release workflow runs for pushed `v*` tags, reuses the successful Check
-for the exact tagged source, builds an ARM64 application and publishes only the
-shared tar.gz and its checksum. Build provenance and the update manifest stay
+The Desktop release workflow runs for pushed `v*` tags and reuses the successful
+Check for the exact tagged source. Ubuntu packaging must finish before the Mac
+job publishes the Mac archive, Linux archive, Debian package and their checksums
+together. Build provenance and the Mac update manifest stay
 in the job's `release-metadata` CI artifact; the update manifest is also
 published to the existing update feed. Each release note contains only the
 current changes and brief download/preview guidance; previous releases retain
@@ -118,8 +148,8 @@ its identity for updater comparisons and diagnostics. Local builds without a
 release tag receive a dev suffix. Follow the normal release flow above rather
 than repeating the same checks locally, in Check and in Mac release. Changes to
 the host, SDK, providers or runtime still require their affected native behavior
-checks. Only Apple Silicon Mac is supported; Intel Mac, Linux and Windows are
-outside the supported scope.
+checks. Release packages target Apple Silicon Mac and Ubuntu x86-64. Linux
+ARM64 remains compile-only; Intel Mac and Windows are outside the supported scope.
 
 ## Click to update
 
@@ -164,4 +194,4 @@ MyGo restores the old bundle if replacement fails, but does not roll back a new
 version that fails to launch. Keep manual release downloads available.
 
 The previously published `v0.1.0-rc.1` universal preview remains unchanged.
-New releases target Apple Silicon only.
+New Mac releases target Apple Silicon only.
