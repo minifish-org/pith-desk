@@ -168,11 +168,12 @@ func TestCompletionNotificationLedgerBoundsSupersedesAndPreservesAge(t *testing.
 	}
 	var allRemoved []string
 	for i := 0; i < completionNotificationLimit+3; i++ {
-		entry, err := s.CreateConversation(workspace.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		entry = completeNotificationFixture(t, s, entry.ID, fmt.Sprintf("run-%d", i))
+		// Ledger retention needs valid catalog targets, not hundreds of SDK
+		// sessions. The fixture above and restart test exercise real creation.
+		entry := Conversation{ID: fmt.Sprintf("ledger-%d", i), WorkspaceID: workspace.ID, CompletedRunID: fmt.Sprintf("run-%d", i)}
+		s.mu.Lock()
+		s.catalog.Conversations = append(s.catalog.Conversations, entry)
+		s.mu.Unlock()
 		_, removed, err := s.RememberCompletionNotification(entry, workspace)
 		if err != nil {
 			t.Fatal(err)
