@@ -47,10 +47,10 @@ jobs:
       - name: Verify Ubuntu package
         run: |
           version="${RELEASE_TAG#v}"
-          package="build/releases/pith-desk_${version/-/~}_amd64.deb"
+          package="build/releases/pith-desk_${version/-/\~}_amd64.deb"
           test "$(dpkg-deb --field "$package" Package)" = pith-desk
           test "$(dpkg-deb --field "$package" Architecture)" = amd64
-          test "$(dpkg-deb --field "$package" Version)" = "${version/-/~}"
+          test "$(dpkg-deb --field "$package" Version)" = "${version/-/\~}"
           dpkg-deb --field "$package" Depends
           build/release/linux-amd64/pith-desk --help
       - uses: actions/upload-artifact@v4
@@ -152,7 +152,7 @@ jobs:
           version="${RELEASE_TAG#v}"
           archive="build/releases/pith-desk-${RELEASE_TAG#v}-darwin-arm64.tar.gz"
           linux_archive="build/releases/pith-desk-${version}-linux-amd64.tar.gz"
-          linux_package="build/releases/pith-desk_${version/-/~}_amd64.deb"
+          linux_package="build/releases/pith-desk_${version/-/\~}_amd64.deb"
           if [ "$PREVIEW" = true ]; then
             gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" "$linux_archive" "$linux_archive.sha256" "$linux_package" "$linux_package.sha256" --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon and Ubuntu preview)" --notes-file docs/RELEASE_PREVIEW.md
           else
