@@ -58,7 +58,7 @@ const mountModule = `
 `;
 
 const bootstrapModule = `
-  type BootstrapMeta = 'desk-token' | 'desk-native-clipboard' | 'desk-native-file-drop' | 'desk-native-menus';
+  type BootstrapMeta = 'desk-token' | 'desk-native-clipboard' | 'desk-native-file-drop' | 'desk-native-menus' | 'desk-titlebar-overlay';
   export function readAppBootstrap(document: Document) {
     const consume = (name: BootstrapMeta): string => {
       const meta = document.querySelector<HTMLMetaElement>(\`meta[name="\${name}"]\`);
@@ -72,6 +72,7 @@ const bootstrapModule = `
       nativeClipboard: consume('desk-native-clipboard') === 'true',
       nativeFileDrop: consume('desk-native-file-drop') === 'true',
       nativeMenus: consume('desk-native-menus') === 'true',
+      titlebar: consume('desk-titlebar-overlay') === 'true' ? 'overlay' : undefined,
       appearance: document.documentElement.dataset.appearance,
     };
   }
@@ -128,12 +129,12 @@ test('the mounting function cannot add rendering or node slots to the app option
   }
 });
 
-test('the named bootstrap may read and remove exactly the four host meta values and read the initial appearance', () => {
+test('the named bootstrap may read and remove exactly the five host meta values and read the initial appearance', () => {
   assert.deepEqual(source(bootstrapModule, 'frontend/src/ui-bootstrap.ts'), []);
   rejected(bootstrapModule, 'frontend/src/feature.ts');
 });
 
-test('the bootstrap exception is limited to the four consumed meta nodes and read-only appearance', () => {
+test('the bootstrap exception is limited to the five consumed meta nodes and read-only appearance', () => {
   for (const text of [
     bootstrapModule.replace("consume('desk-token')", "consume('other-token')"),
     bootstrapModule.replace('meta?.remove();', 'meta?.remove(); meta?.setAttribute("class", "pui-extra");'),

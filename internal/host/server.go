@@ -54,6 +54,7 @@ type Server struct {
 	taskStatusAction  func(TaskStatus)
 	taskStatus        TaskStatus
 	nativeFileDrop    bool
+	titlebarOverlay   bool
 	nativeMenuInput   NativeMenuStateInput
 	nativeMenuAction  func(desk.State, NativeMenuStateInput)
 }
@@ -186,10 +187,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			nativeClipboard := s.copyText != nil && s.copyFile != nil
 			nativeFileDrop := s.nativeFileDrop
 			nativeMenus := s.nativeMenuAction != nil
+			titlebarOverlay := s.titlebarOverlay
 			s.mu.Unlock()
 			index = strings.ReplaceAll(index, "__DESK_NATIVE_CLIPBOARD__", fmt.Sprint(nativeClipboard))
 			index = strings.ReplaceAll(index, "__DESK_NATIVE_FILE_DROP__", fmt.Sprint(nativeFileDrop))
 			index = strings.ReplaceAll(index, "__DESK_NATIVE_MENUS__", fmt.Sprint(nativeMenus))
+			index = strings.ReplaceAll(index, "__DESK_TITLEBAR_OVERLAY__", fmt.Sprint(titlebarOverlay))
 			_, _ = w.Write([]byte(index))
 			return
 		}

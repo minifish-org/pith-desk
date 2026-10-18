@@ -20,7 +20,7 @@ const recipesEntry = 'pith-ui/recipes';
 const canonicalDeskModule = 'frontend/src/ui-application';
 const cssEntry = 'pith-ui/styles.css';
 const nativeFiles = new Set(['frontend/src/ui-native.ts', 'frontend/src/native-menu.ts', 'frontend/src/app-lifecycle.ts']);
-const metaNames = new Set(['desk-token', 'desk-native-clipboard', 'desk-native-file-drop', 'desk-native-menus']);
+const metaNames = new Set(['desk-token', 'desk-native-clipboard', 'desk-native-file-drop', 'desk-native-menus', 'desk-titlebar-overlay']);
 const nativeEvents = new Set(['focus', 'blur', 'visibilitychange', 'pagehide', 'beforeunload', 'keydown', 'pith:flush-drafts', 'pith:file-drop', 'pith:native-menu']);
 const internalParts = new Set(['element', 'field', 'form', 'control', 'body', 'dialog', 'internals', 'style', 'className', 'classList', 'innerHTML', 'outerHTML', 'querySelector', 'querySelectorAll']);
 const visualOptions = new Set(['class', 'className', 'classList', 'style', 'css', 'html', 'innerHTML', 'outerHTML', 'header', 'element', 'node']);
@@ -444,7 +444,7 @@ function allowBootstrap(source: ts.SourceFile, allowed: Set<ts.Node>): void {
       const references: ts.Identifier[] = [];
       walk(source, node => { if (ts.isIdentifier(node) && node.text === candidate.name.getText(source) && node !== candidate.name && !isName(node)) references.push(node); });
       const consumed = references.map(node => ts.isCallExpression(node.parent) && node.parent.expression === node && node.parent.arguments.length === 1 ? stringValue(node.parent.arguments[0]) : undefined);
-      if (consumed.length !== 4 || new Set(consumed).size !== 4 || consumed.some(name => !name || !metaNames.has(name))) continue;
+      if (consumed.length !== metaNames.size || new Set(consumed).size !== metaNames.size || consumed.some(name => !name || !metaNames.has(name))) continue;
       allowed.add(queryProperty.object);
       if (documentParameter) allowed.add(documentParameter.name);
       if (documentParameter?.type) walk(documentParameter.type, node => allowed.add(node));

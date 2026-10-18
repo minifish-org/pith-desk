@@ -4,7 +4,7 @@ import {
   createButtonPart,mountParts,type BrandMarkOptions
 } from 'pith-ui';
 import {
-  composeFrame,type FrameState,type FrameCallbacks,composeConversationReader,type Appearance,type RecipeResult,
+  composeFrame,type FrameState,type FrameCallbacks,type FrameContent,composeConversationReader,type Appearance,type RecipeResult,
   type ConversationBodyState,ConversationBodyCallbacks,composeComposer,type ComposerCallbacks,
   type ComposerState,composeWelcome,type WelcomeState,composePendingMessages,
   composeApproval,composeTaskFailure,composeRuntime,type RuntimeState,
@@ -25,6 +25,7 @@ export interface DeskWorkspaceCallbacks extends Omit<FrameCallbacks,'onAction'|'
   onCompletionOpen?(id: string): void;onCompletionDismiss?(runId: string): void;
 }
 export interface DeskOptions {
+  titlebar?: FrameContent['titlebar'];
   brand?: {name: string;qualifier?: string;mark?: BrandMarkOptions};appearance?: Appearance;
   workspace?: DeskWorkspaceCallbacks;host?: {copyText?(text: string): HostResult;openExternal?(url: string): HostResult};
   onUIStateChange?(state: {hasModal: boolean;appearance: Appearance}): void;onError?(message: string): void;
@@ -66,7 +67,7 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
   let artifactsCallbacks: ArtifactsCallbacks = {onPreview() {},onFileAction() {}};
   const artifacts = composeArtifacts(artifactsState,artifactsCallbacks,{announcement: reader.announcement,relatedDialogs: [viewer.part]});
   const frame = composeFrame(frameState,{...callbacks,onError: report,onModalChange: changed,onDispose() {disposed = true;changed();}},
-    {main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part],brand: options.brand ?? {name: 'Pith'}});
+    {titlebar: options.titlebar,main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part],brand: options.brand ?? {name: 'Pith'}});
   const mounted = mountParts(mount,frame.part,{appearance});
   const dialogs = createDialogHost(frame,{persistentDialogs: [viewer.part],onChange: changed,onError: report});
   const opening = dialogs.open;

@@ -60,10 +60,10 @@ architecture are unchanged by this simplification.
 After `npm run build:ui`, run the opt-in actual WebView scenarios:
 
 ```sh
-GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^Test(UsabilityNative|WorkspaceFileDropNativeBridge|ConversationFileLinkNative|UpdatesNative|TaskDockNative)' -v -count=1
+GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^Test(TitlebarNative|UsabilityNative|WorkspaceFileDropNativeBridge|ConversationFileLinkNative|UpdatesNative|TaskDockNative)' -v -count=1
 ```
 
-These checks exercise drafts, rejected sends, approval, file previews/downloads,
+These checks exercise native titlebar insets and existing controls, drafts, rejected sends, approval, file previews/downloads,
 file-drop forwarding, update progress/failure and Dock unread state in a native
 WKWebView, with temporary data and local providers. Browser validation alone
 does not establish native behavior. They remain opt-in for interactive macOS

@@ -9,6 +9,14 @@ import (
 	"github.com/minifish-org/pith-desk/internal/wire"
 )
 
+// SetTitlebarOverlay describes the native window chrome. Browser previews
+// leave it disabled and retain their ordinary application header.
+func (s *Server) SetTitlebarOverlay(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.titlebarOverlay = enabled
+}
+
 // SetFileActions connects verified local paths to the native shell. Browser
 // previews keep these callbacks unset; the HTTP host never executes commands.
 func (s *Server) SetFileActions(open, reveal func(string) error) {

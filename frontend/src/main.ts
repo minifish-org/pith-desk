@@ -26,7 +26,7 @@ import type {MutationInput, MutationPath, MutationResponse} from './api';
 import type {AppearanceMode, RunSummary} from './contract.generated';
 export type {ProviderChoice} from './contract.generated';
 
-const {token, nativeClipboard, nativeFileDrop, nativeMenus, appearance} = readAppBootstrap();
+const {token, nativeClipboard, nativeFileDrop, nativeMenus, titlebar, appearance} = readAppBootstrap();
 const appearanceMode = (value: unknown): AppearanceMode => value === 'light' || value === 'dark' ? value : 'system';
 const activity: UIActivity = {busy: false, error: ''};
 let disposed = false, ready = false, flushingDrafts = false;
@@ -38,6 +38,7 @@ const app = createApp({
 });
 const {request, download, refresh} = app;
 const ui = mountApplication({
+  titlebar,
   brand: {name: 'Pith', qualifier: 'Desk', mark: {symbol: 'pith', alt: ''}},
   appearance: appearanceMode(appearance), host: {copyText: text => files.copyText(text)},
   onUIStateChange() {if (ready && !disposed) {nativeMenu?.update(); completionUI.acknowledgeViewed();}},

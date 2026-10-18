@@ -112,6 +112,9 @@ Run metadata is saved beside the sessions. After an interrupted shutdown, the co
 
 The sidebar groups conversations under their workspace folders. Expand or collapse a folder, or use its new-conversation button to start a chat in that workspace. Search conversation titles across workspaces. Each conversation's `…` menu can rename, export or permanently delete that conversation without opening it first. Desktop exports open a native save dialog so you can choose the destination. Titles are recorded through Pith's session API; the desktop catalog indexes them.
 
+The desktop window shares its native titlebar with the conversation header.
+Native window buttons remain available, and empty header areas drag the window.
+
 Text and image drafts are saved automatically in the private application data profile,
 separately for each conversation. Switching conversations or restarting the
 app restores the draft. A workspace with no conversation can retain its own
@@ -287,7 +290,7 @@ host route drift. `build:ui` and the CI check run this check automatically.
 The frontend retains the authenticated loopback HTTP/WebSocket transport.
 Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
-Desk pins the published `pith-ui@0.7.1` package in
+Desk pins the published `pith-ui@0.8.0` package in
 `frontend/package-lock.json`. Parts come from `pith-ui`, complete regions from
 `pith-ui/recipes`, and styles from `pith-ui/styles.css`. UI owns region layout,
 controls, drafts, focus, selection, scrolling and dialog lifetime.

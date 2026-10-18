@@ -24,6 +24,25 @@ async function setup(page: Page,appearance: 'light'|'dark' = 'light'): Promise<v
   },{appearance});
 }
 
+for (const enabled of [false,true]) test(`window titlebar capability maps to the shared frame only when enabled=${enabled}`,async ({page}) => {
+  await openFixture(page);
+  await page.evaluate(async enabled => {
+    const bootstrapPath = '/src/ui-bootstrap.ts',applicationPath = '/src/ui-application.ts';
+    const {readAppBootstrap} = await import(bootstrapPath),{mountDesk} = await import(applicationPath);
+    for (const name of ['desk-native-clipboard','desk-native-file-drop','desk-native-menus','desk-titlebar-overlay']) {
+      const meta = document.createElement('meta');meta.name = name;
+      meta.content = String(name === 'desk-titlebar-overlay' ? enabled : !enabled);document.head.append(meta);
+    }
+    const bootstrap = readAppBootstrap(),mount = document.body.appendChild(document.createElement('div'));
+    const app = mountDesk(mount,{titlebar: bootstrap.titlebar});
+    window.deskPartsHarness = {app,events: [],calls: []};
+  },enabled);
+  await expect(page.locator('.pui-titlebar-overlay')).toHaveCount(enabled ? 1 : 0);
+  await expect(page.locator('meta[name="desk-titlebar-overlay"]')).toHaveCount(0);
+  await page.evaluate(() => window.deskPartsHarness.app.destroy());
+  await expect(page.locator('.pui-app')).toHaveCount(0);
+});
+
 for (const appearance of ['light','dark'] as const) test(`${appearance} desk wiring preserves busy/current target and inline error visibility`,async ({page}) => {
   await setup(page,appearance);await page.evaluate(() => window.deskPartsHarness.app.workspace.updateShell({busy: {key: 'running',message: 'A task is running 中文',actionLabel: 'Open running conversation'},error: {message: 'Visible error 中文'}}));
   await page.getByRole('button',{name: 'Open running conversation',exact: true}).click();expect(await page.evaluate(() => window.deskPartsHarness.calls)).toEqual(['running']);

@@ -49,8 +49,20 @@ test('app owns authenticated HTTP and WS ingress and consumes bootstrap secrets'
   const bootstrap = readAppBootstrap();
   assert.equal(bootstrap.token, 'fixture-token');
   assert.equal(bootstrap.nativeMenus, true);
+  assert.equal(bootstrap.titlebar, 'overlay');
   assert.equal(bootstrap.appearance, 'dark');
-  assert.equal(removed.length, 4);
+  assert.equal(removed.length, 5);
+});
+
+test('browser bootstrap leaves titlebar fusion off unless the window host explicitly enables it', (t) => {
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  let value = 'false';
+  Object.defineProperty(globalThis, 'document', {configurable: true, value: {
+    documentElement: {dataset: {}},querySelector: selector => ({content: selector.includes('desk-titlebar-overlay') ? value : 'true',remove() {}}),
+  }});
+  t.after(() => {if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument); else delete globalThis.document;});
+  for (value of ['false','__DESK_TITLEBAR_OVERLAY__','']) assert.equal(readAppBootstrap().titlebar, undefined);
+  value = 'true';assert.equal(readAppBootstrap().titlebar, 'overlay');
 });
 
 test('a delayed HTTP snapshot cannot overwrite a newer streamed selection', async (t) => {
