@@ -29,11 +29,13 @@ const build = run('go',['version','-m',join(stage,'pith-desk')],true);
 if (!['CGO_ENABLED=0','GOOS=linux','GOARCH=amd64'].every(field => build.includes(field))) throw new Error('Expected a CGO-free Linux amd64 build.');
 const output = join(root,'build/releases');
 mkdirSync(output,{recursive: true});
-const files = [`pith-desk-${version}-linux-amd64.tar.gz`,`pith-desk_${version.replace('-','~')}_amd64.deb`];
-for (const file of files) {
-  const bytes = readFileSync(join(stage,file));
+const archive = `pith-desk-${version}-linux-amd64.tar.gz`;
+// GitHub rewrites '~' in uploaded filenames; retain it only inside the Debian version.
+const files = [[archive,archive],[`pith-desk_${version.replace('-','~')}_amd64.deb`,`pith-desk_${version}_amd64.deb`]];
+for (const [input,file] of files) {
+  const bytes = readFileSync(join(stage,input));
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  copyFileSync(join(stage,file),join(output,file));
+  copyFileSync(join(stage,input),join(output,file));
   writeFileSync(join(output,file+'.sha256'),`${sha256}  ${file}\n`);
   writeFileSync(join(output,file+'.json'),JSON.stringify({version,file,sha256,sourceCommit,sourceDirty,sourceURL: `https://github.com/minifish-org/pith-desk/tree/${sourceCommit}`,architectures: ['amd64'],os: 'linux',cgo: false},null,2)+'\n');
   console.log(`Created ${join(output,file)}`);

@@ -65,7 +65,8 @@ pith-desk
 ```
 
 Install a newer `.deb` the same way to upgrade. Use `sudo apt remove pith-desk`
-to uninstall. The package version uses Debian's `~` prerelease separator.
+to uninstall. The internal package version uses Debian's `~` prerelease
+separator; download filenames retain the tag's `-` because GitHub rewrites `~`.
 
 For a portable installation, extract `pith-desk-<version>-linux-amd64.tar.gz`
 into its own directory and run `./pith-desk`. If WebKitGTK is missing, install

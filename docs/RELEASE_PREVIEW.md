@@ -1,6 +1,6 @@
-New in rc.32:
+New in rc.33:
 
-- Add an Ubuntu x86-64 desktop preview, retaining the same MyGo shell, embedded UI and Pith backend. Install the `.deb` with `sudo apt install ./pith-desk_0.1.0~rc.32_amd64.deb`, or extract the Linux archive and run `./pith-desk`.
+- Add an Ubuntu x86-64 desktop preview, retaining the same MyGo shell, embedded UI and Pith backend. Install the `.deb` with `sudo apt install ./pith-desk_0.1.0-rc.33_amd64.deb`, or extract the Linux archive and run `./pith-desk`.
 - Support native windows down to 480 × 600. Show the current conversation in the header and keep the input controls compact.
 - Show concise token counts and cost estimates while keeping output tokens/s directly visible. Expand the runtime row for model and usage details.
 - Remove persistent composer explanations and the Thinking label prefix. Keep skill names readable by hiding list descriptions and moving actions below names in narrow windows.
