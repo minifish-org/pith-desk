@@ -5,10 +5,14 @@ import {execFileSync} from 'node:child_process';
 
 test('Ubuntu release paths preserve the literal Debian prerelease separator in Bash', () => {
   const workflow = readFileSync(new URL('../.github/workflows/release.yml',import.meta.url),'utf8');
-  const expressions = [...new Set(workflow.match(/\$\{version\/-\/[^}]+\}/g))];
-  assert.ok(expressions.length,'expected the release workflow to derive Debian versions');
-  for (const expression of expressions) {
-    const actual = execFileSync('bash',['-c',`version=0.1.0-rc.31; printf '%s\\n' "${expression}"`],{encoding: 'utf8'}).trim();
-    assert.equal(actual,'0.1.0~rc.31');
+  const assignments = workflow.match(/^\s*debian_version=.*$/gm) ?? [];
+  assert.equal(assignments.length,2,'both package verification and publication must derive Debian versions');
+  for (const assignment of assignments) {
+    for (const shell of ['bash','/bin/bash']) {
+      for (const [version, expected] of [['0.1.0','0.1.0'],['0.1.0-rc.31','0.1.0~rc.31']]) {
+        const actual = execFileSync(shell,['-c',`${assignment.trim()}\nprintf '%s\\n' "$debian_version"`],{encoding: 'utf8',env: {...process.env,version}}).trim();
+        assert.equal(actual,expected);
+      }
+    }
   }
 });
