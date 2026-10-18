@@ -1,4 +1,4 @@
-import {mountDesk} from './ui-assemblies/desk.ts';
+import {mountDesk} from './ui-application.ts';
 import type {ApplicationOptions} from './ui-contract.ts';
 
 export function mountApplication(options: ApplicationOptions) {

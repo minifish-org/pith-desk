@@ -10,7 +10,7 @@ test.beforeEach(async ({page}) => {
 
 test('provider actions report to their own form while the SDK dialog is closed',async ({page}) => {
   await page.evaluate(async () => {
-    const library = '/src/ui-assemblies/desk.ts', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const library = '/src/ui-application.ts', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
     const [{mountDesk}, {createSDKUI}] = await Promise.all([import(library), import(adapter), import(styles)]);
     const ui = mountDesk(document.getElementById('app')!), calls: unknown[] = [];
     const sdk = createSDKUI({ui, state: () => ({runs: []}), busy: () => false, mutate: async (path: string, payload: unknown) => {calls.push({path, payload}); return false;}, error: () => 'Provider rejected'});
@@ -36,7 +36,7 @@ test('provider actions report to their own form while the SDK dialog is closed',
 
 test('a replaced provider form cannot receive an older action failure',async ({page}) => {
   await page.evaluate(async () => {
-    const library = '/src/ui-assemblies/desk.ts', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const library = '/src/ui-application.ts', adapter = '/src/sdk-features.ts', styles = '/node_modules/pith-ui/dist/styles.css';
     const [{mountDesk}, {createSDKUI}] = await Promise.all([import(library), import(adapter), import(styles)]);
     const ui = mountDesk(document.getElementById('app')!), calls: unknown[] = [];
     const fixture: FormFixture = {ui, calls, panel: undefined!, destroy() {sdk.destroy(); ui.destroy();}};

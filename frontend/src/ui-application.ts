@@ -1,35 +1,23 @@
-/** Internal Desk blueprint. Only the small parts imported by the individual
- * recipes are package APIs; this controller will move into Desk unchanged. */
-import {createDownloadPart,createFeedbackPart,createStatusActionsPart,createTextPart,createButtonPart,mountParts,type DialogPart,type BrandMarkOptions} from 'pith-ui';
-import {composeFrame,type FrameState,type FrameCallbacks} from './frame.js';
-import {composeConversationReader} from './conversation-reader.js';
-import type {ConversationBodyState,ConversationBodyCallbacks} from './conversation-body.js';
-import {composeComposer,type ComposerCallbacks,type ComposerState} from './composer.js';
-import {composeWelcome,type WelcomeState} from './welcome.js';
-import {composePendingMessages} from './pending-messages.js';
-import {composeApproval} from './approval.js';
-import {composeTaskFailure} from './task-failure.js';
-import {composeRuntime,type RuntimeState} from './runtime.js';
-import {composeCostLedger,type CostLedgerState} from './cost-ledger.js';
-import {composeCompletionNotices} from './completion-notices.js';
-import {composeImageViewer} from './image-viewer.js';
-import {composeArtifacts,type ArtifactsState,type ArtifactsCallbacks} from './artifacts.js';
-import {composeFilePreview,type PreviewInput,type PreviewCallbacks} from './file-preview.js';
-import {composeSettings} from './settings.js';
-import {composeMCPConnections} from './mcp.js';
-import {composeModelPicker} from './model-picker.js';
-import {composeCustomConnection,composeCustomConnectionLoading} from './custom-connection.js';
-import {composeProviderLogin} from './provider-login.js';
-import {composeResourcesInventory} from './resource-inventory.js';
-import {composeResourceEditor,composeResourceLoading} from './resource-editor.js';
-import {composeWorkspacePicker} from './workspace-picker.js';
-import {composeRename} from './rename.js';
-import {composeFullAccess} from './full-access.js';
-import {composeBranchHistory} from './branch-history.js';
-import {composeTextEditor,type TextEditorState} from './text-edit.js';
-import {composeConfirmation} from './confirmation.js';
+/** Connect shared UI regions to Desk business state and callbacks. */
+import {
+  createDownloadPart,createFeedbackPart,createStatusActionsPart,createTextPart,
+  createButtonPart,mountParts,type BrandMarkOptions
+} from 'pith-ui';
+import {
+  composeFrame,type FrameState,type FrameCallbacks,composeConversationReader,type Appearance,type RecipeResult,
+  type ConversationBodyState,ConversationBodyCallbacks,composeComposer,type ComposerCallbacks,
+  type ComposerState,composeWelcome,type WelcomeState,composePendingMessages,
+  composeApproval,composeTaskFailure,composeRuntime,type RuntimeState,
+  composeCostLedger,type CostLedgerState,composeCompletionNotices,composeImageViewer,
+  composeArtifacts,type ArtifactsState,type ArtifactsCallbacks,composeFilePreview,
+  type PreviewInput,type PreviewCallbacks,composeSettings,composeMCPConnections,
+  composeModelPicker,composeCustomConnection,composeCustomConnectionLoading,composeProviderLogin,
+  composeResourcesInventory,composeResourceEditor,composeResourceLoading,composeWorkspacePicker,
+  composeRename,composeFullAccess,composeBranchHistory,composeTextEditor,
+  type TextEditorState,composeConfirmation,createDialogHost
+} from 'pith-ui/recipes';
 
-type HostResult = void|{ok: true}|{ok: false;error: string}|Promise<void|{ok: true}|{ok: false;error: string}>;
+type HostResult = void|RecipeResult|Promise<void|RecipeResult>;
 export interface DeskWorkspaceCallbacks extends Omit<FrameCallbacks,'onAction'|'onModalChange'|'onDispose'>,Omit<ComposerCallbacks,'onAction'|'onOpenImage'>,ConversationBodyCallbacks {
   onAction?(action: 'workspace'|'resources'|'connections'|'settings'|'model'|'compact'|'continue'|'diagnostics'): HostResult;
   onBusyAction?(key: string): void;onQueueAction?(action: 'steer'|'edit'|'delete',id: string): void;
@@ -37,19 +25,17 @@ export interface DeskWorkspaceCallbacks extends Omit<FrameCallbacks,'onAction'|'
   onCompletionOpen?(id: string): void;onCompletionDismiss?(runId: string): void;
 }
 export interface DeskOptions {
-  brand?: {name: string;qualifier?: string;mark?: BrandMarkOptions};appearance?: 'light'|'dark'|'system';
+  brand?: {name: string;qualifier?: string;mark?: BrandMarkOptions};appearance?: Appearance;
   workspace?: DeskWorkspaceCallbacks;host?: {copyText?(text: string): HostResult;openExternal?(url: string): HostResult};
-  onUIStateChange?(state: {hasModal: boolean;appearance: 'light'|'dark'|'system'}): void;onError?(message: string): void;
+  onUIStateChange?(state: {hasModal: boolean;appearance: Appearance}): void;onError?(message: string): void;
 }
-export interface DeskShellState {workspace?: string;conversation?: string;reconnecting?: boolean;error?: {message: string;hidden?: boolean};busy?: {key: string;message: string;actionLabel: string}|null}
-export interface DeskAvailability {busy?: boolean;global?: boolean;active?: boolean;conversations?: readonly string[];workspaces?: readonly string[]}
-interface Opening {readonly part: DialogPart;isOpen(): boolean;close(): void;destroy(): void}
-type Slot = 'settings'|'connections'|'model'|'workspace'|'permissions'|'rename'|'resources'|'preview'|'feature'|'oauth'|'message'|'queue'|'confirmation';
+export interface DeskShellState extends Pick<FrameState,'workspace'|'conversation'|'reconnecting'> {error?: {message: string;hidden?: boolean};busy?: {key: string;message: string;actionLabel: string}|null}
+export interface DeskAvailability extends NonNullable<FrameState['availability']> {global?: boolean;active?: boolean}
 
 /** One ownership/theme mount. Every dialog is a direct child of this frame. */
 export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
-  let disposed = false,appearance = options.appearance ?? 'system',lastModal = false,openingSequence = 0,activeId = '';
-  const callbacks = options.workspace ?? {},slots = new Map<Slot,Opening>(),attempts = new Map<Slot,number>(),overlays = new Set<DialogPart>();
+  let disposed = false,appearance = options.appearance ?? 'system',lastModal = false,activeId = '';
+  const callbacks = options.workspace ?? {};
   let frameState: FrameState = {navigation: {groups: [],empty: 'workspaces'}},availability: DeskAvailability = {},composerState: ComposerState = {},messageAvailability: Partial<Record<'copy'|'edit'|'branch',boolean>> = {};
   let composerModel = {label: 'Choose model',description: '',disabled: false};
   let currentMessages: ConversationBodyState['messages'] = [],working = false,busyKey = '';
@@ -79,35 +65,11 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
   let artifactsState: ArtifactsState = {ownerId: '',files: [],loading: false,error: '',copyMode: 'path'};
   let artifactsCallbacks: ArtifactsCallbacks = {onPreview() {},onFileAction() {}};
   const artifacts = composeArtifacts(artifactsState,artifactsCallbacks,{announcement: reader.announcement,relatedDialogs: [viewer.part]});
-  const frame = composeFrame(frameState,{...callbacks,onError: report,onModalChange: changed,onDispose() {disposed = true;slots.clear();overlays.clear();changed();}},
+  const frame = composeFrame(frameState,{...callbacks,onError: report,onModalChange: changed,onDispose() {disposed = true;changed();}},
     {main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part],brand: options.brand ?? {name: 'Pith'}});
   const mounted = mountParts(mount,frame.part,{appearance});
-  const syncOverlays = () => {if (!disposed) frame.replaceOverlays([viewer.part,...overlays]);};
-
-  /** This is the old slot/opening sequencing, expressed only through parts. */
-  function openInSlot<T extends Opening>(slot: Slot,create: (onClose: () => void) => T,activate: (local: T) => void): T {
-    const attempt = ++openingSequence;attempts.set(slot,attempt);let local: T|undefined,notified = false;
-    const release = () => {
-      if (notified) return;notified = true;
-      if (local) {overlays.delete(local.part);if (slots.get(slot) === local) slots.delete(slot);}
-      syncOverlays();changed();
-    };
-    local = create(release);
-    if (disposed) {local.destroy();return local;}
-    slots.get(slot)?.destroy();
-    if (disposed || attempts.get(slot) !== attempt) {local.destroy();release();return local;}
-    slots.set(slot,local);overlays.add(local.part);syncOverlays();frame.setSidebarOpen(false);activate(local);changed();return local;
-  }
-  function opening<T extends Opening>(slot: Slot,create: (onClose: () => void) => T,activate: (local: T) => void,onClose?: () => void): T {
-    let notified = false;
-    const closed = () => {if (!notified) {notified = true;notify(onClose);}};
-    // Retire the slot before notifying: an onClose callback may synchronously
-    // open its successor, which must win over the outer attempted replacement.
-    let releaseOpening: (() => void)|undefined;
-    const local = openInSlot(slot,release => {releaseOpening = release;return create(() => {release();closed();});},activate);
-    if (!disposed && !local.isOpen() && !notified) {releaseOpening?.();closed();}
-    return local;
-  }
+  const dialogs = createDialogHost(frame,{persistentDialogs: [viewer.part],onChange: changed,onError: report});
+  const opening = dialogs.open;
   const compactDisabled = () => !!availability.busy || !!availability.active || working || !activeId || !currentMessages.length;
   const syncFrame = () => {frameState = {...frameState,availability,compactDisabled: compactDisabled()};frame.update(frameState);};
   const syncFailure = () => failure.update({...failureState,disabled: !!availability.busy || (failureState.workspaceId ? !!availability.workspaces?.includes(failureState.workspaceId) : !!availability.active)});

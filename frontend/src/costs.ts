@@ -1,7 +1,7 @@
 import type { State } from './app-state';
 
 import type { Application } from './ui-contract.ts';
-export { formatCost } from './ui-assemblies/cost-ledger.ts';
+export { formatCost } from 'pith-ui/recipes';
 import type { ApiRequest } from './api';
 export type { CostSummary } from './contract.generated';
 

@@ -287,27 +287,22 @@ host route drift. `build:ui` and the CI check run this check automatically.
 The frontend retains the authenticated loopback HTTP/WebSocket transport.
 Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
-Desk pins the published `pith-ui@0.6.3` package in
-`frontend/package-lock.json`. Its runtime imports use only `pith-ui` and
-`pith-ui/styles.css`. The library provides constrained parts and owns their
-native elements, typography, spacing, colors, sizes and motion. Callers supply
-content, bounded semantic choices, state and callbacks.
+Desk pins the published `pith-ui@0.7.0` package in
+`frontend/package-lock.json`. Parts come from `pith-ui`, complete regions from
+`pith-ui/recipes`, and styles from `pith-ui/styles.css`. UI owns region layout,
+controls, drafts, focus, selection, scrolling and dialog lifetime.
 
-`frontend/src/ui-assemblies/` contains the executable assembly recipes copied
-from that installed package's `examples/assemblies/` and adapted locally.
-Desk owns their part trees, state projection, callback connections and lifetime;
-its controllers retain requests, identities, drafts, credentials, permissions
-and native capabilities. These compositions are local application code.
-Pith UI exposes no application or scene API. The installed `AI.md`, `API.md`,
-declarations and `docs/assemblies/` describe the supported parts and assembly
-methods. Missing native part capabilities belong in Pith UI, followed by a
-registry release and an exact dependency update here; do not use a source
-alias or local package.
+`frontend/src/ui-application.ts` is the thin application coordinator. It connects
+regions and projects business availability; controllers retain requests,
+original operation targets, configuration persistence, permissions and native
+capabilities. Dialog slots use the shared `createDialogHost`. Region source and
+presentation algorithms are maintained once in Pith UI. Fix shared behavior in
+the library, publish a patch, then update the exact dependency here.
 
 `npm run check:ui-consumption` checks production imports, DOM/style/template
 bypasses, precise mount/bootstrap/native adapters, and the registry dependency
 and installed exports. It runs in `build:ui` and therefore in CI. The application
-mount adapter is `ui-mount.ts`; local assemblies attach opaque part trees through
+mount adapter is `ui-mount.ts`; the application coordinator attaches one opaque part tree through
 `mountParts`. `ui-bootstrap.ts` consumes the four host metadata fields
 and initial appearance. Native adapters forward validated events and read
 foreground state without finding or changing UI nodes. Branding uses finite
@@ -332,8 +327,8 @@ Both Pith and MyGo are pinned in `go.mod`; applications build without a sibling 
 
 ## Where to read the code
 
-- `frontend/src/`: business controllers, streamed state, local part compositions and finite host adapters.
-- `frontend/src/ui-assemblies/`: application-owned assembly recipes using the published Pith UI parts.
+- `frontend/src/`: business controllers, streamed state, region coordination and finite host adapters.
+- `frontend/src/ui-application.ts`: application coordination using published Pith UI regions.
 - `internal/desk/`: the application service and its Pith SDK adapter, persisted settings/history and tool policy.
 - `internal/host/`: embedded frontend, authenticated loopback API and streamed snapshots.
 - `internal/wire/` and `cmd/contractgen/`: Go request/response schemas and generated TypeScript contracts.

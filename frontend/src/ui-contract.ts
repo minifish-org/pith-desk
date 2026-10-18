@@ -1,6 +1,6 @@
-/** Desk-local semantic aliases derived from the verified part assemblies.
+/** Desk semantic aliases inferred from the coordinator and published regions.
  * No old package scene, generated DOM or library-private type is imported. */
-import type {mountDesk} from './ui-assemblies/desk.js';
+import type {mountDesk} from './ui-application.js';
 
 export type Application = ReturnType<typeof mountDesk>;
 export type ApplicationOptions = NonNullable<Parameters<typeof mountDesk>[1]>;
@@ -60,7 +60,7 @@ export type AppResourceTarget = Parameters<NonNullable<ResourceCallbacks['onUse'
 export type AppResourceKind = AppResourceTarget['kind'];
 export type ResourceDraft = ReturnType<ReturnType<Resources['openEditor']>['read']>;
 
-// These are application data helpers, never npm component/scene exports.
-export {thinkingLabel} from './ui-assemblies/model-picker.ts';
-export {customModelDefaults} from './ui-assemblies/custom-connection.ts';
-export {formatCost} from './ui-assemblies/cost-ledger.ts';
+// Shared presentation defaults and formatting have one package implementation.
+export {thinkingLabel} from 'pith-ui/recipes';
+export {customModelDefaults} from 'pith-ui/recipes';
+export {formatCost} from 'pith-ui/recipes';

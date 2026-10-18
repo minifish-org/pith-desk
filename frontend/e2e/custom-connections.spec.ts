@@ -7,7 +7,7 @@ test.beforeEach(async ({page}) => {
   await page.route('**/custom-defaults.html', route => route.fulfill({contentType: 'text/html', body: '<!doctype html><html><body><div id="app"></div></body></html>'}));
   await page.goto('/custom-defaults.html');
   await page.evaluate(async () => {
-    const library = '/src/ui-assemblies/desk.ts', styles = '/node_modules/pith-ui/dist/styles.css', controller = '/src/custom-connections.ts';
+    const library = '/src/ui-application.ts', styles = '/node_modules/pith-ui/dist/styles.css', controller = '/src/custom-connections.ts';
     const [{mountDesk}, {createCustomUI}] = await Promise.all([import(library), import(controller), import(styles)]);
     const ui: Application = mountDesk(document.getElementById('app')!), reads: string[] = [];
     const custom = createCustomUI({ui, settings() {}, error: () => '', mutate: async () => true,

@@ -9,7 +9,7 @@ test.beforeEach(async ({page}) => {
   await page.route('**/controller-test.html', route => route.fulfill({contentType: 'text/html', body: '<!doctype html><html><head><title>Real DOM controller regression</title></head><body><div id="app"></div></body></html>'}));
   await page.goto('/controller-test.html');
   await page.evaluate(async () => {
-    const library = '/src/ui-assemblies/desk.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const library = '/src/ui-application.ts', styles = '/node_modules/pith-ui/dist/styles.css';
     const [{mountDesk}] = await Promise.all([import(library), import(styles)]);
     const ui = mountDesk(document.getElementById('app')!);
     (window as unknown as {controllerFixture: ControllerFixture}).controllerFixture = {ui};
@@ -96,7 +96,7 @@ test('closing the shared dialog invalidates an in-flight history read', async ({
 // routing, image delivery and selection insertion; host fakes must not copy them.
 test('native drops outside composer do not insert paths', async ({page}) => {
   const result = await page.evaluate(async () => {
-    const path = '/src/workspace-files.ts', library = '/src/ui-assemblies/desk.ts';
+    const path = '/src/workspace-files.ts', library = '/src/ui-application.ts';
     const [{installWorkspaceFileDrop}, {mountDesk}] = await Promise.all([import(path), import(library)]);
     (window as unknown as {controllerFixture: ControllerFixture}).controllerFixture.ui.destroy();
     const resolved: unknown[] = [], errors: string[] = [];
@@ -115,7 +115,7 @@ test('native drops outside composer do not insert paths', async ({page}) => {
 
 test('mixed images still arrive when native paths resolve before the DOM drop', async ({page}) => {
   const result = await page.evaluate(async () => {
-    const path = '/src/workspace-files.ts', library = '/src/ui-assemblies/desk.ts';
+    const path = '/src/workspace-files.ts', library = '/src/ui-application.ts';
     const [{installWorkspaceFileDrop}, {mountDesk}] = await Promise.all([import(path), import(library)]);
     (window as unknown as {controllerFixture: ControllerFixture}).controllerFixture.ui.destroy();
     const images: string[][] = [], resolved: unknown[] = [], errors: string[] = [], changes: string[] = [], pending: boolean[] = [];

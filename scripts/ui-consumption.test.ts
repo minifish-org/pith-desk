@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { checkUIConsumption, readConsumptionInput } from './ui-consumption.ts';
 
-const version = '0.6.0';
+const version = '0.7.0';
 const integrity = 'sha512-' + Buffer.alloc(64).toString('base64');
 const packageJSON = {
   name: 'pith-desk-frontend', private: true, type: 'module',
@@ -24,7 +24,7 @@ const installedPackage = {
   name: 'pith-ui', version,
   exports: {
     '.': { types: './dist/index.d.ts', import: './dist/index.js' },
-    './styles.css': './dist/styles.css',
+    './recipes': {types: './dist/recipes/index.d.ts',import: './dist/recipes/index.js'}, './styles.css': './dist/styles.css',
   },
 };
 const baselineFiles: Record<string, string> = {
@@ -48,7 +48,7 @@ function rejected(text: string, path = 'frontend/src/feature.ts') {
 }
 
 const mountModule = `
-  import { mountDesk } from './ui-assemblies/desk';
+  import { mountDesk } from './ui-application';
   import type { ApplicationOptions } from './ui-contract';
   export function mountApplication(options: ApplicationOptions) {
     const root = document.getElementById('app');
@@ -238,11 +238,11 @@ test('namespace and dynamic app factories cannot bypass the single mount adapter
   ]) rejected(text);
 });
 
-test('the local custom model defaults helper is pure data through named, alias and namespace imports', () => {
+test('the published custom model defaults helper is pure data through named, alias and namespace imports', () => {
   for (const text of [
-    "import {customModelDefaults} from './ui-assemblies/custom-connection'; export const model = customModelDefaults();",
-    "import {customModelDefaults as defaults} from './ui-assemblies/custom-connection'; export const model = defaults();",
-    "import * as ui from './ui-assemblies/custom-connection'; export const model = ui.customModelDefaults();",
+    "import {customModelDefaults} from 'pith-ui/recipes'; export const model = customModelDefaults();",
+    "import {customModelDefaults as defaults} from 'pith-ui/recipes'; export const model = defaults();",
+    "import * as ui from 'pith-ui/recipes'; export const model = ui.customModelDefaults();",
   ]) assert.deepEqual(source(text), []);
 });
 
@@ -423,7 +423,7 @@ test('the lockfile must resolve the same exact package to the public npm registr
   assert.ok(inspect({ 'frontend/package-lock.json': JSON.stringify(different) }).length > 0);
 });
 
-test('installed package metadata must match the pinned version and expose only the formal parts and stylesheet entries', () => {
+test('installed package metadata must match the pinned version and expose only the formal parts, recipes and stylesheet entries', () => {
   assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify({ ...installedPackage, version: '0.1.4' }) }).length > 0);
   const missingRoot = structuredClone(installedPackage); delete (missingRoot.exports as Record<string, unknown>)['.'];
   assert.ok(inspect({ 'frontend/node_modules/pith-ui/package.json': JSON.stringify(missingRoot) }).length > 0);
@@ -480,8 +480,8 @@ test('diagnostics identify the offending file, source line and a useful reason',
 test('opaque parts and child composition are permitted without native access', () => {
   const text = `
     import {createButtonPart,createStackPart,mountParts,type Part} from 'pith-ui';
-    import {composePermissionControl} from './permission-control.js';
-    import {composeTextEditor} from './text-edit.js';
+    import {composePermissionControl} from 'pith-ui/recipes';
+    import {composeTextEditor} from 'pith-ui/recipes';
     export function mountExample(mount: HTMLElement) {
       const permission = composePermissionControl({mode:'ask',description:''});
       const editor = composeTextEditor({value:''});
@@ -491,7 +491,7 @@ test('opaque parts and child composition are permitted without native access', (
       return mountParts(mount,group);
     }
   `;
-  assert.deepEqual(source(text,'frontend/src/ui-assemblies/example.ts'),[]);
+  assert.deepEqual(source(text,'frontend/src/ui-application.ts'),[]);
   rejected(text,'frontend/src/feature.ts');
 });
 
@@ -500,10 +500,10 @@ test('formal factories are recognized through named, namespace and dynamic alias
     `import {createStackPart as stack,mountParts as mount} from 'pith-ui'; export function mountExample(root:HTMLElement) {return mount(root,stack({children:[]}));}`,
     `import * as parts from 'pith-ui'; export function mountExample(root:HTMLElement) {return parts.mountParts(root,parts.createStackPart({children:[]}));}`,
     `const parts=await import('pith-ui'); const stack=parts.createStackPart,mount=parts.mountParts; export function mountExample(root:HTMLElement) {return mount(root,stack({children:[]}));}`,
-  ]) assert.deepEqual(source(text,'frontend/src/ui-assemblies/example.ts'),[]);
+  ]) assert.deepEqual(source(text,'frontend/src/ui-application.ts'),[]);
 });
 
-test('a composition directory does not permit DOM operations or additional native parameters', () => {
+test('the application coordinator does not permit DOM operations or additional native parameters', () => {
   for(const text of [
     `export function mountExample(root:HTMLElement) {return root;}`,
     `export function mountExample(root:HTMLElement) {return {root};}`,
@@ -513,25 +513,25 @@ test('a composition directory does not permit DOM operations or additional nativ
     `export function composeExample(root:HTMLElement) {return {part:root};}`,
     `const node=document.createElement('button');`,
     `const html=<button>Save</button>;`,
-  ]) rejected(text,'frontend/src/ui-assemblies/example.tsx');
+  ]) rejected(text,'frontend/src/ui-application.tsx');
 });
 
 test('a same-named local mountParts function cannot gain native mount authority', () => {
-  rejected(`function mountParts(root:unknown,part:unknown) {} export function mountExample(root:HTMLElement) {return mountParts(root,{});}`,'frontend/src/ui-assemblies/example.ts');
+  rejected(`function mountParts(root:unknown,part:unknown) {} export function mountExample(root:HTMLElement) {return mountParts(root,{});}`,'frontend/src/ui-application.ts');
 });
 
 test('the native mount exception requires the canonical local desk module', () => {
-  for(const path of ['./other-desk','./ui-assemblies/desk-copy','pith-ui/app']) {
-    rejected(mountModule.replace("'./ui-assemblies/desk'",JSON.stringify(path)),'frontend/src/ui-mount.ts');
+  for(const path of ['./other-desk','./ui-application-copy','pith-ui/app']) {
+    rejected(mountModule.replace("'./ui-application'",JSON.stringify(path)),'frontend/src/ui-mount.ts');
   }
-  assert.deepEqual(source(mountModule.replace("'./ui-assemblies/desk'","'./ui-assemblies/desk.js'"),'frontend/src/ui-mount.ts'),[]);
+  assert.deepEqual(source(mountModule.replace("'./ui-application'","'./ui-application.js'"),'frontend/src/ui-mount.ts'),[]);
 });
 
 test('opaque references cannot recover native internals or part accessor methods', () => {
   for(const tail of ['editor.element','editor.part.element','editor.part.style','editor.part.querySelector("button")','editor.part("message")','permission.control.element','permission.control()']) {
-    rejected(`import {composeTextEditor} from './text-edit'; import {composePermissionControl} from './permission-control'; const editor=composeTextEditor({value:''});const permission=composePermissionControl({mode:'ask'});${tail};`,'frontend/src/ui-assemblies/example.ts');
+    rejected(`import {composeTextEditor} from 'pith-ui/recipes'; import {composePermissionControl} from 'pith-ui/recipes'; const editor=composeTextEditor({value:''});const permission=composePermissionControl({mode:'ask'});${tail};`,'frontend/src/ui-application.ts');
   }
-  rejected(`import {createInputPart} from 'pith-ui'; const input=createInputPart({value:''});input.control;`,'frontend/src/ui-assemblies/example.ts');
+  rejected(`import {createInputPart} from 'pith-ui'; const input=createInputPart({value:''});input.control;`,'frontend/src/ui-application.ts');
 });
 
 test('part construction still checks aliased, nested and spread style or rendering escapes', () => {
@@ -540,10 +540,10 @@ test('part construction still checks aliased, nested and spread style or renderi
     `const free={renderHeader:()=>'<h1>Header</h1>'};stack({children:[],...free});`,
     `const content={css:'padding:8px'};stack({children:[],content});`,
     `const key='class'+'Name';stack({[key]:'custom'});`,
-  ]) rejected(`import {createStackPart as stack} from 'pith-ui';${expression}`,'frontend/src/ui-assemblies/example.ts');
+  ]) rejected(`import {createStackPart as stack} from 'pith-ui';${expression}`,'frontend/src/ui-application.ts');
 });
 
-test('part factory calls outside the composition directory do not gain native mounting authority', () => {
+test('part factory calls outside the application coordinator do not gain native mounting authority', () => {
   for(const text of [
     `import {mountParts as attach} from 'pith-ui';attach(undefined as any,part);`,
     `import * as ui from 'pith-ui';const attach=ui.mountParts;attach(undefined as any,part);`,
