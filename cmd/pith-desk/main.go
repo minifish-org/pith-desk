@@ -170,7 +170,7 @@ func runDesktop(dataDir, devURL string) error {
 		})
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title: "Pith Desk", Hidden: true,
-			Width: 1320, Height: 860, MinWidth: 900, MinHeight: 600,
+			Width: 1320, Height: 860, MinWidth: 480, MinHeight: 600,
 			TitleBarStyle:        mygo.TitleBarHiddenInset,
 			TrafficLightPosition: &mygo.Point{X: 14, Y: 19},
 			BackgroundColor:      "light-dark(#F7F8FB, #17191C)", StateKey: "main",

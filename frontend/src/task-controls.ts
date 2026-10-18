@@ -3,6 +3,8 @@ import type { ApiDownload, ApiMutate, ApiRequest } from './api.ts';
 import type { PermissionMode, RuntimeStatus, Workspace } from './contract.generated.ts';
 import { formatCost } from './costs.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
+const compactNumbers = new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 });
+const compactNumber = (value: number) => compactNumbers.format(value || 0).replace('K', 'k');
 type API = {
     ui: Application;
     view: AppView;
@@ -58,16 +60,16 @@ export function createTaskControls(api: API) {
         const elapsed = taskElapsedMs(status);
         const duration = timing?.startedAt ? `${timing.partial ? '≥' : ''}${formatDuration(elapsed)}` : 'Not recorded';
         const speed = timing?.startedAt && !timing.partial && timing.outputTokens > 0 && elapsed > 0
-            ? new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(timing.outputTokens * 1000 / elapsed) : '—';
-        const tokens = new Intl.NumberFormat().format(Math.round(status.usage.total || 0));
-        ui.workspace.updateTiming({summary: `${app.state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'} · ${status.model} · ${tokens} tokens · ${formatCost(status.cost)}${timing?.startedAt ? ` · ${duration} · ${speed} output tokens/s` : ''}`, duration, speed});
+            ? compactNumber(timing.outputTokens * 1000 / elapsed) : '—';
+        const tokens = compactNumber(status.usage.total);
+        ui.workspace.updateTiming({summary: `${app.state.pendingApproval ? 'Waiting for approval' : phases[status.phase] || 'Ready'}${timing?.startedAt ? ` · ${duration} · ${speed} tok/s` : ''} · ${tokens} tok · ${formatCost(status.cost)}`, duration, speed});
     }
 
     function renderRuntime(): void {
         const status = app.state.runtime;
         if (status?.model) {
-            const n = (value: number) => new Intl.NumberFormat().format(Math.round(value || 0));
-            ui.workspace.updateRuntime({...emptyRuntime, visible: true, provider: status.provider, thinkingLevel: status.thinkingLevel, inputTokens: n(status.usage.input), outputTokens: n(status.usage.output), cacheRead: n(status.usage.cacheRead), cacheWrite: n(status.usage.cacheWrite), contextTokens: n(status.contextTokens), contextWindow: n(status.contextWindow), compactions: n(status.compactions), toolFailures: n(status.toolFailures), recordedCost: formatCost(status.cost), latestCost: formatCost(status.cost, true)});
+            const n = compactNumber;
+            ui.workspace.updateRuntime({...emptyRuntime, visible: true, provider: status.provider, model: status.model, thinkingLevel: status.thinkingLevel, inputTokens: n(status.usage.input), outputTokens: n(status.usage.output), cacheRead: n(status.usage.cacheRead), cacheWrite: n(status.usage.cacheWrite), contextTokens: n(status.contextTokens), contextWindow: n(status.contextWindow), compactions: n(status.compactions), toolFailures: n(status.toolFailures), recordedCost: formatCost(status.cost), latestCost: formatCost(status.cost, true)});
             renderRuntimeTiming();
         } else ui.workspace.updateRuntime(emptyRuntime);
         api.renderCosts();
