@@ -1,8 +1,7 @@
-New in rc.34:
+New in rc.35:
 
-- Collapse conversation permissions to a shield icon in narrow input panels, keeping the attachment and model/thinking/send controls aligned. Wide panels retain the permission name.
-- Distinguish Ask before changes, Allow workspace changes and Full access with question-mark, pencil and amber exclamation shields. Full menu labels, current-mode tooltips, keyboard navigation and full-access confirmation remain available.
-- Upgrade to Pith UI 0.8.2.
+- Correct the bundled Pith UI dependency notice to match the pinned 0.8.2 package, and check this consistency in CI.
+- Includes the compact permission controls introduced in rc.34: narrow input panels use distinct question-mark, pencil and amber exclamation shields, while wide panels retain permission names. Attachment and model/thinking/send controls stay aligned, with full menu labels, tooltips, keyboard navigation and full-access confirmation available.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
 
