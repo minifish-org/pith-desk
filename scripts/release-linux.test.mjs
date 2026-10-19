@@ -1,30 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 
-test('Ubuntu package verification derives Debian prerelease versions in Bash', () => {
-  const workflow = readFileSync(new URL('../.github/workflows/release.yml',import.meta.url),'utf8');
-  const assignments = workflow.match(/^\s*debian_version=.*$/gm) ?? [];
-  assert.equal(assignments.length,1,'package verification must derive the internal Debian version');
-  for (const assignment of assignments) {
-    for (const shell of ['bash','/bin/bash']) {
-      for (const [version, expected] of [['0.1.0','0.1.0'],['0.1.0-rc.31','0.1.0~rc.31']]) {
-        const actual = execFileSync(shell,['-c',`${assignment.trim()}\nprintf '%s\\n' "$debian_version"`],{encoding: 'utf8',env: {...process.env,version}}).trim();
-        assert.equal(actual,expected);
-      }
-    }
-  }
-});
-
-test('Ubuntu download filenames keep the release version without GitHub-unsafe tilde characters', () => {
-  const workflow = readFileSync(new URL('../.github/workflows/release.yml',import.meta.url),'utf8');
-  const assignments = workflow.match(/^\s*(?:package|linux_package)="build\/releases\/pith-desk_.*_amd64\.deb"$/gm) ?? [];
-  assert.equal(assignments.length,2);
-  for (const assignment of assignments) {
-    for (const shell of ['bash','/bin/bash']) {
-      const script = `version=0.1.0-rc.31\ndebian_version=0.1.0~rc.31\nunset package linux_package\n${assignment.trim()}\nprintf '%s\\n' "$package$linux_package"`;
-      assert.equal(execFileSync(shell,['-c',script],{encoding:'utf8'}).trim(),'build/releases/pith-desk_0.1.0-rc.31_amd64.deb');
-    }
-  }
+// Exercise the same config evaluation used by the packager, with a real release identity.
+test('Linux portable releases retain the signed updater configuration', () => {
+  const config = new URL('../mygo.config.ts', import.meta.url).href;
+  const result = JSON.parse(execFileSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e',
+    `const {default: config} = await import(${JSON.stringify(config)}); console.log(JSON.stringify(config));`], {
+    encoding: 'utf8', env: {...process.env, PITH_DESK_LINUX_RELEASE_VERSION: '0.1.0-rc.36'},
+  }));
+  assert.equal(result.version, '0.1.0-rc.36');
+  assert.ok(result.updates?.publicKey, 'Linux releases must embed the update verification key');
+  assert.equal(result.updates.url, 'https://raw.githubusercontent.com/minifish-org/pith-desk/updates/preview');
+  assert.equal(result.updates.deltas, 0);
 });
