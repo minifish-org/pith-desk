@@ -168,13 +168,7 @@ func runDesktop(dataDir, devURL string) error {
 			}
 			return os.WriteFile(path, []byte(data), 0o600)
 		})
-		win := mygo.NewWindow(mygo.WindowOptions{
-			Title: "Pith Desk", Hidden: true,
-			Width: 1320, Height: 860, MinWidth: 480, MinHeight: 600,
-			TitleBarStyle:        mygo.TitleBarHiddenInset,
-			TrafficLightPosition: &mygo.Point{X: 14, Y: 19},
-			BackgroundColor:      "light-dark(#F7F8FB, #17191C)", StateKey: "main",
-		})
+		win := mygo.NewWindow(desktopWindowOptions())
 		window.Store(win)
 		server.SetTitlebarOverlay(true)
 		installWorkspaceFileDrop(win, server)
@@ -239,6 +233,16 @@ func runDesktop(dataDir, devURL string) error {
 		err = errors.Join(err, server.Close())
 	}
 	return errors.Join(startupErr, err)
+}
+
+func desktopWindowOptions() mygo.WindowOptions {
+	return mygo.WindowOptions{
+		Title: "Pith Desk", Hidden: true,
+		Width: 1320, Height: 860, MinWidth: 480, MinHeight: 600,
+		TitleBarStyle:        mygo.TitleBarHiddenInset,
+		TrafficLightPosition: &mygo.Point{X: 14, Y: 19},
+		BackgroundColor:      "light-dark(#F7F8FB, #17191C)", StateKey: "main",
+	}
 }
 
 func externalWebURL(target, appURL *url.URL) bool {
