@@ -1,8 +1,8 @@
 {
-  "version": "0.1.0-rc.35",
-  "notes": "New in rc.35:\n\n- Correct the bundled Pith UI dependency notice to match the pinned 0.8.2 package, and check this consistency in CI.\n- Includes the compact permission controls introduced in rc.34: narrow input panels use distinct question-mark, pencil and amber exclamation shields, while wide panels retain permission names. Attachment and model/thinking/send controls stay aligned, with full menu labels, tooltips, keyboard navigation and full-access confirmation available.\n\nApple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n\nUbuntu: GTK 3 and WebKitGTK 4.1 are required; the `.deb` declares these dependencies. Update Ubuntu installations with a newer package or archive. The in-app updater remains available for Mac releases.\n",
-  "date": "2026-10-19T02:30:53.839Z",
-  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.35/pith-desk-0.1.0-rc.35-darwin-arm64.tar.gz",
-  "size": 9650484,
-  "signature": "2e6GmvwZ4aB8/yXvkWtLMX84KeFew6PSxbpmCCMq2jFT0hoh2NnlAmn4GF+nkZUpJcTbz3Jd9tTern+/asj2Dw=="
+  "version": "0.1.0-rc.36",
+  "notes": "New in rc.36:\n\n- Enable Linux portable in-app updates: Check for updates, download the signed portable archive, install it and restart. Drafts, settings and conversations are retained, with confirmation when tasks are running.\n- Publish only the Linux portable archive and its checksum. Debian packages are no longer included; Mac packaging and updates are unchanged.\n\nApple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n\nUbuntu x86-64: extract `linux-amd64.tar.gz` into its own user-writable directory and run `./pith-desk`. GTK 3 and WebKitGTK 4.1 are required. Existing Linux releases need one manual replacement with this archive to enable future in-app updates.\n",
+  "date": "2026-10-19T05:11:07.980Z",
+  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.36/pith-desk-0.1.0-rc.36-darwin-arm64.tar.gz",
+  "size": 9650536,
+  "signature": "bFj2wczdE/PCjpXGAxoRs/TmZtTxZ6H1CiYfssEjfi4yLyUAIpb+ZefqVz5t1AULcb3s/gICwniiU01Png/UCA=="
 }
