@@ -1,10 +1,8 @@
-New in rc.33:
+New in rc.34:
 
-- Add an Ubuntu x86-64 desktop preview, retaining the same MyGo shell, embedded UI and Pith backend. Install the `.deb` with `sudo apt install ./pith-desk_0.1.0-rc.33_amd64.deb`, or extract the Linux archive and run `./pith-desk`.
-- Support native windows down to 480 × 600. Show the current conversation in the header and keep the input controls compact.
-- Show concise token counts and cost estimates while keeping output tokens/s directly visible. Expand the runtime row for model and usage details.
-- Remove persistent composer explanations and the Thinking label prefix. Keep skill names readable by hiding list descriptions and moving actions below names in narrow windows.
-- Upgrade to Pith UI 0.8.1.
+- Collapse conversation permissions to a shield icon in narrow input panels, keeping the attachment and model/thinking/send controls aligned. Wide panels retain the permission name.
+- Distinguish Ask before changes, Allow workspace changes and Full access with question-mark, pencil and amber exclamation shields. Full menu labels, current-mode tooltips, keyboard navigation and full-access confirmation remain available.
+- Upgrade to Pith UI 0.8.2.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
 
