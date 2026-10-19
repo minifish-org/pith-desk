@@ -34,6 +34,11 @@ export function installFixture() {
         return Response.json({ conversation: window.reviewState.conversations.at(-1) });
       }
       if (path === '/api/open') { window.reviewState.activeId = JSON.parse(options.body).id; return Response.json({ ok: true }); }
+      if (path === '/api/permissions' && options?.method === 'POST') {
+        const input = JSON.parse(options.body), conversation = window.reviewState.conversations.find(entry => entry.id === input.id);
+        if (conversation) conversation.permissionMode = input.mode;
+        return Response.json({ ok: true });
+      }
       if (path === '/api/draft') {
         if (options?.method === 'POST') { const draft = JSON.parse(options.body); window.review.drafts[draft.id || draft.workspaceId] = draft; return Response.json({}); }
         return Response.json(window.review.drafts[target.searchParams.get('id') || target.searchParams.get('workspaceId')] || { text: '', revision: 0 });
