@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { loadUpdateKey, packageUpdate, releaseVersion, compareReleaseVersions } from './update-release.ts';
+import { loadUpdateKey, packageUpdate, signUpdateArchive, releaseVersion, compareReleaseVersions } from './update-release.ts';
 
 test('release identity distinguishes RC versions and refuses unrelated tags', () => {
   assert.equal(releaseVersion('0.1.0', 'v0.1.0-rc.20'), '0.1.0-rc.20');
@@ -15,6 +15,28 @@ test('release identity distinguishes RC versions and refuses unrelated tags', ()
     assert.ok(compareReleaseVersions(newer, older) > 0);
   }
   assert.equal(compareReleaseVersions('0.1.0-rc.20', '0.1.0-rc.20'), 0);
+});
+
+test('Linux updates sign the unchanged portable archive with a platform-specific manifest', () => {
+  const root = mkdtempSync(join(tmpdir(), 'desk-linux-update-'));
+  try {
+    const {publicKey, privateKey} = generateKeyPairSync('ed25519');
+    const stage = join(root, 'stage'); mkdirSync(stage);
+    writeFileSync(join(stage, 'pith-desk'), 'Linux release executable', {mode: 0o755});
+    writeFileSync(join(stage, 'pith-desk-release.json'), JSON.stringify({version: '0.1.0-rc.36'}));
+    const filename = 'pith-desk-0.1.0-rc.36-linux-amd64.tar.gz';
+    const archive = join(root, filename);
+    assert.equal(spawnSync('tar', ['-czf', archive, '-C', stage, 'pith-desk', 'pith-desk-release.json']).status, 0);
+    const before = readFileSync(archive);
+    const manifest = signUpdateArchive(archive, 'linux-amd64', '0.1.0-rc.36', privateKey, 'Linux update');
+    assert.deepEqual(readFileSync(archive), before, 'Signing must use the manual-install archive without repackaging it');
+    assert.equal(manifest.url, `https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.36/${filename}`);
+    assert.equal(manifest.size, before.length);
+    const digest = createHash('sha256').update(before).digest();
+    assert.ok(verify(null, digest, publicKey, Buffer.from(manifest.signature, 'base64')));
+    assert.equal(readFileSync(archive + '.sha256', 'utf8'), `${digest.toString('hex')}  ${filename}\n`);
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'update-linux-amd64.json'), 'utf8')), manifest);
+  } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
 test('final app archive has a valid signature, executable permissions and immutable release URL', () => {

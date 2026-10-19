@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sync"
 	"time"
 
@@ -70,9 +69,6 @@ func newDesktopUpdater(service *desk.Service, window *mygo.Window, dialogMu *syn
 	}
 	if !enabled {
 		u.state.Message = "Updates are available in release apps installed in a writable folder."
-		if runtime.GOOS == "linux" {
-			u.state.Message = "Install the latest Ubuntu package or archive to update Pith Desk."
-		}
 	}
 	u.check = func(ctx context.Context) (*desktopUpdate, error) {
 		up, err := mygo.Updater.Check(ctx)

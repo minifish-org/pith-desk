@@ -30,7 +30,7 @@ See [the SDK dependency](SDK_FEATURES.md#versioned-sdk-dependency).
    release** requires that successful result and builds/packages each platform once;
    it does not rerun the test suite. A tag without a successful Check fails
    before packaging or publication.
-4. Download the platform archives, Debian package and their checksums once. Verify
+4. Download both platform archives and their checksums once. Verify
    checksums, version, source commit, architecture/CGO, pinned SDK, signatures and contents; the
    provenance manifests are in the release job's `release-metadata` CI artifact.
    Confirm the update feed version. Keep screenshots and process records local.
@@ -55,30 +55,30 @@ in System Settings → Privacy & Security. Do not disable Gatekeeper globally.
 ## Ubuntu preview
 
 The Linux release targets x86-64 (`amd64`) and is validated on Ubuntu 26.04 with
-XFCE. MyGo generates both a Debian package and a portable archive. The `.deb`
-declares GTK 3 and WebKitGTK 4.1 dependencies and registers **Pith Desk** in the
-applications menu plus the `pith-desk` command:
+XFCE. Download `pith-desk-<version>-linux-amd64.tar.gz`, extract it into its own
+user-writable directory, such as `~/.local/opt/pith-desk`, and run `./pith-desk`.
+Keep the executable, release identity, icons and dependency notices together.
+GTK 3 and WebKitGTK 4.1 are provided by the operating system. On Ubuntu, install
+`libwebkit2gtk-4.1-0` with apt if these libraries are missing.
 
-```sh
-sudo apt install ./<downloaded-file>.deb
-pith-desk
-```
+**Settings → Updates → Update and restart** downloads and verifies the signed
+portable archive, installs it in the same directory and restarts the app. Both
+the app directory and its parent must be writable by the user. No administrator
+permission is needed for an installation in the user's directory. Settings and
+conversations are stored separately from the application and retained.
 
-Install a newer `.deb` the same way to upgrade. Use `sudo apt remove pith-desk`
-to uninstall. The internal package version uses Debian's `~` prerelease
-separator; download filenames retain the tag's `-` because GitHub rewrites `~`.
-
-For a portable installation, extract `pith-desk-<version>-linux-amd64.tar.gz`
-into its own directory and run `./pith-desk`. If WebKitGTK is missing, install
-`libwebkit2gtk-4.1-0` with apt. Keep the executable, release identity, icon and
-dependency notices together. Replace the directory with a newer archive to
-upgrade. Ubuntu packages use these manual upgrade paths; the Mac update feed
-does not serve Linux packages. User settings and conversations are stored
-outside either installation.
+Only the portable archive is published for Linux. Existing releases with a
+disabled updater require one manual replacement with an updater-enabled archive.
+For an older Debian installation, remove the package and install the portable
+archive in a user-writable directory; user data remains in the same location.
+To uninstall a portable app, remove its extracted directory and any launcher or
+command link you registered. Removing user configuration and conversations is a
+separate action.
 
 For an independent local package, run `RELEASE_TAG=v<version> npm run release:linux`.
 The packager cross-compiles with `CGO_ENABLED=0` and `GOWORK=off`, verifies ELF
-architecture and Go build metadata, and records checksums and source provenance.
+architecture and Go build metadata, signs the final portable archive using the
+same update key as Mac, and records checksums and source provenance.
 
 ## Optional local Mac package
 
@@ -122,8 +122,8 @@ verified release process; it cannot be tested on a host without a certificate.
 
 The Desktop release workflow runs for pushed `v*` tags and reuses the successful
 Check for the exact tagged source. Ubuntu packaging must finish before the Mac
-job publishes the Mac archive, Linux archive, Debian package and their checksums
-together. Build provenance and the Mac update manifest stay
+job publishes the Mac and Linux portable archives and their checksums
+together. Build provenance and both platform update manifests stay
 in the job's `release-metadata` CI artifact; the update manifest is also
 published to the existing update feed. Each release note contains only the
 current changes and brief download/preview guidance; previous releases retain
@@ -154,8 +154,8 @@ ARM64 remains compile-only; Intel Mac and Windows are outside the supported scop
 
 ## Click to update
 
-Settings → Updates and the macOS application menu's **Check for Updates…**
-check the preview feed. **Update and restart** verifies and installs the signed
+Settings → Updates and the native **Check for Updates…** menu command
+check the preview feed for the running platform. **Update and restart** verifies and installs the signed
 full app archive, saves text and image drafts, and restarts immediately. Running tasks in
 any workspace, including pending approvals, require one confirmation. Cancel or
 installation failure keeps the app running. New task admission is paused during
@@ -183,9 +183,10 @@ signature is Ed25519 over SHA-256 of the final tar.gz, as MyGo expects. Manual
 installation and self-updates use this same final archive and checksum.
 
 CI uploads immutable assets to the version's GitHub Release, then updates
-`preview/update-darwin-arm64.json` on the metadata-only `updates` branch. This
+`preview/update-darwin-arm64.json` and `preview/update-linux-amd64.json` on the
+metadata-only `updates` branch. This
 avoids GitHub's latest-release endpoint excluding prereleases. The feed points
-to the immutable release archive. Publishing an older tag cannot move the feed
+to the immutable release archive. Publishing an older tag cannot move either platform feed
 backward. The runtime never contains a GitHub token or private signing key.
 The first feed appears with the first release of this implementation. The feed
 currently follows this product's preview releases; a separate stable channel

@@ -5,9 +5,13 @@ import { spawnSync } from 'node:child_process';
 import { compareReleaseVersions } from './update-release.ts';
 
 const repository = 'minifish-org/pith-desk';
-const manifestText = readFileSync('build/releases/update-darwin-arm64.json', 'utf8');
-const manifest = JSON.parse(manifestText);
-if (process.env.RELEASE_TAG !== `v${manifest.version}`) throw new Error('Feed version must match the published release tag.');
+const manifests = ['darwin-arm64', 'linux-amd64'].map(target => {
+  const path = `preview/update-${target}.json`;
+  const content = readFileSync(`build/releases/update-${target}.json`, 'utf8');
+  const manifest = JSON.parse(content);
+  if (process.env.RELEASE_TAG !== `v${manifest.version}`) throw new Error('Feed version must match the published release tag.');
+  return {path, content, manifest};
+});
 
 function api(path: string, method = 'GET', body?: unknown, optional = false): any {
   const result = spawnSync('gh', ['api', `repos/${repository}/${path}`, '--method', method, ...(body ? ['--input', '-'] : [])], {
@@ -22,29 +26,36 @@ function api(path: string, method = 'GET', body?: unknown, optional = false): an
 
 // Verify the shared installation/update archive exists before exposing the feed.
 const release = api(`releases/tags/${process.env.RELEASE_TAG}`);
-if (release.draft || !release.assets.some((asset: any) => asset.browser_download_url === manifest.url)) {
+if (release.draft || manifests.some(({manifest}) => !release.assets.some((asset: any) => asset.browser_download_url === manifest.url))) {
   throw new Error('Publish the release and update archive before the update feed.');
 }
 const ref = api('git/ref/heads/updates', 'GET', undefined, true);
 let baseTree: string | undefined;
+const entries = [];
 if (ref) {
-  const current = api('contents/preview/update-darwin-arm64.json?ref=updates', 'GET', undefined, true);
-  if (current) {
-    const previous = JSON.parse(Buffer.from(current.content, 'base64').toString('utf8'));
-    if (compareReleaseVersions(manifest.version, previous.version) <= 0) {
-      console.log('Update feed already has this version or a newer one.'); process.exit(0);
+  baseTree = api(`git/commits/${ref.object.sha}`).tree.sha;
+}
+for (const {path, content, manifest} of manifests) {
+  if (ref) {
+    const current = api(`contents/${path}?ref=updates`, 'GET', undefined, true);
+    if (current) {
+      const previous = JSON.parse(Buffer.from(current.content, 'base64').toString('utf8'));
+      if (compareReleaseVersions(manifest.version, previous.version) <= 0) continue;
     }
   }
-  baseTree = api(`git/commits/${ref.object.sha}`).tree.sha;
+  entries.push({path, mode: '100644', type: 'blob', content});
+}
+if (!entries.length) {
+  console.log('Update feeds already have this version or a newer one.'); process.exit(0);
 }
 const tree = api('git/trees', 'POST', {
   ...(baseTree ? { base_tree: baseTree } : {}),
-  tree: [{ path: 'preview/update-darwin-arm64.json', mode: '100644', type: 'blob', content: manifestText }],
+  tree: entries,
 });
 const commit = api('git/commits', 'POST', {
-  message: `Publish update feed for ${manifest.version}`, tree: tree.sha,
+  message: `Publish update feeds for ${process.env.RELEASE_TAG}`, tree: tree.sha,
   parents: ref ? [ref.object.sha] : [],
 });
 if (ref) api('git/refs/heads/updates', 'PATCH', { sha: commit.sha, force: false });
 else api('git/refs', 'POST', { ref: 'refs/heads/updates', sha: commit.sha });
-console.log(`Published update feed for ${manifest.version}.`);
+console.log(`Published update feeds for ${process.env.RELEASE_TAG}.`);

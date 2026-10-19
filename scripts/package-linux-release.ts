@@ -1,14 +1,15 @@
-// Reuse MyGo's Linux archive, Debian package and desktop integration.
+// Publish MyGo's Linux portable archive for both installation and signed updates.
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {copyFileSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
-import {releaseVersion} from './update-release.ts';
+import {loadUpdateKey,releaseVersion,signUpdateArchive} from './update-release.ts';
 
 if (process.argv.length > 2) throw new Error('Usage: node scripts/package-linux-release.ts');
 const root = resolve(import.meta.dirname,'..');
 const base = JSON.parse(readFileSync(join(root,'package.json'),'utf8')).version;
 const version = releaseVersion(base,process.env.RELEASE_TAG || process.env.PITH_DESK_RELEASE_VERSION);
+const updateKey = loadUpdateKey(root);
 const env = {...process.env,GOWORK: 'off',CGO_ENABLED: '0',PITH_DESK_LINUX_RELEASE_VERSION: version};
 function run(command: string,args: string[],capture = false): string {
   const result = spawnSync(command,args,{cwd: root,env,encoding: 'utf8',stdio: capture ? 'pipe' : 'inherit'});
@@ -30,13 +31,8 @@ if (!['CGO_ENABLED=0','GOOS=linux','GOARCH=amd64'].every(field => build.includes
 const output = join(root,'build/releases');
 mkdirSync(output,{recursive: true});
 const archive = `pith-desk-${version}-linux-amd64.tar.gz`;
-// GitHub rewrites '~' in uploaded filenames; retain it only inside the Debian version.
-const files = [[archive,archive],[`pith-desk_${version.replace('-','~')}_amd64.deb`,`pith-desk_${version}_amd64.deb`]];
-for (const [input,file] of files) {
-  const bytes = readFileSync(join(stage,input));
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-  copyFileSync(join(stage,input),join(output,file));
-  writeFileSync(join(output,file+'.sha256'),`${sha256}  ${file}\n`);
-  writeFileSync(join(output,file+'.json'),JSON.stringify({version,file,sha256,sourceCommit,sourceDirty,sourceURL: `https://github.com/minifish-org/pith-desk/tree/${sourceCommit}`,architectures: ['amd64'],os: 'linux',cgo: false},null,2)+'\n');
-  console.log(`Created ${join(output,file)}`);
-}
+copyFileSync(join(stage,archive),join(output,archive));
+signUpdateArchive(join(output,archive),'linux-amd64',version,updateKey,readFileSync(join(root,'docs/RELEASE_PREVIEW.md'),'utf8'));
+const sha256 = createHash('sha256').update(readFileSync(join(output,archive))).digest('hex');
+writeFileSync(join(output,archive+'.json'),JSON.stringify({version,file: archive,sha256,sourceCommit,sourceDirty,sourceURL: `https://github.com/minifish-org/pith-desk/tree/${sourceCommit}`,architectures: ['amd64'],os: 'linux',cgo: false},null,2)+'\n');
+console.log(`Created ${join(output,archive)}`);

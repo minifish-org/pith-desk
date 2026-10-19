@@ -1,7 +1,7 @@
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export function releaseVersion(base: string, tag?: string): string {
@@ -33,15 +33,21 @@ export function packageUpdate(root: string, appParent: string, output: string, v
     env: { ...process.env, COPYFILE_DISABLE: '1' }, encoding: 'utf8',
   });
   if (result.error || result.status !== 0) throw new Error(`Update archive failed: ${result.stderr || result.error}`);
+  return signUpdateArchive(archive, 'darwin-arm64', version, key, notes);
+}
+
+// Sign the exact archive offered for manual installation on either platform.
+export function signUpdateArchive(archive: string, target: 'darwin-arm64' | 'linux-amd64', version: string, key: ReturnType<typeof loadUpdateKey>, notes: string) {
+  const filename = basename(archive);
   const bytes = readFileSync(archive);
   const digest = createHash('sha256').update(bytes).digest();
-  writeFileSync(join(output, `${filename}.sha256`), `${digest.toString('hex')}  ${filename}\n`);
+  writeFileSync(`${archive}.sha256`, `${digest.toString('hex')}  ${filename}\n`);
   const manifest = {
     version, notes, date: new Date().toISOString(),
     url: `https://github.com/minifish-org/pith-desk/releases/download/v${version}/${filename}`,
     size: bytes.length, signature: sign(null, digest, key).toString('base64'),
   };
-  writeFileSync(join(output, 'update-darwin-arm64.json'), JSON.stringify(manifest, null, 2) + '\n');
+  writeFileSync(join(dirname(archive), `update-${target}.json`), JSON.stringify(manifest, null, 2) + '\n');
   return manifest;
 }
 

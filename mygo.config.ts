@@ -15,8 +15,7 @@ export default defineConfig({
   bindings: ".mygo/bindings.ts",
   out: "build",
   resources: ["LICENSE", "third_party", "docs/THIRD_PARTY.md", ...(linuxReleaseVersion ? ["build/linux-release-metadata/pith-desk-release.json"] : [])],
-  // Ubuntu packages update through the package manager or a new archive.
-  updates: linuxReleaseVersion ? undefined : {
+  updates: {
     publicKey: readFileSync(new URL("./resources/update-public-key.txt", import.meta.url), "utf8").trim(),
     // CI publishes this pointer only after the immutable release assets exist.
     // Preview releases are not included in GitHub's releases/latest endpoint.
