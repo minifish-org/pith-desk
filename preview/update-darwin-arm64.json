@@ -1,8 +1,8 @@
 {
-  "version": "0.1.0-rc.34",
-  "notes": "New in rc.34:\n\n- Collapse conversation permissions to a shield icon in narrow input panels, keeping the attachment and model/thinking/send controls aligned. Wide panels retain the permission name.\n- Distinguish Ask before changes, Allow workspace changes and Full access with question-mark, pencil and amber exclamation shields. Full menu labels, current-mode tooltips, keyboard navigation and full-access confirmation remain available.\n- Upgrade to Pith UI 0.8.2.\n\nApple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n\nUbuntu: GTK 3 and WebKitGTK 4.1 are required; the `.deb` declares these dependencies. Update Ubuntu installations with a newer package or archive. The in-app updater remains available for Mac releases.\n",
-  "date": "2026-10-19T02:19:43.115Z",
-  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.34/pith-desk-0.1.0-rc.34-darwin-arm64.tar.gz",
-  "size": 9650504,
-  "signature": "YtRptyaqnoCFsjWpyHhTT0O9nEgI7sQDd27u/T0rGW4Ro5howZDi+ZZ0OCjQ0t4Q9JVUQ8ZRzU5jgkDQMX1vBw=="
+  "version": "0.1.0-rc.35",
+  "notes": "New in rc.35:\n\n- Correct the bundled Pith UI dependency notice to match the pinned 0.8.2 package, and check this consistency in CI.\n- Includes the compact permission controls introduced in rc.34: narrow input panels use distinct question-mark, pencil and amber exclamation shields, while wide panels retain permission names. Attachment and model/thinking/send controls stay aligned, with full menu labels, tooltips, keyboard navigation and full-access confirmation available.\n\nApple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n\nUbuntu: GTK 3 and WebKitGTK 4.1 are required; the `.deb` declares these dependencies. Update Ubuntu installations with a newer package or archive. The in-app updater remains available for Mac releases.\n",
+  "date": "2026-10-19T02:30:53.839Z",
+  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.35/pith-desk-0.1.0-rc.35-darwin-arm64.tar.gz",
+  "size": 9650484,
+  "signature": "2e6GmvwZ4aB8/yXvkWtLMX84KeFew6PSxbpmCCMq2jFT0hoh2NnlAmn4GF+nkZUpJcTbz3Jd9tTern+/asj2Dw=="
 }
