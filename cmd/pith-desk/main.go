@@ -168,7 +168,10 @@ func runDesktop(dataDir, devURL string) error {
 			}
 			return os.WriteFile(path, []byte(data), 0o600)
 		})
-		win := mygo.NewWindow(desktopWindowOptions())
+		opts := desktopWindowOptions()
+		prepareDesktopWindowControls(&opts)
+		win := mygo.NewWindow(opts)
+		installDesktopWindowControls(win)
 		window.Store(win)
 		server.SetTitlebarOverlay(true)
 		installWorkspaceFileDrop(win, server)

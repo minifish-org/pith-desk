@@ -18,6 +18,13 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer service.Close()
+	workspace, err := service.AddWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateConversation(workspace.ID); err != nil {
+		t.Fatal(err)
+	}
 	server, err := host.Start(service, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +33,11 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 	server.SetTitlebarOverlay(true)
 	var win *mygo.Window
 	mygo.RunOnMain(func() {
-		win = mygo.NewWindow(mygo.WindowOptions{Title: "Pith Desk titlebar smoke", Hidden: true, Width: 1320, Height: 860, TitleBarStyle: mygo.TitleBarHiddenInset, TrafficLightPosition: &mygo.Point{X: 14, Y: 19}})
+		opts := desktopWindowOptions()
+		opts.Title = "Pith Desk titlebar smoke"
+		opts.StateKey = ""
+		prepareDesktopWindowControls(&opts)
+		win = mygo.NewWindow(opts)
 	})
 	defer win.Destroy()
 	if err := win.Page().LoadURL(server.URL); err != nil {
@@ -58,4 +69,15 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 	nativeDropEval(t, win, `document.querySelector('dialog[open]').close(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('dialog[open]') === null`)
 	saveUsabilityScreenshot(t, win, "titlebar-fusion.png")
+	win.SetSize(480, 700)
+	win.Show()
+	waitNativeDropCondition(t, win, `innerWidth === 480 && document.querySelector('.pui-permission-control .pui-select-value').getBoundingClientRect().width <= 1`)
+	if nativeDropEval(t, win, `(() => {
+		const native=getComputedStyle(document.documentElement),buttons=[...document.querySelectorAll('.pui-composer-context > *, .pui-composer-actions > *')].filter(node=>node.getBoundingClientRect().width);
+		const centers=buttons.map(node=>{const r=node.getBoundingClientRect();return r.y+r.height/2;});
+		return parseFloat(native.getPropertyValue('--mygo-titlebar-height'))===52 && parseFloat(native.getPropertyValue('--mygo-titlebar-inset-left'))>0 && Math.max(...centers)-Math.min(...centers)<=1;
+	})()`) != true {
+		t.Fatal("narrow native composer alignment or existing traffic-light insets changed")
+	}
+	saveUsabilityScreenshot(t, win, "titlebar-narrow.png")
 }

@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/ebitengine/purego v0.11.1
 	github.com/egoist/mygo v0.3.6
 	github.com/gofrs/flock v0.13.1
 	github.com/minifish-org/pith v0.0.0-20261010121423-8eec8d5b88d3
@@ -26,7 +27,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
 	github.com/aws/smithy-go v1.28.1 // indirect
-	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect

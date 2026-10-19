@@ -7,8 +7,9 @@ Pith Desk's own code is covered by the root [LICENSE](../LICENSE), GNU Affero Ge
 | Component | Pinned version | License and retained notice |
 | --- | --- | --- |
 | [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261010121423-8eec8d5b88d3` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
-| [Pith UI](https://github.com/minifish-org/pith-ui/tree/v0.8.2) | `0.8.2` | AGPL-3.0-only: `PITH-UI-LICENSE`. TypeScript UI parts, shared region recipes and styles. |
+| [Pith UI](https://github.com/minifish-org/pith-ui/tree/v0.8.3) | `0.8.3` | AGPL-3.0-only: `PITH-UI-LICENSE`. TypeScript UI parts, shared region recipes and styles. |
 | [MyGo](https://github.com/egoist/mygo) | `v0.3.6` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
+| [Ebitengine purego](https://github.com/ebitengine/purego) | `v0.11.1` | Apache-2.0: `PUREGO-LICENSE`. Linux GTK window-control sizing; its Go-derived source retains `GO-LICENSE`. |
 | [coder/websocket](https://github.com/coder/websocket) | `v1.8.15` | ISC: `WEBSOCKET-LICENSE`. |
 | [gofrs/flock](https://github.com/gofrs/flock) | `v0.13.1` | BSD-3-Clause: `FLOCK-LICENSE`. |
 | [Marked](https://github.com/markedjs/marked) | `16.4.2` | MIT, with upstream Markdown attribution: the complete `MARKED-LICENSE` file is retained. |
@@ -30,7 +31,6 @@ The following additional modules are selected by the `CGO_ENABLED=0` executable 
 | --- | --- | --- |
 | [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) | Root `v1.47.1`; submodules listed below | Apache-2.0: `AWS-SDK-LICENSE`, `AWS-SDK-NOTICE`. The SDK submodules listed below contain the same license text. |
 | [AWS Smithy Go](https://github.com/aws/smithy-go) | `v1.28.1` | Apache-2.0: `SMITHY-LICENSE`, `SMITHY-NOTICE`. |
-| [Ebitengine purego](https://github.com/ebitengine/purego) | `v0.11.1` | Apache-2.0: `PUREGO-LICENSE`. Its Go-derived source retains Go copyright headers; `GO-LICENSE` is also included. |
 | [goccy/go-yaml](https://github.com/goccy/go-yaml) | `v1.19.2` | MIT: `YAML-LICENSE`. |
 | [sabhiram/go-gitignore](https://github.com/sabhiram/go-gitignore) | `v0.0.0-20210923224102-525f6e181f06` | MIT: `GITIGNORE-LICENSE`. |
 | [wazero](https://github.com/tetratelabs/wazero) | `v1.9.0` | Apache-2.0: `WAZERO-LICENSE`, `WAZERO-NOTICE`. |

@@ -55,7 +55,7 @@ rows and real ledger writes. Separate tests retain real SDK conversation creatio
 restart restoration and failure handling. Go production code and product
 architecture are unchanged by this simplification.
 
-## Native macOS acceptance
+## Native desktop acceptance
 
 After `npm run build:ui`, run the opt-in actual WebView scenarios:
 
@@ -63,11 +63,19 @@ After `npm run build:ui`, run the opt-in actual WebView scenarios:
 GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^Test(TitlebarNative|UsabilityNative|WorkspaceFileDropNativeBridge|ConversationFileLinkNative|UpdatesNative|TaskDockNative)' -v -count=1
 ```
 
+The Linux `TestTitlebarNativeLinuxAndNarrowComposer` check runs with the same
+`PITH_DESK_NATIVE_SMOKE=1` switch in an interactive XFCE session. It checks real
+WebKitGTK composer widths from 390 to 640 CSS pixels where the window's minimum
+size permits them, and the native GTK button
+targets and alignment. Repeat with `GDK_SCALE` / `GDK_DPI_SCALE` set to cover
+different widget/text scaling. `PITH_DESK_NATIVE_INSPECT=1` keeps its isolated
+verification window open after the assertions until it is closed manually.
+
 These checks exercise native titlebar insets and existing controls, drafts, rejected sends, approval, file previews/downloads,
-file-drop forwarding, update progress/failure and Dock unread state in a native
-WKWebView, with temporary data and local providers. Browser validation alone
-does not establish native behavior. They remain opt-in for interactive macOS
-sessions; they do not download or install a Desk release.
+file-drop forwarding, update progress/failure and Dock unread state in native
+WebViews, with temporary data and local providers. Browser validation alone
+does not establish native behavior. These checks require an interactive desktop
+session; they do not download or install a Desk release.
 
 For user acceptance, copy the existing application configuration and sessions to
 a private isolated data directory and start embedded browser preview:
