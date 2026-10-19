@@ -66,8 +66,9 @@ GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '
 The Linux `TestTitlebarNativeLinuxAndNarrowComposer` check runs with the same
 `PITH_DESK_NATIVE_SMOKE=1` switch in an interactive XFCE session. It checks real
 WebKitGTK composer widths from 390 to 640 CSS pixels where the window's minimum
-size permits them, and the native GTK button
-targets and alignment. Repeat with `GDK_SCALE` / `GDK_DPI_SCALE` set to cover
+size permits them, without an in-content titlebar. The Linux
+`TestTitlebarNativeLinuxUsesSystemDecorations` check verifies that GTK leaves
+window decorations to the desktop. Repeat with `GDK_SCALE` / `GDK_DPI_SCALE` set to cover
 different widget/text scaling. `PITH_DESK_NATIVE_INSPECT=1` keeps its isolated
 verification window open after the assertions until it is closed manually.
 

@@ -36,7 +36,6 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 		opts := desktopWindowOptions()
 		opts.Title = "Pith Desk titlebar smoke"
 		opts.StateKey = ""
-		prepareDesktopWindowControls(&opts)
 		win = mygo.NewWindow(opts)
 	})
 	defer win.Destroy()

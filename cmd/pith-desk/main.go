@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -169,11 +170,9 @@ func runDesktop(dataDir, devURL string) error {
 			return os.WriteFile(path, []byte(data), 0o600)
 		})
 		opts := desktopWindowOptions()
-		prepareDesktopWindowControls(&opts)
 		win := mygo.NewWindow(opts)
-		installDesktopWindowControls(win)
 		window.Store(win)
-		server.SetTitlebarOverlay(true)
+		server.SetTitlebarOverlay(opts.TitleBarStyle == mygo.TitleBarHiddenInset)
 		installWorkspaceFileDrop(win, server)
 		exit := installQuitConfirmation(service, win, &dialogMu)
 		updater := newDesktopUpdater(service, win, &dialogMu, exit, releaseVersion, devURL != "")
@@ -239,13 +238,17 @@ func runDesktop(dataDir, devURL string) error {
 }
 
 func desktopWindowOptions() mygo.WindowOptions {
-	return mygo.WindowOptions{
+	opts := mygo.WindowOptions{
 		Title: "Pith Desk", Hidden: true,
 		Width: 1320, Height: 860, MinWidth: 480, MinHeight: 600,
-		TitleBarStyle:        mygo.TitleBarHiddenInset,
-		TrafficLightPosition: &mygo.Point{X: 14, Y: 19},
-		BackgroundColor:      "light-dark(#F7F8FB, #17191C)", StateKey: "main",
+		TitleBarStyle:   mygo.TitleBarDefault,
+		BackgroundColor: "light-dark(#F7F8FB, #17191C)", StateKey: "main",
 	}
+	if runtime.GOOS != "linux" {
+		opts.TitleBarStyle = mygo.TitleBarHiddenInset
+		opts.TrafficLightPosition = &mygo.Point{X: 14, Y: 19}
+	}
+	return opts
 }
 
 func externalWebURL(target, appURL *url.URL) bool {
