@@ -520,7 +520,7 @@ Desktop and Server. To reproduce the check commands after installation:
 npm run check:frontend
 GOWORK=off CGO_ENABLED=0 go vet ./...
 GOWORK=off CGO_ENABLED=1 go test -count=1 -race -p 1 ./...
-npx --no-install playwright install chromium webkit
+npx --no-install playwright install --only-shell chromium webkit
 npm run test:ui
 ```
 
@@ -534,6 +534,10 @@ PITH_DESK_HOST_FIXTURE=/tmp/pith-desk-host-fixture npm run test:ui
 The shared binary comes from this checkout; each test still starts an isolated
 Host process and data directory. Omitting the variable retains worker-local
 compilation for ordinary local browser runs.
+
+CI uses Chromium's Headless Shell and WebKit; it does not download the unused
+full Chrome binary. Both browser projects remain in the suite. Install full
+Chromium separately when using Playwright's headed local tools.
 
 `npm run check` remains the local complete build/unit/ordinary-Go/vet shortcut;
 CI uses the race run in place of repeating those Go tests. npm caches downloads

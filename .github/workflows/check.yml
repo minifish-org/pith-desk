@@ -77,7 +77,7 @@ jobs:
           CGO_ENABLED=1 go test -count=1 -race -p 1 ./...
       - name: Install browser test engines
         if: steps.scope.outputs.browser == 'true'
-        run: npx --no-install playwright install chromium webkit
+        run: npx --no-install playwright install --only-shell chromium webkit
       - name: Build browser Host fixture once
         if: steps.scope.outputs.browser == 'true'
         run: go build -o "$RUNNER_TEMP/host-fixture" ./internal/testsupport/hostfixture
