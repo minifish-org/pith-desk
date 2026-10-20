@@ -14,3 +14,5 @@ Read the relevant code, `README.md` and `docs/TESTING.md` before changing behavi
 - Verify with isolated application data and disposable workspaces for mutating tests. Existing workspaces can contain real files even with an isolated profile. Keep temporary reports, screenshots, profiles, fixtures and build artifacts out of commits.
 
 Report local checks, native acceptance, package publication and product release as separate facts. A source preview or successful build does not prove a published or deployed artifact.
+
+<!-- Temporary CI scope verification; this branch is not for merging. -->
