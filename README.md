@@ -494,6 +494,60 @@ or declaration layout. Branding uses finite
 library-owned resources or approved application assets. New UI styling or
 internal-node access in Desk is outside this boundary.
 
+### CI checks and caches
+
+`Check / mac` always reports a result, including for documentation-only PRs.
+There are no workflow-level path filters. PRs use their base diff: documentation
+checks whitespace without dependency installation; frontend changes run the
+frontend/tool tests and both browser engines. Dependencies, public transport,
+Go code, build/workflow configuration and unknown paths or missing history run
+the complete suite. Every main push and manual run uses complete validation.
+Only superseded PR runs are canceled automatically.
+
+Inspect the committed PR range locally, or run the frontend portion separately:
+
+```sh
+node --experimental-strip-types scripts/ci-scope.ts pull_request origin/main
+npm run check:frontend
+```
+
+The complete CI sequence installs the root and frontend dependencies once,
+builds UI assets and the browser Host fixture once, runs frontend/tool tests, vet, all Go packages once with
+race detection, both browser engines and Linux amd64/arm64 compilation of
+Desktop and Server. To reproduce the check commands after installation:
+
+```sh
+npm run check:frontend
+GOWORK=off CGO_ENABLED=0 go vet ./...
+GOWORK=off CGO_ENABLED=1 go test -count=1 -race -p 1 ./...
+npx --no-install playwright install chromium webkit
+npm run test:ui
+```
+
+For a browser-only run that also shares one compiled Host across workers:
+
+```sh
+GOWORK=off CGO_ENABLED=0 go build -o /tmp/pith-desk-host-fixture ./internal/testsupport/hostfixture
+PITH_DESK_HOST_FIXTURE=/tmp/pith-desk-host-fixture npm run test:ui
+```
+
+The shared binary comes from this checkout; each test still starts an isolated
+Host process and data directory. Omitting the variable retains worker-local
+compilation for ordinary local browser runs.
+
+`npm run check` remains the local complete build/unit/ordinary-Go/vet shortcut;
+CI uses the race run in place of repeating those Go tests. npm caches downloads
+for both lockfiles. The Go cache includes modules and compiled ordinary, race
+and embedded packages, keyed by platform, toolchain, dependency checksum and
+commit, with compatible restore prefixes so new compiled work can be saved.
+Tests still execute with `-count=1`; generated UI and binaries are not restored
+as validation output. Release packaging still requires a successful complete
+Check on the exact main commit. Native acceptance remains a separate check.
+
+Inspect execution and queue times separately with
+`gh run view RUN_ID --json createdAt,jobs`. Cache hits and selective PR savings
+must be measured, rather than inferred from skipped command counts.
+
 ## Build a Mac application
 
 ```sh

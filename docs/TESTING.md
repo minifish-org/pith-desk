@@ -41,6 +41,15 @@ node --experimental-strip-types --test frontend/tests/*.test.mjs frontend/tests/
 node --experimental-strip-types --test scripts/*.test.mjs scripts/*.test.ts
 ```
 
+`npm run check:frontend` runs only the shared frontend build and frontend/tool
+tests. Full CI uses it with `go vet ./...` and a single
+`CGO_ENABLED=1 go test -count=1 -race -p 1 ./...`, including command packages,
+instead of repeating internal tests in ordinary and race modes. Main/manual
+runs also retain both browsers and all four Linux Desktop/Server target builds.
+PR scope and cache commands are documented in the README. Scope regression
+tests cover dependency/public-contract expansion and missing-history fallback;
+the `mac` job itself is never conditionally removed.
+
 `npm run check:ui-consumption` verifies the actual registry dependency/lock and
 installed parts/recipes exports, unique native mount adapter, CSS/private-entry
 boundaries and source aliases. It does not require local copies of recipes.

@@ -8,6 +8,12 @@ import { createInterface } from 'node:readline';
 export const test = base.extend({
   serverAutoLogin: [true, {option: true}],
   hostBinary: [async ({}, use) => {
+    // CI builds the checkout's fixture once; every test still gets a fresh
+    // process and data directory. Local runs retain the worker build fallback.
+    if (process.env.PITH_DESK_HOST_FIXTURE) {
+      await use(process.env.PITH_DESK_HOST_FIXTURE);
+      return;
+    }
     const root = await mkdtemp(join(tmpdir(), 'pith-host-binary-'));
     try {
       const binary = join(root, 'host-fixture');
