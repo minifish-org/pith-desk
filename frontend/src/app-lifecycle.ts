@@ -1,3 +1,5 @@
+import {readDraftFlushCallback} from './native-protocol.ts';
+
 // Centralize browser/native lifecycle ingress. The composer supplies the save
 // operation, including its readonly/failed-save UI; lifecycle never owns drafts.
 export function installAppLifecycle(options: {
@@ -11,8 +13,8 @@ export function installAppLifecycle(options: {
     if (document.visibilityState === 'hidden') options.saveOnLeave();
   };
   const onFlush = (event: Event) => {
-    const callback = (event as CustomEvent<(saved: boolean) => void>).detail;
-    if (typeof callback !== 'function') return;
+    const callback = readDraftFlushCallback((event as CustomEvent<unknown>).detail);
+    if (!callback) return;
     event.preventDefault();
     void options.flushDrafts().then(callback, () => callback(false));
   };

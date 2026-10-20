@@ -9,7 +9,6 @@
   "scripts": {
     "build:ui": "npm run check:contract && npm run check:ui-consumption && npm --prefix frontend run build",
     "dev": "node --experimental-strip-types scripts/dev.ts",
-    "preview": "node --experimental-strip-types scripts/dev.ts --preview",
     "build": "npm run build:ui && mygo build -skip-build-command -skip-dmg -skip-notarize",
     "build:mac": "npm run build:ui && mygo build -skip-build-command -platform darwin/arm64 -skip-dmg -skip-notarize",
     "check": "npm run build:ui && node --experimental-strip-types --test frontend/tests/*.test.mjs frontend/tests/*.test.ts scripts/*.test.mjs scripts/*.test.ts && GOWORK=off CGO_ENABLED=0 go test ./... && GOWORK=off CGO_ENABLED=0 go vet ./...",
@@ -19,7 +18,10 @@
     "generate:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen",
     "check:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen -check",
     "test:ui": "playwright test",
-    "check:ui-consumption": "node --experimental-strip-types scripts/ui-consumption.ts"
+    "check:ui-consumption": "node --experimental-strip-types scripts/ui-consumption.ts",
+    "check:ui": "npm run check:contract && node --experimental-strip-types scripts/check-ui.ts",
+    "dev:server": "node --experimental-strip-types scripts/dev.ts --server",
+    "build:server": "npm run build:ui && GOWORK=off CGO_ENABLED=0 go build -trimpath -o build/pith-desk-server ./cmd/pith-desk-server"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",

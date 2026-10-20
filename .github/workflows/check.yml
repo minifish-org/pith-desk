@@ -72,3 +72,5 @@ jobs:
         run: |
           GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-linux-amd64" ./cmd/pith-desk
           GOOS=linux GOARCH=arm64 go build -o "$RUNNER_TEMP/pith-desk-linux-arm64" ./cmd/pith-desk
+          GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-server-linux-amd64" ./cmd/pith-desk-server
+          GOOS=linux GOARCH=arm64 go build -o "$RUNNER_TEMP/pith-desk-server-linux-arm64" ./cmd/pith-desk-server

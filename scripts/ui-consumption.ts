@@ -20,12 +20,13 @@ const recipesEntry = 'pith-ui/recipes';
 const canonicalDeskModule = 'frontend/src/ui-application';
 const cssEntry = 'pith-ui/styles.css';
 const nativeFiles = new Set(['frontend/src/ui-native.ts', 'frontend/src/native-menu.ts', 'frontend/src/app-lifecycle.ts']);
-const metaNames = new Set(['desk-token', 'desk-native-clipboard', 'desk-native-file-drop', 'desk-native-menus', 'desk-titlebar-overlay']);
+const metaNames = new Set(['desk-token', 'desk-mode', 'desk-native-clipboard', 'desk-native-file-drop', 'desk-native-menus', 'desk-titlebar-overlay']);
 const nativeEvents = new Set(['focus', 'blur', 'visibilitychange', 'pagehide', 'beforeunload', 'keydown', 'pith:flush-drafts', 'pith:file-drop', 'pith:native-menu']);
 const internalParts = new Set(['element', 'field', 'form', 'control', 'body', 'dialog', 'internals', 'style', 'className', 'classList', 'innerHTML', 'outerHTML', 'querySelector', 'querySelectorAll']);
 const visualOptions = new Set(['class', 'className', 'classList', 'style', 'css', 'html', 'innerHTML', 'outerHTML', 'header', 'element', 'node']);
 const domGlobals = new Set(['document', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'Document', 'DocumentFragment', 'DOMParser', 'DOMImplementation', 'MutationObserver', 'ResizeObserver', 'IntersectionObserver', 'CSSStyleSheet', 'CSSStyleDeclaration', 'Image', 'Option', 'customElements']);
 const nativeTypes = new Set(['Event', 'CustomEvent', 'KeyboardEvent', 'BeforeUnloadEvent', 'EventListener', 'EventListenerOrEventListenerObject']);
+const protocolReaders = new Set(['readNativeDrop','readNativeMenuAction','readDraftFlushCallback']);
 const safeWindowData = new Set(['location', 'localStorage', 'sessionStorage', 'fetch', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'crypto']);
 
 function unwrap(node: ts.Node): ts.Node {
@@ -63,10 +64,6 @@ function isName(node: ts.Identifier): boolean {
 function isDOMName(name: string): boolean {
   return domGlobals.has(name) || /^HTML\w*Element$|^SVG\w*Element$/.test(name);
 }
-function objectKeys(node: ts.ObjectLiteralExpression): string[] {
-  return node.properties.map(p => p.name && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) ? p.name.text : '');
-}
-
 /** Pure policy check: no filesystem, environment, registry or application state reads. */
 export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] {
   const issues: ConsumptionIssue[] = [];
@@ -142,7 +139,7 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     const values = new Set<string>();
     const eventValues = new Set<string>();
     const allowed = new Set<ts.Node>();
-    const validatorNames = new Set<string>();
+    const readers = new Set<string>(),readerNamespaces = new Set<string>();
     walk(source, node => {
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) bindings.set(node.name.text, node.initializer);
       if (ts.isImportDeclaration(node)) {
@@ -150,6 +147,10 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
         const root = specifier === partsEntry, desk = local === canonicalDeskModule, entry = local === 'frontend/src/ui-mount';
         const composition = specifier === recipesEntry;
         const names = node.importClause?.namedBindings;
+        if (local === 'frontend/src/native-protocol' && names) {
+          if (ts.isNamespaceImport(names)) readerNamespaces.add(names.name.text);
+          else for (const spec of names.elements) if (!node.importClause?.isTypeOnly && !spec.isTypeOnly && protocolReaders.has((spec.propertyName ?? spec.name).text)) readers.add(spec.name.text);
+        }
         if (names && ts.isNamespaceImport(names) && (root || composition || desk)) namespaces.set(names.name.text, root ? 'parts' : composition ? 'recipes' : 'desk');
         if (names && ts.isNamedImports(names)) for (const spec of names.elements) {
           const imported = (spec.propertyName ?? spec.name).text, typeOnly = spec.isTypeOnly || !!node.importClause?.isTypeOnly;
@@ -160,7 +161,6 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
           if (kind) factories.set(spec.name.text, kind);
         }
       }
-      if (ts.isFunctionDeclaration(node) && node.name && validDropValidator(node)) validatorNames.add(node.name.text);
       if (ts.isParameter(node) && ts.isIdentifier(node.name) && node.type && ts.isTypeReferenceNode(node.type) && ts.isIdentifier(node.type.typeName) && nativeTypes.has(node.type.typeName.text)) eventValues.add(node.name.text);
     });
     const resolvesNamespace = (node: ts.Node, seen = new Set<string>()): 'parts' | 'recipes' | 'desk' | undefined => {
@@ -189,18 +189,43 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
       return factoryKind(bindings.get(node.text)!, new Set([...seen, node.text]));
     };
     const resolvesFactory = (node: ts.Node): boolean => factoryKind(node) !== undefined;
+    const resolvesReader = (node: ts.Node,seen = new Set<string>()): boolean => {
+      node = unwrap(node);
+      if (ts.isIdentifier(node)) {
+        if (readers.has(node.text)) return true;
+        return !seen.has(node.text) && bindings.has(node.text) ? resolvesReader(bindings.get(node.text)!,new Set([...seen,node.text])) : false;
+      }
+      const member = property(node);
+      return !!member?.key && protocolReaders.has(member.key) && ts.isIdentifier(unwrap(member.object)) && readerNamespaces.has((unwrap(member.object) as ts.Identifier).text);
+    };
+    // Raw native ingress may only flow to the pure, independently tested readers.
+    // Aliases and intermediate declarations do not gain node or UI authority.
+    const validatedDetail = (node: ts.Node,seen = new Set<string>()): boolean => {
+      let value = node;
+      while (ts.isParenthesizedExpression(value.parent) || ts.isAsExpression(value.parent) || ts.isNonNullExpression(value.parent)) value = value.parent;
+      const parent = value.parent;
+      if (ts.isCallExpression(parent) && parent.arguments.length === 1 && parent.arguments[0] === value && resolvesReader(parent.expression)) return true;
+      if (!ts.isVariableDeclaration(parent) || parent.initializer !== value || !ts.isIdentifier(parent.name) || seen.has(parent.name.text)) return false;
+      const references = identifiersWithin(source,parent.name.text).filter(reference => reference !== parent.name);
+      return references.length > 0 && references.every(reference => validatedDetail(reference,new Set([...seen,parent.name.getText(source)])));
+    };
+    const isEvent = (node: ts.Node,seen = new Set<string>()): boolean => {
+      node = unwrap(node);
+      if (!ts.isIdentifier(node)) return false;
+      if (eventValues.has(node.text)) return true;
+      return !seen.has(node.text) && bindings.has(node.text) ? isEvent(bindings.get(node.text)!,new Set([...seen,node.text])) : false;
+    };
     if (assembly) allowAssemblyMountParameters(source, allowed, node => factoryKind(node) === 'mount');
     if (file === 'frontend/src/ui-mount.ts') {
-      if (!allowMount(source, allowed, node => factoryKind(node) === 'desk')) fail(source, 'mount', 'ui-mount.ts must only export mountApplication: obtain #app, check HTMLElement, then return the canonical local mountDesk(root, options).');
+      if (!allowMount(source, allowed, node => factoryKind(node) === 'desk',bindings)) fail(source, 'mount', 'ui-mount.ts must obtain #app, check HTMLElement and forward it only to the canonical local mountDesk.');
     }
-    if (file === 'frontend/src/ui-bootstrap.ts') allowBootstrap(source, allowed);
+    if (file === 'frontend/src/ui-bootstrap.ts') allowBootstrap(source, allowed,bindings);
     if (nativeFiles.has(file)) walk(source, node => {
       const p = property(node);
       if (!p) return;
       if (identifier(p.object, 'document') && p.key === 'visibilityState' && isRead(node)) allowed.add(p.object);
       if (identifier(p.object, 'document') && p.key === 'hasFocus' && ts.isCallExpression(node.parent) && node.parent.expression === node && !node.parent.arguments.length) allowed.add(p.object);
       if (['addEventListener', 'removeEventListener'].includes(p.key ?? '') && (identifier(p.object, 'document') || identifier(p.object, 'window')) && ts.isCallExpression(node.parent) && node.parent.expression === node && nativeEvents.has(stringValue(node.parent.arguments[0]) ?? '') && node.parent.arguments.length >= 2) allowed.add(p.object);
-      if (p.key === 'detail' && allowNativeProtocol(node, source, file)) allowed.add(node);
     });
     const isApp = (node: ts.Node, seen = new Set<string>()): boolean => {
       node = unwrap(node);
@@ -271,18 +296,16 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
         if ((identifier(p.object, 'globalThis') || identifier(p.object, 'window')) && isDOMName(p.key ?? '')) fail(node, 'dom', 'Aliased global DOM capabilities are forbidden.');
         const opaqueControl = assembly && p.key === 'control' && isComposition(p.object) && !(ts.isCallExpression(node.parent) && node.parent.expression === node);
         if (p.key && (internalParts.has(p.key) && !opaqueControl || p.key === 'part' && (!assembly || ts.isCallExpression(node.parent) && node.parent.expression === node)) && isApp(p.object)) fail(node, 'internal', 'UI handles expose opaque parts, not native elements, selectors, styles or part accessors.');
-        const eventObject = unwrap(p.object);
-        const event = ts.isIdentifier(eventObject) && eventValues.has(eventObject.text);
+        const event = isEvent(p.object);
         if ((p.key === 'target' || p.key === 'currentTarget') && event) {
           if (nativeFiles.has(file)) fail(node, 'native', 'Native adapters forward pure data and must not use event target nodes.');
         }
         if (p.key === 'detail' && event && nativeFiles.has(file) && !allowed.has(node)) {
-          let parent: ts.Node = node.parent;
-          while (ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isNonNullExpression(parent)) parent = parent.parent;
-          if (!ts.isCallExpression(parent) || !ts.isIdentifier(parent.expression) || !validatorNames.has(parent.expression.text) || parent.arguments.length !== 1) fail(node, 'native', 'Native drop detail must pass through a local guard validating string paths and finite x/y before forwarding.');
+          if (!validatedDetail(node)) fail(node, 'native', 'Native detail must flow only through the pure native-protocol readers before forwarding.');
         }
       }
       if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer) {
+        if (nativeFiles.has(file) && isEvent(node.initializer)) fail(node,'native','Native events must pass detail through a pure reader; node fields cannot be destructured.');
         if (isApp(node.initializer)) for (const entry of node.name.elements) {
           const name = entry.propertyName ?? entry.name;
           if (ts.isIdentifier(name) && (internalParts.has(name.text) || name.text === 'part' && !assembly)) fail(entry, 'internal', 'UI native internals cannot be recovered by destructuring.');
@@ -303,73 +326,31 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
   return [...unique.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.code.localeCompare(b.code));
 }
 
-function splitOr(node: ts.Node): ts.Node[] {
-  node = unwrap(node);
-  return ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.BarBarToken ? [...splitOr(node.left), ...splitOr(node.right)] : [node];
-}
-function returnsEarly(statement: ts.Statement): boolean {
-  const body = ts.isBlock(statement) ? statement.statements : [statement];
-  return body.length === 1 && ts.isReturnStatement(body[0]) && !body[0].expression;
-}
-function typeGuard(node: ts.Node, name: string, type: string): boolean {
-  node = unwrap(node);
-  return ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken && ts.isTypeOfExpression(node.left) && identifier(node.left.expression, name) && stringValue(node.right) === type;
-}
 function identifiersWithin(node: ts.Node, name: string): ts.Identifier[] {
   const found: ts.Identifier[] = [];
-  walk(node, item => { if (ts.isIdentifier(item) && item.text === name && !isName(item)) found.push(item); });
+  walk(node, item => {if (ts.isIdentifier(item) && item.text === name && !isName(item)) found.push(item);});
   return found;
 }
-
-// Preserve two existing host protocols without granting DOM authority to their files.
-function allowNativeProtocol(detail: ts.Node, source: ts.SourceFile, file: string): boolean {
-  let declaration: ts.Node = detail;
-  while (ts.isParenthesizedExpression(declaration.parent) || ts.isAsExpression(declaration.parent)) declaration = declaration.parent;
-  if (!ts.isVariableDeclaration(declaration.parent) || !ts.isIdentifier(declaration.parent.name)) return false;
-  const variable = declaration.parent;
-  let fn: ts.Node | undefined = variable;
-  while (fn && !ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn) && !ts.isFunctionDeclaration(fn)) fn = fn.parent;
-  if (!fn || (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn) && !ts.isFunctionDeclaration(fn)) || !fn.body || !ts.isBlock(fn.body)) return false;
-  const name = ts.isFunctionDeclaration(fn) ? fn.name?.text : ts.isVariableDeclaration(fn.parent) && ts.isIdentifier(fn.parent.name) ? fn.parent.name.text : undefined;
-  if (!name) return false;
-  const events: string[] = [];
-  walk(source, item => {
-    if (!ts.isCallExpression(item) || !identifier(item.arguments[1], name)) return;
-    const p = property(item.expression);
-    if (p?.key === 'addEventListener' && (identifier(p.object, 'window') || identifier(p.object, 'document'))) events.push(stringValue(item.arguments[0]) ?? '');
-  });
-  const declaredName = variable.name.getText(source);
-  const index = fn.body.statements.findIndex(statement => statement.pos <= variable.pos && statement.end >= variable.end);
-  const guard = fn.body.statements[index + 1];
-  if (!guard || !ts.isIfStatement(guard) || guard.elseStatement || !returnsEarly(guard.thenStatement)) return false;
-  if (file === 'frontend/src/app-lifecycle.ts' && events.length === 1 && events[0] === 'pith:flush-drafts' && typeGuard(guard.expression, declaredName, 'function')) {
-    const refs = identifiersWithin(fn.body, declaredName).filter(node => node !== variable.name);
-    if (refs.length !== 3) return false;
-    let type = 0, fulfillment = 0, rejection = 0;
-    for (const ref of refs) {
-      if (ts.isTypeOfExpression(ref.parent)) type++;
-      else if (ts.isCallExpression(ref.parent) && ref.parent.expression === ref && ref.parent.arguments.length === 1 && ref.parent.arguments[0].kind === ts.SyntaxKind.FalseKeyword) rejection++;
-      else if (ts.isCallExpression(ref.parent) && property(ref.parent.expression)?.key === 'then' && ref.parent.arguments[0] === ref && ref.parent.arguments.length === 2) fulfillment++;
-      else return false;
-    }
-    return type === 1 && fulfillment === 1 && rejection === 1;
+function dataAliases(body: ts.Node, first: string): Set<string> {
+  const names = new Set([first]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    walk(body,node => {
+      if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer) return;
+      const value = unwrap(node.initializer);
+      if (ts.isIdentifier(value) && names.has(value.text) && !names.has(node.name.text)) {names.add(node.name.text);changed = true;}
+    });
   }
-  if (file !== 'frontend/src/native-menu.ts' || events.length !== 1 || events[0] !== 'pith:native-menu') return false;
-  const checks = splitOr(guard.expression);
-  if (checks.length !== 3 || !ts.isPrefixUnaryExpression(checks[0]) || checks[0].operator !== ts.SyntaxKind.ExclamationToken || !identifier(checks[0].operand, declaredName) || !typeGuard(checks[1], declaredName, 'object')) return false;
-  const missingAction = checks[2];
-  if (!ts.isPrefixUnaryExpression(missingAction) || missingAction.operator !== ts.SyntaxKind.ExclamationToken) return false;
-  const hasAction = unwrap(missingAction.operand);
-  if (!ts.isBinaryExpression(hasAction) || hasAction.operatorToken.kind !== ts.SyntaxKind.InKeyword || stringValue(hasAction.left) !== 'action' || !identifier(hasAction.right, declaredName)) return false;
-  const actionStatement = fn.body.statements[index + 2], dispatch = fn.body.statements[index + 3];
-  if (!actionStatement || !ts.isVariableStatement(actionStatement) || actionStatement.declarationList.declarations.length !== 1 || !dispatch || !ts.isIfStatement(dispatch) || dispatch.elseStatement) return false;
-  const action = actionStatement.declarationList.declarations[0], member = action.initializer && property(action.initializer);
-  if (!ts.isIdentifier(action.name) || member?.key !== 'action' || !identifier(member.object, declaredName)) return false;
-  const actions = splitOr(dispatch.expression).map(condition => ts.isBinaryExpression(condition) && condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken && identifier(condition.left, action.name.getText(source)) ? stringValue(condition.right) : undefined);
-  if (actions.length !== 5 || new Set(actions).size !== 5 || !['new-conversation', 'choose-workspace', 'export-conversation', 'settings', 'check-updates'].every(value => actions.includes(value))) return false;
-  const invocation = ts.isBlock(dispatch.thenStatement) && dispatch.thenStatement.statements.length === 1 ? dispatch.thenStatement.statements[0] : dispatch.thenStatement;
-  if (!ts.isExpressionStatement(invocation) || !ts.isCallExpression(invocation.expression) || invocation.expression.arguments.length !== 1 || !identifier(invocation.expression.arguments[0], action.name.text)) return false;
-  return identifiersWithin(fn.body, declaredName).filter(node => node !== variable.name).length === 4 && identifiersWithin(fn.body, action.name.text).filter(node => node !== action.name).length === 6;
+  return names;
+}
+function dataReferences(body: ts.Node,names: Set<string>): ts.Identifier[] {
+  return [...names].flatMap(name => identifiersWithin(body,name)).filter(node => !((ts.isVariableDeclaration(node.parent) || ts.isParameter(node.parent)) && node.parent.name === node));
+}
+function aliasDeclaration(node: ts.Node,names: Set<string>): boolean {
+  let value = node;
+  while (ts.isParenthesizedExpression(value.parent) || ts.isAsExpression(value.parent) || ts.isNonNullExpression(value.parent)) value = value.parent;
+  return ts.isVariableDeclaration(value.parent) && value.parent.initializer === value && ts.isIdentifier(value.parent.name) && names.has(value.parent.name.text);
 }
 
 /** Only the application coordinator receives a typed mount. Every
@@ -394,114 +375,84 @@ function allowAssemblyMountParameters(source: ts.SourceFile, allowed: Set<ts.Nod
   }
 }
 
-function allowMount(source: ts.SourceFile, allowed: Set<ts.Node>, factory: (node: ts.Node) => boolean): boolean {
-  const declarations = source.statements.filter(node => !ts.isImportDeclaration(node));
-  if (declarations.length !== 1 || !ts.isFunctionDeclaration(declarations[0])) return false;
-  const fn = declarations[0];
-  if (fn.name?.text !== 'mountApplication' || !fn.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) || fn.parameters.length !== 1 || !ts.isIdentifier(fn.parameters[0].name) || !fn.body || fn.body.statements.length !== 3) return false;
-  const [decl, guard, result] = fn.body.statements;
-  if (!ts.isVariableStatement(decl) || decl.declarationList.declarations.length !== 1) return false;
-  const root = decl.declarationList.declarations[0];
-  if (!ts.isIdentifier(root.name) || !root.initializer || !ts.isCallExpression(root.initializer)) return false;
-  const getter = root.initializer, p = property(getter.expression);
-  if (!p || !identifier(p.object, 'document') || p.key !== 'getElementById' || getter.arguments.length !== 1 || stringValue(getter.arguments[0]) !== 'app') return false;
-  if (!ts.isIfStatement(guard) || guard.elseStatement) return false;
-  const condition = unwrap(guard.expression);
-  if (!ts.isPrefixUnaryExpression(condition) || condition.operator !== ts.SyntaxKind.ExclamationToken) return false;
-  const instance = unwrap(condition.operand);
-  if (!ts.isBinaryExpression(instance) || instance.operatorToken.kind !== ts.SyntaxKind.InstanceOfKeyword || !identifier(instance.left, root.name.text) || !identifier(instance.right, 'HTMLElement')) return false;
-  const rejected = ts.isBlock(guard.thenStatement) ? guard.thenStatement.statements : [guard.thenStatement];
-  if (rejected.length !== 1 || !ts.isThrowStatement(rejected[0])) return false;
-  if (!ts.isReturnStatement(result) || !result.expression || !ts.isCallExpression(result.expression)) return false;
-  const call = result.expression;
-  if (!factory(call.expression) || call.arguments.length !== 2 || !identifier(call.arguments[0], root.name.text) || !identifier(call.arguments[1], fn.parameters[0].name.text)) return false;
-  allowed.add(p.object); allowed.add(instance.right); allowed.add(call);
-  return true;
-}
-
-function allowBootstrap(source: ts.SourceFile, allowed: Set<ts.Node>): void {
+function allowMount(source: ts.SourceFile, allowed: Set<ts.Node>, factory: (node: ts.Node) => boolean,bindings: Map<string,ts.Expression>): boolean {
+  let found = false;
   for (const fn of source.statements) {
-    if (!ts.isFunctionDeclaration(fn) || fn.name?.text !== 'readAppBootstrap' || !fn.body) continue;
-    const documentParameter = fn.parameters.find(p => ts.isIdentifier(p.name) && p.name.text === 'document');
-    const candidates: ts.VariableDeclaration[] = [];
-    walk(fn.body, node => { if (ts.isVariableDeclaration(node) && node.initializer && ts.isArrowFunction(node.initializer)) candidates.push(node); });
-    for (const candidate of candidates) {
-      const helper = candidate.initializer as ts.ArrowFunction;
-      if (!ts.isIdentifier(candidate.name) || helper.parameters.length !== 1 || !ts.isIdentifier(helper.parameters[0].name) || !ts.isBlock(helper.body) || helper.body.statements.length !== 4) continue;
-      const [metaStatement, valueStatement, removeStatement, returnStatement] = helper.body.statements;
-      if (!ts.isVariableStatement(metaStatement) || !ts.isVariableStatement(valueStatement) || metaStatement.declarationList.declarations.length !== 1 || valueStatement.declarationList.declarations.length !== 1) continue;
-      const meta = metaStatement.declarationList.declarations[0], value = valueStatement.declarationList.declarations[0];
-      if (!ts.isIdentifier(meta.name) || !meta.initializer || !ts.isCallExpression(meta.initializer) || !ts.isIdentifier(value.name) || !value.initializer) continue;
-      const query = meta.initializer, selector = query.arguments[0], queryProperty = property(query.expression);
-      if (!queryProperty || !identifier(queryProperty.object, 'document') || queryProperty.key !== 'querySelector' || query.arguments.length !== 1 || !ts.isTemplateExpression(selector) || selector.head.text !== 'meta[name="' || selector.templateSpans.length !== 1 || !identifier(selector.templateSpans[0].expression, helper.parameters[0].name.text) || selector.templateSpans[0].literal.text !== '"]') continue;
-      const valueExpression = unwrap(value.initializer);
-      if (!ts.isBinaryExpression(valueExpression) || valueExpression.operatorToken.kind !== ts.SyntaxKind.QuestionQuestionToken || stringValue(valueExpression.right) !== '') continue;
-      const content = property(valueExpression.left);
-      if (!content || !identifier(content.object, meta.name.text) || content.key !== 'content') continue;
-      if (!ts.isExpressionStatement(removeStatement) || !ts.isCallExpression(removeStatement.expression) || removeStatement.expression.arguments.length) continue;
-      const remove = property(removeStatement.expression.expression);
-      if (!remove || !identifier(remove.object, meta.name.text) || remove.key !== 'remove' || !ts.isReturnStatement(returnStatement) || !identifier(returnStatement.expression, value.name.text)) continue;
-      const references: ts.Identifier[] = [];
-      walk(source, node => { if (ts.isIdentifier(node) && node.text === candidate.name.getText(source) && node !== candidate.name && !isName(node)) references.push(node); });
-      const consumed = references.map(node => ts.isCallExpression(node.parent) && node.parent.expression === node && node.parent.arguments.length === 1 ? stringValue(node.parent.arguments[0]) : undefined);
-      if (consumed.length !== metaNames.size || new Set(consumed).size !== metaNames.size || consumed.some(name => !name || !metaNames.has(name))) continue;
-      allowed.add(queryProperty.object);
-      if (documentParameter) allowed.add(documentParameter.name);
-      if (documentParameter?.type) walk(documentParameter.type, node => allowed.add(node));
-      for (const type of query.typeArguments ?? []) walk(type, node => { if (ts.isIdentifier(node) && node.text === 'HTMLMetaElement') allowed.add(node); });
-    }
-    walk(fn.body, node => {
-      const appearance = property(node);
-      if (appearance?.key !== 'appearance' || !isRead(node)) return;
-      const dataset = property(appearance.object), element = dataset && property(dataset.object);
-      if (dataset?.key === 'dataset' && element?.key === 'documentElement' && identifier(element.object, 'document')) allowed.add(element.object);
+    if (!ts.isFunctionDeclaration(fn) || fn.name?.text !== 'mountApplication' || !fn.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) || !fn.body) continue;
+    walk(fn.body,node => {
+      if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer || !ts.isCallExpression(node.initializer)) return;
+      const query = node.initializer,method = property(query.expression);
+      if (!method || !identifier(method.object,'document') || method.key !== 'getElementById' || query.arguments.length !== 1 || stringValue(query.arguments[0],bindings) !== 'app') return;
+      const aliases = dataAliases(fn.body!,node.name.text),guards: {statement: ts.IfStatement;instance: ts.BinaryExpression}[] = [],calls: ts.CallExpression[] = [];
+      walk(fn.body!,item => {
+        if (!ts.isIfStatement(item) || item.elseStatement) return;
+        const condition = unwrap(item.expression);
+        if (!ts.isPrefixUnaryExpression(condition) || condition.operator !== ts.SyntaxKind.ExclamationToken) return;
+        const instance = unwrap(condition.operand);
+        const rejected = ts.isBlock(item.thenStatement) ? item.thenStatement.statements : [item.thenStatement];
+        if (ts.isBinaryExpression(instance) && instance.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword && ts.isIdentifier(unwrap(instance.left)) && aliases.has((unwrap(instance.left) as ts.Identifier).text) && identifier(instance.right,'HTMLElement') && rejected.some(statement => ts.isThrowStatement(statement))) guards.push({statement: item,instance});
+      });
+      const valid = dataReferences(fn.body!,aliases).every(reference => {
+        if (aliasDeclaration(reference,aliases) || guards.some(guard => unwrap(guard.instance.left) === reference)) return true;
+        let value: ts.Node = reference;
+        while (ts.isParenthesizedExpression(value.parent) || ts.isAsExpression(value.parent) || ts.isNonNullExpression(value.parent)) value = value.parent;
+        const call = value.parent;
+        if (!ts.isCallExpression(call) || call.arguments[0] !== value || !factory(call.expression)) return false;
+        if (!guards.some(guard => guard.statement.parent === fn.body && guard.statement.end <= call.getStart(source))) return false;
+        calls.push(call);return true;
+      });
+      if (!valid || !calls.length) return;
+      allowed.add(method.object);for (const guard of guards) allowed.add(guard.instance.right);for (const call of calls) allowed.add(call);found = true;
     });
   }
+  return found;
 }
 
-function validDropValidator(fn: ts.FunctionDeclaration): boolean {
-  if (!fn.body || fn.parameters.length !== 1 || fn.parameters[0].type?.kind !== ts.SyntaxKind.UnknownKeyword) return false;
-  const statements = fn.body.statements;
-  if (statements.length !== 5 || !ts.isIfStatement(statements[0]) || !ts.isVariableStatement(statements[1]) || !ts.isIfStatement(statements[2]) || !ts.isIfStatement(statements[3]) || !ts.isReturnStatement(statements[4])) return false;
-  for (const index of [0, 2, 3]) {
-    const guard = statements[index] as ts.IfStatement;
-    const body = ts.isBlock(guard.thenStatement) ? guard.thenStatement.statements : [guard.thenStatement];
-    if (guard.elseStatement || body.length !== 1 || !ts.isReturnStatement(body[0]) || body[0].expression) return false;
+function allowBootstrap(source: ts.SourceFile, allowed: Set<ts.Node>,bindings: Map<string,ts.Expression>): void {
+  for (const fn of source.statements) {
+    if (!ts.isFunctionDeclaration(fn) || fn.name?.text !== 'readAppBootstrap' || !fn.body) continue;
+    walk(fn.body,node => {
+      if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer || !ts.isCallExpression(node.initializer)) return;
+      const query = node.initializer,method = property(query.expression);
+      if (!method || !identifier(method.object,'document') || method.key !== 'querySelector' || query.arguments.length !== 1) return;
+      let helper: ts.Node = node;
+      while (helper !== fn && !ts.isArrowFunction(helper) && !ts.isFunctionDeclaration(helper) && !ts.isFunctionExpression(helper)) helper = helper.parent;
+      let validSelector = false;
+      const literal = stringValue(query.arguments[0],bindings),match = literal && /^meta\[name="([^"]+)"\]$/.exec(literal);
+      if (match) validSelector = metaNames.has(match[1]);
+      else if (helper !== fn && (ts.isArrowFunction(helper) || ts.isFunctionDeclaration(helper) || ts.isFunctionExpression(helper)) && helper.parameters.length === 1 && ts.isIdentifier(helper.parameters[0].name)) {
+        const selector = query.arguments[0],parameter = helper.parameters[0].name;
+        const name = ts.isFunctionDeclaration(helper) ? helper.name : ts.isVariableDeclaration(helper.parent) && ts.isIdentifier(helper.parent.name) ? helper.parent.name : undefined;
+        const references = name ? identifiersWithin(fn.body!,name.text).filter(reference => reference !== name) : [];
+        validSelector = ts.isTemplateExpression(selector) && selector.head.text === 'meta[name="' && selector.templateSpans.length === 1 && identifier(selector.templateSpans[0].expression,parameter.text) && selector.templateSpans[0].literal.text === '"]' && references.length > 0 && references.every(reference => ts.isCallExpression(reference.parent) && reference.parent.expression === reference && reference.parent.arguments.length === 1 && metaNames.has(stringValue(reference.parent.arguments[0],bindings) ?? ''));
+      }
+      if (!validSelector) return;
+      const body = helper !== fn && (ts.isArrowFunction(helper) || ts.isFunctionDeclaration(helper) || ts.isFunctionExpression(helper)) && helper.body ? helper.body : fn.body!;
+      const aliases = dataAliases(body,node.name.text);
+      let removed = false;
+      const valid = dataReferences(body,aliases).every(reference => {
+        if (aliasDeclaration(reference,aliases)) return true;
+        let value: ts.Node = reference;
+        while (ts.isParenthesizedExpression(value.parent) || ts.isAsExpression(value.parent) || ts.isNonNullExpression(value.parent)) value = value.parent;
+        const member = property(value.parent);
+        if (!member || member.object !== value) return false;
+        if (member.key === 'content' && isRead(value.parent)) return true;
+        if (member.key === 'remove' && ts.isCallExpression(value.parent.parent) && value.parent.parent.expression === value.parent && !value.parent.parent.arguments.length) {removed = true;return true;}
+        return false;
+      });
+      if (!valid || !removed) return;
+      allowed.add(method.object);
+      for (const type of query.typeArguments ?? []) walk(type,item => {if (ts.isIdentifier(item) && item.text === 'HTMLMetaElement') allowed.add(item);});
+      const documentParameter = fn.parameters.find(parameter => identifier(parameter.name,'document'));
+      if (documentParameter) {allowed.add(documentParameter.name);if (documentParameter.type) walk(documentParameter.type,item => allowed.add(item));}
+    });
+    walk(fn.body,node => {
+      const appearance = property(node);
+      if (appearance?.key !== 'appearance' || !isRead(node)) return;
+      const dataset = property(appearance.object),element = dataset && property(dataset.object);
+      if (dataset?.key === 'dataset' && element?.key === 'documentElement' && identifier(element.object,'document')) allowed.add(element.object);
+    });
   }
-  if (!ts.isIdentifier(fn.parameters[0].name)) return false;
-  const input = fn.parameters[0].name.text;
-  const objectChecks = splitOr((statements[0] as ts.IfStatement).expression);
-  if (objectChecks.length !== 2 || !negated(objectChecks[0], value => identifier(value, input)) || !typeGuard(objectChecks[1], input, 'object')) return false;
-  const variables = statements[1].declarationList.declarations;
-  if (variables.length !== 1 || !ts.isIdentifier(variables[0].name) || !variables[0].initializer || !identifier(variables[0].initializer, input)) return false;
-  const record = variables[0].name.text;
-  const member = (node: ts.Node, key: string): boolean => { const p = property(unwrap(node)); return p?.key === key && identifier(p.object, record); };
-  const guardedCall = (node: ts.Node, owner: string, method: string, key: string): boolean => negated(node, expression => {
-    if (!ts.isCallExpression(expression) || expression.arguments.length !== 1) return false;
-    const methodProperty = property(expression.expression);
-    return methodProperty?.key === method && identifier(methodProperty.object, owner) && member(expression.arguments[0], key);
-  });
-  const pathChecks = splitOr((statements[2] as ts.IfStatement).expression);
-  if (pathChecks.length !== 2 || !guardedCall(pathChecks[0], 'Array', 'isArray', 'paths') || !negated(pathChecks[1], expression => {
-    if (!ts.isCallExpression(expression) || expression.arguments.length !== 1 || property(expression.expression)?.key !== 'every' || !member(property(expression.expression)!.object, 'paths')) return false;
-    const predicate = expression.arguments[0];
-    if (!ts.isArrowFunction(predicate) || predicate.parameters.length !== 1 || !ts.isIdentifier(predicate.parameters[0].name)) return false;
-    const comparison = unwrap(predicate.body);
-    return ts.isBinaryExpression(comparison) && comparison.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken && ts.isTypeOfExpression(comparison.left) && identifier(comparison.left.expression, predicate.parameters[0].name.text) && stringValue(comparison.right) === 'string';
-  })) return false;
-  const coordinateChecks = splitOr((statements[3] as ts.IfStatement).expression);
-  if (coordinateChecks.length !== 4) return false;
-  for (const [index, key] of ['x', 'y'].entries()) {
-    const type = coordinateChecks[index * 2];
-    if (!ts.isBinaryExpression(type) || type.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken || !ts.isTypeOfExpression(type.left) || !member(type.left.expression, key) || stringValue(type.right) !== 'number' || !guardedCall(coordinateChecks[index * 2 + 1], 'Number', 'isFinite', key)) return false;
-  }
-  const returned = statements[4].expression;
-  return !!returned && ts.isObjectLiteralExpression(returned) && objectKeys(returned).join(',') === 'paths,x,y' && returned.properties.every((prop, index) => ts.isPropertyAssignment(prop) && member(prop.initializer, ['paths', 'x', 'y'][index]));
-}
-
-function negated(node: ts.Node, predicate: (node: ts.Expression) => boolean): boolean {
-  node = unwrap(node);
-  return ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken && predicate(unwrap(node.operand) as ts.Expression);
 }
 
 function checkHTML(file: string, text: string, fail: (message: string, offset: number) => void): void {

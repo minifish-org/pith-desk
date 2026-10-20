@@ -8,6 +8,20 @@ are tested in Pith UI once.
 
 ## Current checks
 
+For ordinary UI edits, start with `npm run check:ui`: generated contract,
+production consumption boundary and frontend types, without a bundle or Go
+test run. `npm run check:ui -- --ui-source ../pith-ui` uses the explicitly selected
+checkout for types while still checking the registry install and public imports.
+Use `npm run dev:server -- --ui-source ../pith-ui` for live source preview; omit
+the flag after stopping it to restore npm resolution. Neither command changes
+the lock or the installed package. Normal builds and automated product suites
+use the pinned package; local source changes must be published and pinned before
+formal delivery.
+
+Run the relevant browser spec, for example
+`npm run test:ui -- frontend/e2e/server.spec.ts`. In Pith UI, run the affected
+part/recipe checks. The full product sequence remains:
+
 ```sh
 npm ci
 npm --prefix frontend ci
@@ -32,11 +46,18 @@ installed parts/recipes exports, unique native mount adapter, CSS/private-entry
 boundaries and source aliases. It does not require local copies of recipes.
 Types come from the installed package or are inferred from the coordinator.
 
+The checker permits safe declaration grouping, aliases and intermediate data
+values. It still rejects DOM creation, internal selectors, styles, private UI
+imports, raw native event forwarding and mount leakage. Native event validation
+lives in `native-protocol.ts` with behavior tests; the consumption checker
+restricts ingress to those readers instead of matching their source layout.
+Mounting, bootstrap metadata and the ownership tree remain bounded.
+
 ## Required behavior
 
 | Responsibility | Maintained checks |
 |---|---|
-| Snapshot/transport | real Go Host + SDK HTTP/WS ordering, two clients, reconnect and restart |
+| Snapshot/transport | real Go Server + SDK HTTP/WS ordering, exclusive page takeover, reconnect and restart |
 | Writes | original operation object, permission gate, failed refresh never replays a committed write |
 | Composer/queue | sending, stopping, editing, queue delivery, stale draft reads and native reference routing |
 | Task recovery | selected workspace availability, approval, recovery and completion/read state |
@@ -79,13 +100,37 @@ does not establish native behavior. These checks require an interactive desktop
 session; they do not download or install a Desk release.
 
 For user acceptance, copy the existing application configuration and sessions to
-a private isolated data directory and start embedded browser preview:
+a private isolated data directory and start Server with the embedded frontend:
 
 ```sh
-GOWORK=off CGO_ENABLED=0 go run ./cmd/pith-desk --preview --data-dir /path/to/isolated/data
+GOWORK=off CGO_ENABLED=0 go run ./cmd/pith-desk-server --data-dir /path/to/isolated/data
 ```
 
-Keep the process running and open its printed loopback URL in a visible browser.
+Keep the process running, open its printed loopback URL in a visible browser and sign in using its private server-token file.
 User workspaces contain real files even with isolated application data; use
 read-only inspection of existing conversations and disposable workspaces for
-mutating tests. Local preview and native build do not constitute a Desk release.
+mutating tests. Local Server checks and native builds do not constitute a Desk release.
+
+## Server acceptance
+
+`internal/host/server_mode_test.go` checks every registered business endpoint
+without login, without a lease and after takeover; Host/Origin/CSRF and HTTPS
+cookies; refresh/expiry/logout; immediate WS/SSE revocation; mutation deduplication
+and downloads; and actual SDK task completion without a connected page. The
+real-host browser fixture now runs Server with Vite, not Preview.
+`frontend/e2e/server.spec.ts` covers Token login, refresh, two-tab takeover,
+sign-out, authenticated Vite HMR, server workspace paths, background task completion
+and pending file approval across takeover.
+Other Host integration scenarios retain ordering, failed-refresh, history,
+drafts, restart, export and Stop behavior in both Chromium and WebKit.
+The mode-specific file checks verify Reveal in Desktop and its absence from
+Server resources, generated files and preview, while file downloads still work.
+
+```sh
+npx playwright test frontend/e2e/server.spec.ts frontend/e2e/transport.spec.mjs frontend/e2e/message-edit-host.spec.ts
+GOWORK=off CGO_ENABLED=0 go build -o build/pith-desk-server ./cmd/pith-desk-server
+GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/pith-desk-server-linux-amd64 ./cmd/pith-desk-server
+```
+
+Native smoke checks continue to launch Desktop and retain its local bearer-token
+transport. A successful Server check alone does not establish native behavior.

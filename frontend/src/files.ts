@@ -18,11 +18,14 @@ type API = {
     conversationRunning: (id: string | null) => boolean;
     workspaceBusy: (id: string) => boolean;
     nativeClipboard: boolean;
+    server?: boolean;
     editResource: (workspaceId: string, kind: AppResourceKind, path?: string) => Promise<void>;
 };
 
 export function createFilesUI(api: API) {
     const {ui, view: app, activity, request, mutate, download, render, selectedWorkspace, openWorkspace, conversationRunning, nativeClipboard} = api;
+    // Product visibility lives here; shared recipes do not know Desktop or Server.
+    const fileActions = {reveal: !api.server};
     let destroyed = false;
     let artifacts: Artifact[] = [];
     let artifactsError = '';
@@ -63,6 +66,8 @@ export function createFilesUI(api: API) {
         const id = target.owner.id;
         if (activity.busy || conversationRunning(id) || id !== app.state.activeId) return;
         const payload = {kind: 'artifact', id, path: target.path, action};
+        if (api.server && action === 'open') {await downloadConversationFile(id,target.path);return;}
+        if (api.server && action === 'reveal') {await copyText(target.path);return;}
         if (action === 'copy' || action === 'copy-path') {
             try {
                 if (action === 'copy') await request('/api/file', payload);
@@ -72,6 +77,7 @@ export function createFilesUI(api: API) {
     }
     async function resourceFileAction(action: 'open' | 'reveal', target: AppResourceTarget): Promise<void> {
         if (activity.busy || api.workspaceBusy(target.workspaceId) || target.workspaceId !== resourcesWorkspaceId) return;
+        if (api.server) {await copyText(target.path);return;}
         if (!await mutate('/api/file', {kind: 'resource', workspaceId: target.workspaceId, path: target.path, action})) {
             setResourceError(activity.error);
             throw new Error(activity.error);
@@ -85,7 +91,7 @@ export function createFilesUI(api: API) {
         return {
             workspace, instructions: resources?.instructions || [], skills: resources?.skills || [], templates: resources?.templates || [],
             diagnostics: resources?.diagnostics || [], canCreateInstructions: !hasInstructions, loading: !resources, error: resourcesError,
-            busy: activity.busy || api.workspaceBusy(resourcesWorkspaceId),
+            busy: activity.busy || api.workspaceBusy(resourcesWorkspaceId),fileActions,
         };
     }
     function renderResourceAvailability(): void {
@@ -97,7 +103,7 @@ export function createFilesUI(api: API) {
         const signature = JSON.stringify([app.state.activeId, artifacts, artifactsError, artifactsLoading, disabled]);
         if (signature !== artifactsSignature) {
             artifactsSignature = signature;
-            ui.files.updateArtifacts({ownerId: app.state.activeId || '', files: artifacts, error: artifactsError, loading: artifactsLoading, copyMode: nativeClipboard ? 'file' : 'path', disabled}, {
+            ui.files.updateArtifacts({ownerId: app.state.activeId || '', files: artifacts, error: artifactsError, loading: artifactsLoading, copyMode: nativeClipboard ? 'file' : 'path', disabled,fileActions}, {
                 onPreview: target => openArtifactPreview(target.owner.id, target.path), onFileAction: artifactAction,
             });
         }
@@ -117,7 +123,7 @@ export function createFilesUI(api: API) {
         if (conversationRunning(id) || id !== app.state.activeId) return;
         clearFilePreview();
         const sequence = previewRequest;
-        const session = ui.files.openPreview({owner: {kind: 'artifact', id}, name: path.split('/').pop() || 'File preview', path, capabilities: {open: true, reveal: true, copyMode: nativeClipboard ? 'file' : 'path'}}, {
+        const session = ui.files.openPreview({owner: {kind: 'artifact', id}, name: path.split('/').pop() || 'File preview', path, capabilities: {...fileActions,open: true,copyMode: nativeClipboard ? 'file' : 'path'}}, {
             onFileAction: artifactAction,
             onClose() {if (previewSession === session) clearFilePreview();},
         });

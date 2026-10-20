@@ -2,7 +2,7 @@ package pithdesk
 
 import "embed"
 
-// Web contains the frontend built before compiling the desktop executable.
+// Web contains the shared frontend embedded in both Desktop and Server.
 //
 //go:embed frontend/dist
 var Web embed.FS

@@ -58,7 +58,7 @@ const mountModule = `
 `;
 
 const bootstrapModule = `
-  type BootstrapMeta = 'desk-token' | 'desk-native-clipboard' | 'desk-native-file-drop' | 'desk-native-menus' | 'desk-titlebar-overlay';
+  type BootstrapMeta = 'desk-token' | 'desk-mode' | 'desk-native-clipboard' | 'desk-native-file-drop' | 'desk-native-menus' | 'desk-titlebar-overlay';
   export function readAppBootstrap(document: Document) {
     const consume = (name: BootstrapMeta): string => {
       const meta = document.querySelector<HTMLMetaElement>(\`meta[name="\${name}"]\`);
@@ -69,6 +69,7 @@ const bootstrapModule = `
     const token = consume('desk-token');
     return {
       token: token === '__DESK_TOKEN__' ? '' : token,
+      server: consume('desk-mode') === 'server',
       nativeClipboard: consume('desk-native-clipboard') === 'true',
       nativeFileDrop: consume('desk-native-file-drop') === 'true',
       nativeMenus: consume('desk-native-menus') === 'true',
@@ -79,14 +80,8 @@ const bootstrapModule = `
 `;
 
 const nativeModule = `
+  import {readNativeDrop} from './native-protocol';
   interface NativeDrop { paths: string[]; x: number; y: number }
-  function readNativeDrop(input: unknown): NativeDrop | undefined {
-    if (!input || typeof input !== 'object') return;
-    const value = input as Record<string, unknown>;
-    if (!Array.isArray(value.paths) || !value.paths.every(path => typeof path === 'string')) return;
-    if (typeof value.x !== 'number' || !Number.isFinite(value.x) || typeof value.y !== 'number' || !Number.isFinite(value.y)) return;
-    return { paths: value.paths, x: value.x, y: value.y };
-  }
   export function installNativeIngress(onDrop: (value: NativeDrop) => void, onFocus: () => void) {
     const onNativeDrop = (event: Event) => {
       const detail = readNativeDrop((event as CustomEvent<unknown>).detail);
@@ -109,6 +104,15 @@ test('only the named mount module may obtain app, check its HTMLElement type and
   rejected(mountModule, 'frontend/src/feature.ts');
 });
 
+test('mounting and bootstrap checks accept safe declaration grouping and intermediate values',() => {
+  const mount = mountModule.replace("const root = document.getElementById('app');","const name = 'app', root = document.getElementById(name);")
+    .replace('return mountDesk(root, options);','const application = mountDesk(root, options); return application;');
+  assert.deepEqual(source(mount,'frontend/src/ui-mount.ts'),[]);
+  const bootstrap = bootstrapModule.replace("const value = meta?.content ?? '';","const empty = '', value = meta?.content ?? empty;")
+    .replace("const token = consume('desk-token');","const token = consume('desk-token'); consume('desk-token');");
+  assert.deepEqual(source(bootstrap,'frontend/src/ui-bootstrap.ts'),[]);
+});
+
 test('the mount exception rejects altered lookup, missing type checks and mount leakage', () => {
   for (const text of [
     mountModule.replace("getElementById('app')", "getElementById('other')"),
@@ -129,12 +133,12 @@ test('the mounting function cannot add rendering or node slots to the app option
   }
 });
 
-test('the named bootstrap may read and remove exactly the five host meta values and read the initial appearance', () => {
+test('the named bootstrap may read and remove exactly the host meta values and read the initial appearance', () => {
   assert.deepEqual(source(bootstrapModule, 'frontend/src/ui-bootstrap.ts'), []);
   rejected(bootstrapModule, 'frontend/src/feature.ts');
 });
 
-test('the bootstrap exception is limited to the five consumed meta nodes and read-only appearance', () => {
+test('the bootstrap exception is limited to the finite consumed meta nodes and read-only appearance', () => {
   for (const text of [
     bootstrapModule.replace("consume('desk-token')", "consume('other-token')"),
     bootstrapModule.replace('meta?.remove();', 'meta?.remove(); meta?.setAttribute("class", "pui-extra");'),
@@ -185,14 +189,25 @@ test('a native module is not exempt from selector, observer, point lookup, node,
 test('native event detail cannot escape validation or forward a target node as a UI slot', () => {
   rejected(nativeModule.replace('readNativeDrop((event as CustomEvent<unknown>).detail)', '(event as CustomEvent<NativeDrop>).detail'), 'frontend/src/ui-native.ts');
   rejected(nativeModule.replace('onDrop({ paths: detail.paths, x: detail.x, y: detail.y })', 'onDrop({ paths: detail.paths, x: detail.x, y: detail.y, target: event.target })'), 'frontend/src/ui-native.ts');
+  rejected(nativeModule.replace('const detail = readNativeDrop((event as CustomEvent<unknown>).detail);','const alias = event; const detail = (alias as CustomEvent<unknown>).detail;'),'frontend/src/ui-native.ts');
+  rejected(nativeModule.replace('const detail = readNativeDrop((event as CustomEvent<unknown>).detail);','const {detail} = event as CustomEvent<unknown>;'),'frontend/src/ui-native.ts');
+});
+
+test('validated native data permits reader aliases, namespaces and intermediate declarations',() => {
+  const grouped = nativeModule.replace('const detail = readNativeDrop((event as CustomEvent<unknown>).detail);','const raw = (event as CustomEvent<unknown>).detail; const read = readNativeDrop; const detail = read(raw);');
+  assert.deepEqual(source(grouped,'frontend/src/ui-native.ts'),[]);
+  const namespaced = nativeModule.replace("import {readNativeDrop} from './native-protocol';","import * as protocol from './native-protocol';")
+    .replace('readNativeDrop((event as CustomEvent<unknown>).detail)','protocol.readNativeDrop((event as CustomEvent<unknown>).detail)');
+  assert.deepEqual(source(namespaced,'frontend/src/ui-native.ts'),[]);
 });
 
 test('the draft flush lifecycle retains its guarded saved-result callback protocol', () => {
   assert.deepEqual(source(`
+    import {readDraftFlushCallback} from './native-protocol';
     export function installAppLifecycle(flushDrafts: () => Promise<boolean>) {
       const onFlush = (event: Event) => {
-        const callback = (event as CustomEvent<unknown>).detail;
-        if (typeof callback !== 'function') return;
+        const callback = readDraftFlushCallback((event as CustomEvent<unknown>).detail);
+        if (!callback) return;
         event.preventDefault();
         void flushDrafts().then(callback, () => callback(false));
       };
@@ -204,12 +219,12 @@ test('the draft flush lifecycle retains its guarded saved-result callback protoc
 
 test('the native menu retains its guarded finite action protocol without querying UI nodes', () => {
   assert.deepEqual(source(`
+    import {readNativeMenuAction as readAction} from './native-protocol';
     export function installNativeMenu(dispatch: (action: string) => void) {
       const onNative = (event: Event) => {
-        const detail = (event as CustomEvent<unknown>).detail;
-        if (!detail || typeof detail !== 'object' || !('action' in detail)) return;
-        const action = detail.action;
-        if (action === 'new-conversation' || action === 'choose-workspace' || action === 'export-conversation' || action === 'settings' || action === 'check-updates') dispatch(action);
+        const raw = (event as CustomEvent<unknown>).detail;
+        const action = readAction(raw);
+        if (action) dispatch(action);
       };
       window.addEventListener('pith:native-menu', onNative);
       return () => window.removeEventListener('pith:native-menu', onNative);
@@ -258,12 +273,10 @@ test('an application factory cannot impersonate the pure custom model defaults h
   }
 });
 
-test('a drop validator must reject invalid values rather than contain unreachable validation checks', () => {
-  const ineffectiveGuard = nativeModule.replace(
-    "if (!Array.isArray(value.paths) || !value.paths.every(path => typeof path === 'string')) return;",
-    "if (false && (!Array.isArray(value.paths) || !value.paths.every(path => typeof path === 'string'))) return;",
-  );
-  rejected(ineffectiveGuard, 'frontend/src/ui-native.ts');
+test('native ingress cannot substitute an untrusted same-name parser or leak raw detail', () => {
+  rejected(nativeModule.replace("from './native-protocol'","from './other'"),'frontend/src/ui-native.ts');
+  rejected(nativeModule.replace('readNativeDrop((event as CustomEvent<unknown>).detail)','((event as CustomEvent<unknown>).detail)'),'frontend/src/ui-native.ts');
+  rejected(nativeModule.replace('const detail = readNativeDrop((event as CustomEvent<unknown>).detail);','const raw = (event as CustomEvent<unknown>).detail; onDrop(raw); const detail = readNativeDrop(raw);'),'frontend/src/ui-native.ts');
 });
 
 test('business file, blob, URL, networking and literal tool data remain outside the DOM prohibition', () => {

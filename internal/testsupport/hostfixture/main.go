@@ -27,6 +27,7 @@ func main() {
 	var requests, canceled atomic.Int32
 	var lastRequest atomic.Value
 	var hold atomic.Bool
+	var writeTool atomic.Bool
 	release := make(chan struct{}, 1)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer fixture-provider-key" {
@@ -55,6 +56,12 @@ func main() {
 			data, _ := json.Marshal(value)
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			w.(http.Flusher).Flush()
+		}
+		if writeTool.Swap(false) {
+			write(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "fixture-write", "type": "function", "function": map[string]any{"name": "write_file", "arguments": `{"path":"approved.txt","content":"Approved on Server"}`}}}}}}})
+			write(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "tool_calls"}}})
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
 		}
 		write(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": "Fixture answer"}}}})
 		write(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}})
@@ -103,7 +110,7 @@ func main() {
 				return err
 			}
 		}
-		server, err = host.StartDevelopment(service, nil, *frontend)
+		server, err = host.StartServer(service, host.ServerOptions{Listen: "127.0.0.1:0", FrontendURL: *frontend, Token: "fixture-server-token-0123456789abcdef"})
 		return err
 	}
 	closeHost := func() {
@@ -129,6 +136,7 @@ func main() {
 		if server != nil && service != nil {
 			result["url"] = server.URL
 			result["state"] = service.Snapshot()
+			result["token"] = "fixture-server-token-0123456789abcdef"
 		}
 		_ = output.Encode(result)
 	}
@@ -158,6 +166,8 @@ func main() {
 				default:
 				}
 			}
+		case "write-tool":
+			writeTool.Store(command.Enabled)
 		case "restart":
 			closeHost()
 			err = open()

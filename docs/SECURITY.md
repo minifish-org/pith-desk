@@ -1,8 +1,8 @@
 # Security and data handling
 
-Pith Desk runs under your own operating-system account. It is intended for one local user, not remote hosting.
+Pith Desk runs under your own operating-system account. Desktop and Server are intended for one trusted user. Server supports browser access through an HTTPS reverse proxy.
 
-## Local interface
+## Desktop interface
 
 The host listens only on a randomly selected IPv4 loopback port. Every API request requires a fresh process-local bearer token. HTTP requests use the Authorization header; the live state WebSocket carries the token in a request subprotocol, which the server does not echo. The trusted index page bootstraps that token; it is never placed in a URL or browser storage. Host and Origin checks reject cross-site requests and DNS-rebound hostnames. There is no CORS access for foreign pages. The built UI has a Content Security Policy and never serves workspace files as web content.
 
@@ -21,9 +21,57 @@ expired, deleted or superseded target does not create a conversation or select a
 different target. Delivered valid notifications survive process exit; no
 background process is kept for them.
 
-These controls address access from other websites. They do not protect against malicious processes already running as your user, browser extensions with access to the preview, or a compromised operating system. Only trusted application assets belong in the native window.
+These controls address access from other websites. They do not protect against malicious processes already running as your user, browser extensions with access to the interface, or a compromised operating system. Only trusted application assets belong in the native window.
 
 Frontend hot reload is explicitly enabled only with a loopback `--dev-url`. The Desk host injects its own credential into Vite's HTML, forwards a limited set of frontend/HMR routes, and retains its Host, Origin, cross-site, API authentication and navigation checks. Normal builds serve embedded assets. Development defaults to a separate application-data directory and rejects overlap with the default installed-app directory, including symlinked ancestors and macOS case aliases. Existing directory ancestry is checked by filesystem identity; macOS also reserves planned case variants of the default application-data name. Development workspaces still contain real files; use disposable folders for acceptance checks.
+
+## Server interface
+
+Local Pith UI source resolution requires the explicit `--ui-source` development
+runner option. It does not change installed dependencies or production config.
+The runner's `--dev-ui-root` is valid only with loopback Vite; the Host proxies
+`/@fs/` only inside that canonical directory and rejects symlink escapes. Vite's
+filesystem allowlist adds the same checkout and the frontend directory. Normal
+development without this option and embedded production expose no local UI paths.
+
+
+Server uses separate login authentication and never injects a desktop bearer
+credential into HTML. The login token is read from `PITH_DESK_TOKEN` or a private
+regular token file. It is compared through a constant-time SHA-256 comparison;
+failed logins are limited to ten per minute. The public HTML/static assets contain
+only the login UI, no credentials or private application state.
+
+Successful login issues an opaque 24-hour HttpOnly, SameSite=Strict session cookie.
+The exact configured HTTPS origin also sets Secure. Server validates the Host
+and any browser Origin, rejects cross-site requests, and requires same-origin
+JSON requests for login/session/lease control. Forwarded headers never change
+that policy. Remote HTTP origins and remote Vite development are rejected.
+
+A session alone cannot read or change application state. Every business API,
+workspace/image/export download, WebSocket and SSE stream requires the active
+page's secret lease. The browser stores only that renewable lease in
+sessionStorage and uses headers or a non-echoed WebSocket subprotocol. Refresh
+rotates the credential. Takeover cancels the previous lease context, immediately
+rejects subsequent requests and closes its streams. A heartbeat renews the
+45-second lease every 10 seconds; expiry releases control without stopping Agent
+work. Logout or session expiry also revokes access. An operation already admitted
+before takeover may finish; takeover does not undo its effects. Slow mutation
+uploads are rechecked before admission.
+
+Business mutations carry monotonic per-page operation numbers. Server keeps a
+bounded result window, rejects evicted numbers instead of re-executing them, and
+rejects reuse for different payloads. Reconnect reads service state and never
+retries submitted writes. Receipts are in memory and scoped to the lease; server
+restart requires a new login and user-reviewed task recovery. Provider retries
+and tool side effects retain their existing semantics.
+
+Server shares Desktop's workspace/private-data checks and does not serve user
+files as active web content. Browser downloads use authenticated attachment
+responses. It does not invoke native shell/clipboard/update callbacks or start
+machine-local OAuth callbacks for remote sign-in. Use API keys and MCP bearer
+tokens. Existing credential files are preserved. This is a single trusted-user
+service, not a sandbox or multi-tenant boundary; approved tools run with the
+server account's privileges. See the README for proxy configuration.
 
 ## Model credentials and data
 
@@ -82,7 +130,7 @@ Copy controls write to the clipboard only when clicked by the user. Desktop **Co
 
 Dropped workspace files become plain, editable relative-path text. The authenticated reference endpoint uses the existing canonical workspace/private-data policy and rooted file checks, rejects directories, missing files and paths outside the selected workspace, and validates the whole batch before returning references. It does not copy or read file contents. The native window forwards only the file-drop event; it does not expose MyGo bound methods or trust browser file basenames. Later agent file tools reapply the workspace policy.
 
-Markdown exports use a native save dialog in the desktop app, or an authenticated download in browser preview. They may include local file contents and tool results, so keep them with the same care as the original conversation. Deleting a conversation does not remove previously exported documents.
+Markdown exports use a native save dialog in the desktop app, or an authenticated download in Server. They may include local file contents and tool results, so keep them with the same care as the original conversation. Deleting a conversation does not remove previously exported documents.
 
 ## Connection checks and diagnostics
 
@@ -104,7 +152,7 @@ Task admission, settlement and pending queued text/images are stored with Pith D
 
 Conversation deletion removes only its session transcript (including inline images), run receipt, request cost ledger and durable journal. Workspace removal also removes its catalog association and all
 its conversations. Neither operation deletes workspace files or exported documents.
-The API requires the same loopback host, origin and bearer-token checks as other
+The API requires the same mode-specific host, origin and authentication checks as other
 mutations, and rejects changes while a task is running or a connection probe is
 active. Workspace removal checks the conversation count shown in the confirmation.
 

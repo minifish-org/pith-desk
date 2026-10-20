@@ -1,12 +1,4 @@
-type NativeDrop = {paths: string[]; x: number; y: number};
-
-function readNativeDrop(input: unknown): NativeDrop | undefined {
-  if (!input || typeof input !== 'object') return;
-  const value = input as Record<string, unknown>;
-  if (!Array.isArray(value.paths) || !value.paths.every(path => typeof path === 'string')) return;
-  if (typeof value.x !== 'number' || !Number.isFinite(value.x) || typeof value.y !== 'number' || !Number.isFinite(value.y)) return;
-  return {paths: value.paths, x: value.x, y: value.y};
-}
+import {readNativeDrop,type NativeDrop} from './native-protocol.ts';
 
 export function isForeground(): boolean {return document.visibilityState === 'visible' && document.hasFocus();}
 

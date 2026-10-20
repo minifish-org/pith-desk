@@ -1,4 +1,5 @@
 import type { ApiRequest } from './api';
+import {readNativeMenuAction,type NativeMenuAction} from './native-protocol.ts';
 
 interface MenuContext {
   ready: boolean;
@@ -8,7 +9,7 @@ interface MenuContext {
   activeId?: string | null;
 }
 
-type MenuAction = 'new-conversation' | 'choose-workspace' | 'export-conversation' | 'settings' | 'check-updates';
+type MenuAction = NativeMenuAction;
 type Action = () => void | Promise<void>;
 
 interface NativeMenuOptions {
@@ -93,10 +94,8 @@ export function installNativeMenu(options: NativeMenuOptions): { update: () => v
 
   const onNative = (event: Event): void => {
     if (!options.native || disposed) return;
-    const detail = (event as CustomEvent<unknown>).detail;
-    if (!detail || typeof detail !== 'object' || !('action' in detail)) return;
-    const action = detail.action;
-    if (action === 'new-conversation' || action === 'choose-workspace' || action === 'export-conversation' || action === 'settings' || action === 'check-updates') dispatch(action);
+    const action = readNativeMenuAction((event as CustomEvent<unknown>).detail);
+    if (action) dispatch(action);
   };
   const onKeyDown = (event: KeyboardEvent): void => {
     if (options.native || disposed || event.repeat || event.isComposing || event.shiftKey || event.altKey) return;

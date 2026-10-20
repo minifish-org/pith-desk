@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,10 +16,24 @@ import (
 	"github.com/minifish-org/pith-desk/internal/desk"
 )
 
-// StartDevelopment keeps the UI, API and HMR socket on the authenticated host's
-// origin. Production Start always uses embedded assets and never enables this.
-func StartDevelopment(service *desk.Service, picker func() (string, error), frontendURL string, appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {
-	u, err := url.Parse(frontendURL)
+// DevelopmentOptions configure the loopback-only frontend and optional source root.
+type DevelopmentOptions struct {
+	URL    string
+	UIRoot string // explicit local Pith UI checkout; never inferred from an environment variable
+}
+
+// StartDevelopment keeps UI, API and HMR on the authenticated host's origin.
+// Production Start always uses embedded assets and never enables this.
+func StartDevelopment(service *desk.Service, picker func() (string, error), options DevelopmentOptions, appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {
+	dev, err := newDevelopmentFrontend(options)
+	if err != nil {
+		return nil, err
+	}
+	return start(service, picker, dev, appearanceChanged...)
+}
+
+func newDevelopmentFrontend(options DevelopmentOptions) (*developmentFrontend, error) {
+	u, err := url.Parse(options.URL)
 	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return nil, fmt.Errorf("development frontend must be an http://127.0.0.1:PORT origin")
 	}
@@ -26,7 +42,22 @@ func StartDevelopment(service *desk.Service, picker func() (string, error), fron
 		return nil, fmt.Errorf("development frontend requires a loopback port")
 	}
 	u.Path = ""
-	dev := &developmentFrontend{url: u, client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	var uiRoot string
+	if options.UIRoot != "" {
+		uiRoot, err = filepath.EvalSymlinks(options.UIRoot)
+		if err != nil {
+			return nil, fmt.Errorf("local UI root: %w", err)
+		}
+		uiRoot, err = filepath.Abs(uiRoot)
+		if err != nil {
+			return nil, err
+		}
+		info, statErr := os.Stat(uiRoot)
+		if statErr != nil || !info.IsDir() {
+			return nil, fmt.Errorf("local UI root must be a directory")
+		}
+	}
+	dev := &developmentFrontend{url: u, uiRoot: uiRoot, client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	dev.proxy = &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(u)
@@ -43,13 +74,14 @@ func StartDevelopment(service *desk.Service, picker func() (string, error), fron
 			return nil
 		},
 	}
-	return start(service, picker, dev, appearanceChanged...)
+	return dev, nil
 }
 
 type developmentFrontend struct {
 	url    *url.URL
 	client *http.Client
 	proxy  *httputil.ReverseProxy
+	uiRoot string
 }
 
 func (d *developmentFrontend) index(ctx context.Context) ([]byte, error) {
@@ -72,7 +104,21 @@ func (d *developmentFrontend) index(ctx context.Context) ([]byte, error) {
 	return data, err
 }
 
-func developmentAssetPath(path string) bool {
+func (d *developmentFrontend) assetPath(path string) bool {
+	if d.uiRoot != "" && strings.HasPrefix(path, "/@fs/") {
+		file := filepath.FromSlash(strings.TrimPrefix(path, "/@fs"))
+		resolved, err := filepath.EvalSymlinks(file)
+		if err != nil {
+			// Vite resolves source imports ending in .js to their .ts file.
+			parent, parentErr := filepath.EvalSymlinks(filepath.Dir(file))
+			if parentErr != nil {
+				return false
+			}
+			resolved = filepath.Join(parent, filepath.Base(file))
+		}
+		relative, err := filepath.Rel(d.uiRoot, resolved)
+		return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+	}
 	return path == "/__desk_hmr" || path == "/@vite/client" || path == "/@vite/env" ||
 		path == "/node_modules/vite/dist/client/env.mjs" ||
 		strings.HasPrefix(path, "/src/") || strings.HasPrefix(path, "/@id/") ||

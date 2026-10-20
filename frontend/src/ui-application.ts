@@ -1,7 +1,8 @@
 /** Connect shared UI regions to Desk business state and callbacks. */
 import {
   createDownloadPart,createFeedbackPart,createStatusActionsPart,createTextPart,
-  createButtonPart,mountParts,type BrandMarkOptions
+  createButtonPart,createDialogPart,createFormPart,createInputPart,createFieldLabelPart,
+  createFormLayoutPart,createFooterPart,createOptionGroupPart,createOptionActionPart,mountParts,type BrandMarkOptions
 } from 'pith-ui';
 import {
   composeFrame,type FrameState,type FrameCallbacks,type FrameContent,composeConversationReader,type Appearance,type RecipeResult,
@@ -29,7 +30,10 @@ export interface DeskOptions {
   brand?: {name: string;qualifier?: string;mark?: BrandMarkOptions};appearance?: Appearance;
   workspace?: DeskWorkspaceCallbacks;host?: {copyText?(text: string): HostResult;openExternal?(url: string): HostResult};
   onUIStateChange?(state: {hasModal: boolean;appearance: Appearance}): void;onError?(message: string): void;
+  server?: boolean;onLogout?(): Promise<void>;
 }
+export interface ServerAccessState {phase: 'login'|'blocked'|'offline';error?: string}
+export interface ServerAccessCallbacks {onLogin(token: string): Promise<void>;onReconnect(): Promise<void>;onTakeover(): Promise<void>}
 export interface DeskShellState extends Pick<FrameState,'workspace'|'conversation'|'reconnecting'> {error?: {message: string;hidden?: boolean};busy?: {key: string;message: string;actionLabel: string}|null}
 export interface DeskAvailability extends NonNullable<FrameState['availability']> {global?: boolean;active?: boolean}
 
@@ -66,11 +70,45 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
   let artifactsState: ArtifactsState = {ownerId: '',files: [],loading: false,error: '',copyMode: 'path'};
   let artifactsCallbacks: ArtifactsCallbacks = {onPreview() {},onFileAction() {}};
   const artifacts = composeArtifacts(artifactsState,artifactsCallbacks,{announcement: reader.announcement,relatedDialogs: [viewer.part]});
+  const logout = options.server ? createButtonPart({label: 'Log out',title: 'Log out',variant: 'quiet-icon',icon: 'logout',onAction: options.onLogout,onError: report}) : undefined;
   const frame = composeFrame(frameState,{...callbacks,onError: report,onModalChange: changed,onDispose() {disposed = true;changed();}},
-    {titlebar: options.titlebar,main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part],brand: options.brand ?? {name: 'Pith'}});
+    {titlebar: options.titlebar,main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part,...(logout ? [logout] : [])],brand: options.brand ?? {name: 'Pith'}});
   const mounted = mountParts(mount,frame.part,{appearance});
   const dialogs = createDialogHost(frame,{persistentDialogs: [viewer.part],onChange: changed,onError: report});
   const opening = dialogs.open;
+  function openServerAccess(state: ServerAccessState,actions: ServerAccessCallbacks) {
+    return opening('server-session',onClose => {
+      const login = state.phase === 'login';
+      const token = createInputPart({kind: 'password',label: 'Server token',name: 'server-token',autocomplete: 'current-password',required: login,hidden: !login});
+      const label = createFieldLabelPart({label: 'Server token',control: token,hidden: !login});
+      const feedback = createFeedbackPart({message: state.error ?? '',tone: 'error'});
+      const description = createTextPart({role: 'description',text: login ? 'Sign in with the token configured on your Pith Desk server.' : 'Another page may control Pith Desk. Reconnect after it disconnects, or take over now. Tasks keep running.'});
+      const fail = (message: string) => feedback.update({message,tone: 'error'});
+      const submit = createButtonPart({label: login ? 'Sign in' : 'Reconnect',variant: 'primary',type: 'submit'});
+      const takeover = createButtonPart({label: 'Take over',variant: 'secondary',hidden: login,onAction: actions.onTakeover,onError: fail});
+      const form = createFormPart({children: [createFormLayoutPart({children: [description,label,token,feedback]}),createFooterPart({children: [takeover,submit]})],onError: fail,
+        async onSubmit() {const value = token.read();token.reset('');if (login) await actions.onLogin(value);else await actions.onReconnect();}});
+      const part = createDialogPart({title: login ? 'Pith Desk Server' : 'Reconnect to Pith Desk',closeDisabled: true,closeOnBackdrop: false,children: [form],onClose,onDispose: onClose});
+      return {part,open() {part.open();if (login) token.focus();},close: part.close,isOpen: part.isOpen,destroy: part.destroy};
+    },local => local.open());
+  }
+  function openServerWorkspace(initial: Parameters<typeof composeWorkspacePicker>[0],actions: Parameters<typeof composeWorkspacePicker>[1] = {}) {
+    return opening('workspace',onClose => {
+      let state = initial;
+      const path = createInputPart({purpose: 'path',label: 'Server folder path',placeholder: '/srv/workspace',required: true});
+      const label = createFieldLabelPart({label: 'Server folder path',control: path});
+      const feedback = createFeedbackPart({message: state.error ?? '',tone: 'error'});
+      const fail = (message: string) => feedback.update({message,tone: 'error'});
+      const rows = state.workspaces.map(workspace => ({workspace,part: createOptionActionPart({label: workspace.name,description: workspace.path,icon: 'folder',onAction() {part.close();actions.onSelect?.(workspace.id);},onError: fail})}));
+      const submit = createButtonPart({label: 'Add workspace',variant: 'primary',type: 'submit'});
+      const cancel = createButtonPart({label: 'Cancel',variant: 'secondary',onAction() {part.close();}});
+      const form = createFormPart({children: [createFormLayoutPart({children: [label,path,feedback]}),createFooterPart({children: [cancel,submit]})],onError: fail,onSubmit: () => actions.onSubmit?.(path.read().trim())});
+      const part = createDialogPart({title: 'Server workspaces',description: 'Choose an existing absolute directory on the server. Browser-local folders are not uploaded.',children: [createOptionGroupPart({children: rows.map(row => row.part)}),form],onClose,onDispose: onClose});
+      const update = (next: typeof state) => {state = next;form.update({disabled: !!state.disabled});for (const row of rows) row.part.update({label: row.workspace.name,description: row.workspace.path,icon: 'folder',disabled: !!state.disabled});if (state.error) fail(state.error);};
+      update(state);
+      return {part,open() {part.open();path.focus();},read: () => ({path: path.read()}),reset(value = '') {path.reset(value);},focus: path.focus,update,fail,close: part.close,isOpen: part.isOpen,destroy: part.destroy};
+    },local => local.open(),actions.onClose);
+  }
   const compactDisabled = () => !!availability.busy || !!availability.active || working || !activeId || !currentMessages.length;
   const syncFrame = () => {frameState = {...frameState,availability,compactDisabled: compactDisabled()};frame.update(frameState);};
   const syncFailure = () => failure.update({...failureState,disabled: !!availability.busy || (failureState.workspaceId ? !!availability.workspaces?.includes(failureState.workspaceId) : !!availability.active)});
@@ -101,7 +139,7 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
     updateCosts(state: {visible: boolean;error?: string;loading?: boolean;report?: CostLedgerState}) {if (disposed) return;runtime.updateCostsVisible(state.visible);if (state.error) ledger.setError(state.error);else if (state.loading) ledger.loading();else if (state.report) ledger.update(state.report);},
     followLatest: reader.followLatest,openFind: reader.openFind,closeFind: reader.closeFind,pruneConversations: reader.prune,
     search: frame.search,closeNavigationMenu: frame.closeNavigationMenu,setSidebarOpen: frame.setSidebarOpen,
-    openWorkspacePicker(state: Parameters<typeof composeWorkspacePicker>[0],actions: Parameters<typeof composeWorkspacePicker>[1] = {}) {return opening('workspace',onClose => composeWorkspacePicker(state,{...actions,onClose}),local => local.open(),actions.onClose);},
+    openWorkspacePicker(state: Parameters<typeof composeWorkspacePicker>[0],actions: Parameters<typeof composeWorkspacePicker>[1] = {}) {return options.server ? openServerWorkspace(state,actions) : opening('workspace',onClose => composeWorkspacePicker(state,{...actions,onClose}),local => local.open(),actions.onClose);},
     openRename(state: Parameters<typeof composeRename>[0],actions: Parameters<typeof composeRename>[1] = {}) {let current = state;const local = opening('rename',onClose => composeRename(state,{...actions,onClose}),value => value.open(),actions.onClose);return {...local,update(next: typeof state) {if (local.isOpen()) {current = next;local.update(next);}},fail(error: string) {if (local.isOpen()) {current = {...current,error};local.update(current);}}};},
     openFullAccess(state: Parameters<typeof composeFullAccess>[0],actions: Parameters<typeof composeFullAccess>[1]) {let current = state;const local = opening('permissions',onClose => composeFullAccess(state,{...actions,onClose}),value => value.open(),actions.onClose);return {...local,update(next: typeof state) {if (local.isOpen()) {current = next;local.update(next);}},fail(error: string) {if (local.isOpen()) {current = {...current,error};local.update(current);}}};},
     openHistory(state: Parameters<typeof composeBranchHistory>[0],actions: Parameters<typeof composeBranchHistory>[1] = {}) {return opening('feature',onClose => composeBranchHistory(state,{...actions,onClose}),local => local.open(),actions.onClose);},
@@ -138,6 +176,6 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
     closeArtifacts: artifacts.close,areArtifactsOpen: artifacts.isOpen,
     openPreview(state: PreviewInput,actions: PreviewCallbacks = {}) {return opening('preview',onClose => composeFilePreview(state,{...actions,onCopyCode: actions.onCopyCode ?? callbacks.onCopyCode ?? copyText,onImage(image) {viewer.open(image);changed();},onClose},reader.announcement),local => {artifacts.setRelatedDialogs([viewer.part,local.part]);local.open();},actions.onClose);},
   };
-  return {workspace,settings,resources,files,read,downloadFile: downloads.download,setAppearance(next: typeof appearance) {if (!disposed) {appearance = next;mounted.setAppearance(next);notify(() => options.onUIStateChange?.(read()));}},
+  return {workspace,settings,resources,files,read,openServerAccess,downloadFile: downloads.download,setAppearance(next: typeof appearance) {if (!disposed) {appearance = next;mounted.setAppearance(next);notify(() => options.onUIStateChange?.(read()));}},
     destroy() {if (disposed) return;disposed = true;frame.destroy();changed();}};
 }

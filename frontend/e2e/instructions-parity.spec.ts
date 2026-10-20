@@ -67,6 +67,7 @@ test('creating AGENTS.md writes once to the inventory workspace without opening 
   await expect.poll(() => page.evaluate(() => (window as unknown as BrowserFixture).instructions.writes)).toEqual([{workspaceId: 'w'}]);
   await expect(page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"])')).toContainText('AGENTS.md');
   await expect(create).toHaveCount(0);
+  await expect(page.getByRole('dialog',{name: 'Workspace resources',exact: true}).getByRole('button',{name: 'Reveal',exact: true})).toBeVisible();
   await expect(page.locator('dialog.pui-feature-modal:not(:has(.pui-feature-toolbar[aria-label="Resource actions"]))')).not.toBeVisible();
   expect(await page.evaluate(() => (window as unknown as BrowserFixture).instructions.reads)).toEqual(['w', 'w']);
 });

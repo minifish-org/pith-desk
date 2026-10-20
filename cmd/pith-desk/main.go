@@ -2,22 +2,20 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/transfer"
+	"github.com/minifish-org/pith-desk/internal/appdata"
 	"github.com/minifish-org/pith-desk/internal/desk"
 	"github.com/minifish-org/pith-desk/internal/host"
 )
@@ -36,43 +34,25 @@ func run() error {
 		return mygo.App.Run()
 	}
 
-	preview := flag.Bool("preview", false, "serve the interface for a browser without opening a desktop window")
 	dataDir := flag.String("data-dir", "", "directory for settings and conversation history")
 	devURL := flag.String("dev-url", "", "loopback Vite origin for frontend hot reload (isolated development data)")
+	devUIRoot := flag.String("dev-ui-root", "", "local Pith UI checkout, only with --dev-url")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flag.Args())
 	}
 	var err error
-	*dataDir, err = applicationDataDir(*dataDir, *devURL != "")
+	*dataDir, err = appdata.Dir(*dataDir, *devURL != "")
 	if err != nil {
 		return err
 	}
-	if *preview {
-		return runPreview(*dataDir, *devURL)
+	if *devUIRoot != "" && *devURL == "" {
+		return fmt.Errorf("--dev-ui-root requires --dev-url")
 	}
-	return runDesktop(*dataDir, *devURL)
+	return runDesktop(*dataDir, host.DevelopmentOptions{URL: *devURL, UIRoot: *devUIRoot})
 }
 
-func runPreview(dataDir, devURL string) error {
-	service, err := desk.New(dataDir)
-	if err != nil {
-		return err
-	}
-	defer service.Close()
-	server, err := startHost(service, nil, devURL)
-	if err != nil {
-		return err
-	}
-	defer server.Close()
-	fmt.Printf("Pith Desk preview: %s\nKeep this terminal open. Press Ctrl+C to stop.\n", server.URL)
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-	<-ctx.Done()
-	return nil
-}
-
-func runDesktop(dataDir, devURL string) error {
+func runDesktop(dataDir string, development host.DevelopmentOptions) error {
 	// Keep native window state with the selected application data, including
 	// isolated test instances started with --data-dir.
 	dataDir, err := filepath.Abs(dataDir)
@@ -121,7 +101,7 @@ func runDesktop(dataDir, devURL string) error {
 			}
 			return paths[0], nil
 		}
-		server, startupErr = startHost(service, pickDirectory, devURL, func(mode desk.AppearanceMode) {
+		server, startupErr = startHost(service, pickDirectory, development, func(mode desk.AppearanceMode) {
 			mygo.Theme.SetSource(mygo.ThemeSource(mode))
 		})
 		if startupErr != nil {
@@ -175,7 +155,7 @@ func runDesktop(dataDir, devURL string) error {
 		server.SetTitlebarOverlay(opts.TitleBarStyle == mygo.TitleBarHiddenInset)
 		installWorkspaceFileDrop(win, server)
 		exit := installQuitConfirmation(service, win, &dialogMu)
-		updater := newDesktopUpdater(service, win, &dialogMu, exit, releaseVersion, devURL != "")
+		updater := newDesktopUpdater(service, win, &dialogMu, exit, releaseVersion, development.URL != "")
 		server.SetUpdateActions(updater.status, updater.start)
 		mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) { updater.cancel() })
 		// MyGo starts the replacement during OnQuit, before App.Run returns.

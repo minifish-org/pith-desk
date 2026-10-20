@@ -119,7 +119,21 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 			err = queryErr
 			break
 		}
-		value, err = s.service.Models(query.Provider)
+		catalog, modelErr := s.service.Models(query.Provider)
+		err = modelErr
+		if s.access != nil {
+			// SDK sign-in callbacks are machine-local. Server retains saved
+			// credentials but does not advertise a browser-remote login flow.
+			providers := catalog.Providers[:0]
+			for _, provider := range catalog.Providers {
+				provider.OAuth = false
+				if provider.APIKeySupported || provider.SignedIn {
+					providers = append(providers, provider)
+				}
+			}
+			catalog.Providers = providers
+		}
+		value = catalog
 	case "/api/resources":
 		query, queryErr := wire.ReadQuery[wire.WorkspaceInput](r)
 		if queryErr != nil {
@@ -260,7 +274,11 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 	case "/api/oauth/start":
 		var in wire.ProviderInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
-			err = s.service.StartOAuth(in.Provider)
+			if s.access != nil {
+				err = errors.New("Provider sign-in requires a local callback. Configure an API key in Server mode.")
+			} else {
+				err = s.service.StartOAuth(in.Provider)
+			}
 		}
 	case "/api/oauth/answer":
 		var in wire.OAuthAnswerInput
@@ -439,7 +457,11 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		var in wire.NameInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			if r.URL.Path == "/api/mcp/oauth/start" {
-				err = s.service.StartMCPOAuth(in.Name)
+				if s.access != nil {
+					err = errors.New("MCP sign-in requires a local callback. Configure a bearer token in Server mode.")
+				} else {
+					err = s.service.StartMCPOAuth(in.Name)
+				}
 			} else {
 				err = s.service.LogoutMCPOAuth(in.Name)
 			}

@@ -2,6 +2,7 @@ import type { ActionResult, ConversationAction, MCPConnectionAction, MCPConnecti
 import './style.css';
 import {createApp} from './app';
 import {readAppBootstrap} from './ui-bootstrap';
+import {createServerSession} from './server-session';
 import {mountApplication} from './ui-mount';
 import {installNativeDrop, isForeground} from './ui-native';
 import {installAppLifecycle} from './app-lifecycle';
@@ -26,19 +27,25 @@ import type {MutationInput, MutationPath, MutationResponse} from './api';
 import type {AppearanceMode, RunSummary} from './contract.generated';
 export type {ProviderChoice} from './contract.generated';
 
-const {token, nativeClipboard, nativeFileDrop, nativeMenus, titlebar, appearance} = readAppBootstrap();
+const {token, server, nativeClipboard, nativeFileDrop, nativeMenus, titlebar, appearance} = readAppBootstrap();
+const session = server ? createServerSession() : undefined;
 const appearanceMode = (value: unknown): AppearanceMode => value === 'light' || value === 'dark' ? value : 'system';
 const activity: UIActivity = {busy: false, error: ''};
 let disposed = false, ready = false, flushingDrafts = false;
 let nativeMenu: ReturnType<typeof installNativeMenu> | undefined;
 const app = createApp({
-  token, origin: window.location.href, appearance: appearanceMode(appearance), onSnapshot: snapshotChanged,
+  token, session, origin: window.location.href, appearance: appearanceMode(appearance), onSnapshot: snapshotChanged,
   onConnection(status) {if (status === 'connected' && !app.loaded) activity.error = ''; render();},
   onError(message) {activity.error = message; render();},
 });
 const {request, download, refresh} = app;
 const ui = mountApplication({
-  titlebar,
+  titlebar, server, async onLogout() {
+    try {
+      if (!await flushDrafts()) throw new Error('Drafts could not be saved. Try logging out again.');
+      await session?.logout();
+    } finally {flushingDrafts = false; render();}
+  },
   brand: {name: 'Pith', qualifier: 'Desk', mark: {symbol: 'pith', alt: ''}},
   appearance: appearanceMode(appearance), host: {copyText: text => files.copyText(text)},
   onUIStateChange() {if (ready && !disposed) {nativeMenu?.update(); completionUI.acknowledgeViewed();}},
@@ -101,10 +108,10 @@ const composer = createComposer({ui, view: app, activity, request, mutate, refre
   selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), openSettings: () => settings.openSettings(), followLatest: () => messages.followLatest(), disposed: () => disposed,
 });
 const files = createFilesUI({ui, view: app, activity, request, mutate, download, render, draft: prependDraft,
-  selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), conversationRunning, workspaceBusy: id => !!workspaceRun(id), nativeClipboard, editResource: (...args) => sdkUI.resource(...args),
+  selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), conversationRunning, workspaceBusy: id => !!workspaceRun(id), nativeClipboard, server, editResource: (...args) => sdkUI.resource(...args),
 });
 const settings = createSettingsUI({ui, view: app, activity, request, mutate, render, closeSidebar, anyRunning, appearanceMode,
-  applyAppearance: mode => ui.setAppearance(mode), providerActions: provider => sdkUI.providerActions(provider),
+  applyAppearance: mode => ui.setAppearance(mode), server, providerActions: provider => sdkUI.providerActions(provider),
   providerAction: (action, target) => sdkUI.providerAction(action, target), mcpAction,
   custom: id => sdkUI.custom(id), diagnostics: () => tasks.exportDiagnostics(),
 });
@@ -233,17 +240,19 @@ nativeMenu = installNativeMenu({native: nativeMenus,
 });
 const runtimeClock = window.setInterval(() => tasks.tick(), 1000);
 function saveDraftsOnLeave(): void {composer.rememberDraft(); void composer.drafts.flushAll({keepalive: true});}
-const removeLifecycle = installAppLifecycle({acknowledge: () => completionUI.acknowledgeViewed(), saveOnLeave: saveDraftsOnLeave,
-  async flushDrafts() {
-    composer.rememberDraft(); flushingDrafts = true; render();
-    const results = await composer.drafts.flushAll(), saved = results.every(result => result.status === 'fulfilled');
-    if (!saved) {flushingDrafts = false; render();}
-    return saved;
-  },
+async function flushDrafts(): Promise<boolean> {
+  composer.rememberDraft(); flushingDrafts = true; render();
+  const results = await composer.drafts.flushAll(), saved = results.every(result => result.status === 'fulfilled');
+  if (!saved) {flushingDrafts = false; render();}
+  return saved;
+}
+const removeLifecycle = installAppLifecycle({acknowledge: () => completionUI.acknowledgeViewed(), saveOnLeave: saveDraftsOnLeave, flushDrafts,
   dispose() {
     if (disposed) return;
-    disposed = true; app.dispose(); removeLifecycle(); nativeMenu?.dispose(); removeNativeDrop(); fileDrop.destroy(); window.clearInterval(runtimeClock);
+    disposed = true; app.dispose(); session?.dispose(); removeLifecycle(); nativeMenu?.dispose(); removeNativeDrop(); fileDrop.destroy(); window.clearInterval(runtimeClock);
     composer.clearDraftImages(); messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy(); ui.destroy();
   },
 });
-ready = true; render(); void app.start();
+ready = true; render();
+if (session) void session.start(ui, () => {void app.start();}, () => app.dispose());
+else void app.start();

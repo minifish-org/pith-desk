@@ -4,6 +4,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,7 +32,7 @@ func TestDevelopmentHostKeepsAuthenticationOriginAndFreshIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	s, err := StartDevelopment(service, nil, upstream.URL)
+	s, err := StartDevelopment(service, nil, DevelopmentOptions{URL: upstream.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,9 +96,48 @@ func TestDevelopmentHostKeepsAuthenticationOriginAndFreshIndex(t *testing.T) {
 
 func TestDevelopmentFrontendRequiresExactLoopbackOrigin(t *testing.T) {
 	for _, target := range []string{"https://127.0.0.1:1234", "http://localhost:1234", "http://127.0.0.1", "http://127.0.0.1:0", "http://127.0.0.1:99999", "http://user@127.0.0.1:1234", "http://127.0.0.1:1234/src/", "http://127.0.0.1:1234?key=x", "http://127.0.0.1:1234#x", "http://example.com:1234"} {
-		if s, err := StartDevelopment(nil, nil, target); err == nil {
+		if s, err := StartDevelopment(nil, nil, DevelopmentOptions{URL: target}); err == nil {
 			s.Close()
 			t.Fatalf("accepted frontend origin %q", target)
 		}
+	}
+}
+
+func TestLocalUISourceIsExplicitAndBounded(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	local, err := newDevelopmentFrontend(DevelopmentOptions{URL: "http://127.0.0.1:5197", UIRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	normal, err := newDevelopmentFrontend(DevelopmentOptions{URL: "http://127.0.0.1:5197"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range []struct {
+		path string
+		want bool
+	}{
+		{"/@fs" + filepath.ToSlash(filepath.Join(root, "src/index.ts")), true},
+		{"/@fs" + filepath.ToSlash(filepath.Join(root, "src/index.js")), true},
+		{"/@fs" + filepath.ToSlash(filepath.Join(root, "linked/private.ts")), false},
+		{"/@fs" + filepath.ToSlash(filepath.Join(outside, "private.ts")), false},
+		{"/@fs/etc/passwd", false},
+	} {
+		if got := local.assetPath(entry.path); got != entry.want {
+			t.Fatalf("%s: %v want %v", entry.path, got, entry.want)
+		}
+		if normal.assetPath(entry.path) {
+			t.Fatalf("normal development exposed local source: %s", entry.path)
+		}
+	}
+	if server, err := StartServer(nil, ServerOptions{Token: strings.Repeat("x", 32), FrontendUIRoot: root}); err == nil {
+		server.Close()
+		t.Fatal("production accepted a local UI root")
 	}
 }

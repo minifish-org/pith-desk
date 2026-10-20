@@ -1,0 +1,14 @@
+# Working in Pith Desk
+
+Read the relevant code, `README.md` and `docs/TESTING.md` before changing behavior. Use `rg` and targeted file reads. Prefer RTK for supported shell commands; use `rtk proxy` or raw output when exact output is necessary. Do not prefix shell syntax or builtins with RTK.
+
+- Keep the Go + Pith + TypeScript + MyGo stack. Desktop and Server share the Agent core, business logic and Web UI. Preserve both modes and existing user data; do not restore a third Preview mode.
+- Desk owns product composition, wording, data mapping, business actions and Desktop/Server differences. Pith UI owns stable components, styles, shared interactions and UI lifetimes. Express product availability through semantic capabilities in Desk; fix shared component behavior in Pith UI.
+- Consume the public `pith-ui`, `pith-ui/recipes` and `pith-ui/styles.css` entries. Keep one checked ownership tree. Do not copy library regions, add presentation overrides or access their private DOM. Business controllers retain requests, permissions, persistence, original operation targets and application coordination.
+- Explicit local source development and hot reload are supported through the development runner. Keep source resolution and its filesystem access scoped to that invocation and the public entries. Do not change package metadata, installed packages or lockfiles to simulate a release. Formal builds, CI and releases use the exact published package locked by the consumer.
+- Check actual capabilities, public boundaries and behavior rather than one source-code spelling. Permit safe equivalent syntax; retain type, import, ownership, native ingress and security checks. Add behavior coverage for a concrete gap instead of increasing source-shape restrictions.
+- Start daily work with the relevant fast checks and focused behavior tests. Before delivery, complete the necessary full validation for the affected surfaces, including browser, native or concurrency checks when applicable. Preserve key regression coverage; do not remove assertions merely to shorten a run. Commands and preparation belong in `README.md` and `docs/TESTING.md`.
+- Keep tasks independent of browser lifetime. Preserve authenticated access, exclusive Server leases and non-replayed writes across refresh, disconnect and takeover. Keep transport schemas generated from Go and validate untrusted native and network input at their boundaries.
+- Verify with isolated application data and disposable workspaces for mutating tests. Existing workspaces can contain real files even with an isolated profile. Keep temporary reports, screenshots, profiles, fixtures and build artifacts out of commits.
+
+Report local checks, native acceptance, package publication and product release as separate facts. A source preview or successful build does not prove a published or deployed artifact.

@@ -5,11 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "pith-ui": "0.8.4"
+    "pith-ui": "0.8.6"
   },
   "devDependencies": {
     "marked": "16.4.2",

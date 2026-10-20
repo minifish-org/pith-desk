@@ -65,3 +65,8 @@ POST json /api/mcp/remove
 POST json /api/mcp/connect
 POST json /api/mcp/disconnect
 POST json /api/native-menu-state
+POST json /api/server/session
+POST json /api/server/login
+POST json /api/server/lease
+POST json /api/server/heartbeat
+POST json /api/server/logout

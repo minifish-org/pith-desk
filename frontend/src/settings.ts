@@ -19,6 +19,7 @@ type API = {
     mcpAction: NonNullable<MCPCallbacks['onConnectionAction']>;
     custom: (id?: string) => Promise<void>;
     diagnostics: NonNullable<SettingsCallbacks['onDiagnostics']>;
+    server?: boolean;
 };
 export function createSettingsUI(api: API) {
     const { view: app, activity, request, mutate, render, closeSidebar, anyRunning, appearanceMode, applyAppearance } = api;
@@ -221,7 +222,7 @@ export function createSettingsUI(api: API) {
                 panel.close(); return removed ? { ok: true } : { ok: false, error: activity.error }; } });
         settingsPanel = panel;
         renderAppearance();
-        settingsUpdates = mountUpdates(panel, request);
+        if (!api.server) settingsUpdates = mountUpdates(panel, request);
         const providers = (result: ModelCatalog, selected?: string) => panel.setProviders((result.providers || []).map(entry => ({ id: entry.id, name: entry.name, configured: entry.hasApiKey, signedIn: entry.signedIn })), selected);
         refreshSettingsAuth = providerID => { if (!isCurrent())
             return; void request('/api/models').then(result => { if (!isCurrent())

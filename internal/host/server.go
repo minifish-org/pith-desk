@@ -1,4 +1,4 @@
-// Package host serves the trusted desktop UI on an authenticated loopback port.
+// Package host serves the shared Desktop and Server UI and application API.
 package host
 
 import (
@@ -51,6 +51,7 @@ type Server struct {
 	completionAction  func(desk.Conversation, desk.Workspace)
 	completedRuns     map[string]string
 	development       *developmentFrontend
+	access            *serverAccess
 	taskStatusAction  func(TaskStatus)
 	taskStatus        TaskStatus
 	nativeFileDrop    bool
@@ -68,8 +69,12 @@ func start(service *desk.Service, picker func() (string, error), development *de
 	if err != nil {
 		return nil, err
 	}
+	return startListener(service, picker, development, ln, "http://"+ln.Addr().String(), nil, appearanceChanged...)
+}
+
+func startListener(service *desk.Service, picker func() (string, error), development *developmentFrontend, ln net.Listener, origin string, access *serverAccess, appearanceChanged ...func(desk.AppearanceMode)) (*Server, error) {
 	var key [32]byte
-	if _, err = rand.Read(key[:]); err != nil {
+	if _, err := rand.Read(key[:]); err != nil {
 		ln.Close()
 		return nil, err
 	}
@@ -84,12 +89,20 @@ func start(service *desk.Service, picker func() (string, error), development *de
 		return nil, fmt.Errorf("build frontend first: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Server{URL: "http://" + ln.Addr().String(), listener: ln, token: hex.EncodeToString(key[:]), service: service, picker: picker, files: http.FileServer(http.FS(web)), index: index, ctx: ctx, cancel: cancel, clients: make(map[chan []byte]struct{})}
+	s := &Server{URL: origin, listener: ln, token: hex.EncodeToString(key[:]), service: service, picker: picker, files: http.FileServer(http.FS(web)), index: index, ctx: ctx, cancel: cancel, clients: make(map[chan []byte]struct{}), access: access}
+	if access != nil {
+		// Server never bootstraps the desktop process-local credential.
+		s.token = ""
+		go access.expire(ctx)
+	}
 	s.development = development
 	if len(appearanceChanged) > 0 {
 		s.appearanceChanged = appearanceChanged[0]
 	}
 	s.server = &http.Server{Handler: http.HandlerFunc(s.serve), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	if access != nil {
+		s.server.ReadTimeout = 2 * time.Minute
+	}
 	s.completedRuns = completionBaseline(service.Snapshot())
 	go func() { _ = s.server.Serve(ln) }()
 	go s.broadcast()
@@ -151,8 +164,10 @@ func (s *Server) broadcast() {
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+strings.Replace(s.URL, "http://", "ws://", 1)+"; img-src 'self' data: blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
-	if r.Host != s.listener.Addr().String() {
+	socketOrigin := strings.Replace(strings.Replace(s.URL, "https://", "wss://", 1), "http://", "ws://", 1)
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+socketOrigin+"; img-src 'self' data: blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	expectedHost := strings.TrimPrefix(strings.TrimPrefix(s.URL, "https://"), "http://")
+	if r.Host != expectedHost {
 		http.Error(w, "Invalid host", http.StatusForbidden)
 		return
 	}
@@ -163,6 +178,30 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 		http.Error(w, "Cross-site access denied", http.StatusForbidden)
 		return
+	}
+	if s.access != nil {
+		w.Header().Set("Cache-Control", "no-store")
+		if s.serveAccess(w, r) {
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			if !s.authorizeServer(w, r) {
+				return
+			}
+			lease := r.Context().Value(leaseContextKey{}).(*browserLease)
+			ctx, cancel := context.WithCancel(r.Context())
+			stop := context.AfterFunc(lease.ctx, cancel)
+			defer stop()
+			defer cancel()
+			r = r.WithContext(ctx)
+			// Deduplicate admitted mutations before invoking the common handlers.
+			if r.Method == http.MethodPost {
+				s.serverMutation(w, r)
+				return
+			}
+		} else if s.development != nil && r.URL.Path == "/__desk_hmr" && !s.authorizeDevelopment(w, r) {
+			return
+		}
 	}
 	if !strings.HasPrefix(r.URL.Path, "/api/") {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -182,7 +221,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			index := strings.ReplaceAll(string(indexBytes), "__DESK_TOKEN__", s.token)
-			index = strings.ReplaceAll(index, "__DESK_APPEARANCE__", string(s.service.Snapshot().Settings.Appearance))
+			mode, appearance := "desktop", "system"
+			if s.access != nil {
+				mode = "server"
+			} else {
+				appearance = string(s.service.Snapshot().Settings.Appearance)
+			}
+			index = strings.ReplaceAll(index, "__DESK_MODE__", mode)
+			index = strings.ReplaceAll(index, "__DESK_APPEARANCE__", appearance)
 			s.mu.Lock()
 			nativeClipboard := s.copyText != nil && s.copyFile != nil
 			nativeFileDrop := s.nativeFileDrop
@@ -196,7 +242,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(index))
 			return
 		}
-		if s.development != nil && developmentAssetPath(r.URL.Path) {
+		if s.development != nil && s.development.assetPath(r.URL.Path) {
 			w.Header().Set("Cache-Control", "no-store")
 			s.development.proxy.ServeHTTP(w, r)
 			return
@@ -213,7 +259,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/socket" && r.Method == http.MethodGet {
 		// Browsers cannot set Authorization on a WebSocket handshake. Carry
 		// the process-local token in a request subprotocol, never in a URL.
-		valid := false
+		valid := s.access != nil // Server has already checked its cookie and lease.
 		for _, protocol := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
 			protocol = strings.TrimSpace(protocol)
 			if subtle.ConstantTimeCompare([]byte(protocol), []byte("bearer."+s.token)) == 1 {
@@ -227,7 +273,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.socket(w, r)
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.token)) != 1 {
+	if s.access == nil && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.token)) != 1 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -235,6 +281,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.events(w, r)
 		return
 	}
+	s.serveAPI(w, r)
+}
+
+func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.URL.Path == "/api/state" && r.Method == http.MethodGet {
 		_, _ = w.Write(s.snapshot())
@@ -247,12 +297,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "Method not allowed", 405)
 		return
 	}
-	bodyLimit := int64(2 << 20)
-	if r.URL.Path == "/api/send" || r.URL.Path == "/api/queue" {
-		bodyLimit = 128 << 20
-	} else if r.URL.Path == "/api/draft" {
-		bodyLimit = 128 << 20
-	}
+	bodyLimit := requestBodyLimit(r.URL.Path)
 	r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
 	decode := func(dst any) error {
 		d := json.NewDecoder(r.Body)
@@ -358,13 +403,27 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	wire.WriteJSON(w, r.Method, r.URL.Path, wire.OKResponse{OK: true})
 }
 
+func requestBodyLimit(path string) int64 {
+	if path == "/api/send" || path == "/api/queue" || path == "/api/draft" {
+		return 128 << 20
+	}
+	return 2 << 20
+}
+
 func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"pith-desk"}})
 	if err != nil {
 		return
 	}
 	defer conn.CloseNow()
-	ctx := conn.CloseRead(s.ctx)
+	ctx, cancel := context.WithCancel(r.Context())
+	stop := context.AfterFunc(s.ctx, cancel)
+	defer stop()
+	defer cancel()
+	ctx = conn.CloseRead(ctx)
+	// Canceling a lease must close an idle socket as well as a busy writer.
+	closeSocket := context.AfterFunc(ctx, func() { _ = conn.CloseNow() })
+	defer closeSocket()
 	ch := make(chan []byte, 1)
 	s.mu.Lock()
 	s.clients[ch] = struct{}{}

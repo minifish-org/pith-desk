@@ -15,6 +15,20 @@ import (
 )
 
 type EmptyInput struct{}
+type ServerLoginInput struct {
+	Token string `json:"token"`
+}
+type ServerLeaseInput struct {
+	Resume   string `json:"resume,omitempty"`
+	Takeover bool   `json:"takeover,omitempty"`
+}
+type ServerSessionResponse struct {
+	Authenticated bool `json:"authenticated"`
+}
+type ServerLeaseResponse struct {
+	Lease     string `json:"lease"`
+	ExpiresIn int    `json:"expiresIn"`
+}
 type UpdateInput struct {
 	Action string `json:"action"`
 }
@@ -192,6 +206,11 @@ func get[Q, O any](path string) Endpoint {
 }
 
 var Endpoints = []Endpoint{
+	post[EmptyInput, ServerSessionResponse]("/api/server/session"),
+	post[ServerLoginInput, OKResponse]("/api/server/login"),
+	post[ServerLeaseInput, ServerLeaseResponse]("/api/server/lease"),
+	post[EmptyInput, OKResponse]("/api/server/heartbeat"),
+	post[EmptyInput, OKResponse]("/api/server/logout"),
 	get[EmptyInput, UpdateStatus]("/api/update"),
 	post[UpdateInput, OKResponse]("/api/update"),
 	get[EmptyInput, desk.State]("/api/state"),

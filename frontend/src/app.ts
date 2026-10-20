@@ -11,17 +11,24 @@ interface AppOptions {
   onSnapshot: (next: State, previous: State, initialized: boolean) => void;
   onConnection: (status: ConnectionStatus) => void;
   onError: (message: string) => void;
+  session?: {
+    headers(json?: boolean): Headers;
+    protocols(): string[];
+    failed(status: number): void;
+    check(): Promise<void>;
+  };
 }
 
 // Own the single frontend snapshot and its HTTP/WS ingress. Features use the
 // typed API and read this projection; they keep their own transient UI state.
 export function createApp(options: AppOptions) {
   const api = createAPI((json = false) => {
+    if (options.session) return options.session.headers(json);
     const headers = new Headers();
     if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
     if (json) headers.set('Content-Type', 'application/json');
     return headers;
-  });
+  }, options.session?.failed);
   let state = initialState(options.appearance);
   let loaded = false;
   let receivedAt = performance.now();
@@ -81,7 +88,7 @@ export function createApp(options: AppOptions) {
         await new Promise<void>((resolve, reject) => {
           const url = new URL('/api/socket', options.origin);
           url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-          const current = new WebSocket(url.href, options.token ? ['pith-desk', `bearer.${options.token}`] : ['pith-desk']);
+          const current = new WebSocket(url.href, options.session?.protocols() ?? (options.token ? ['pith-desk', `bearer.${options.token}`] : ['pith-desk']));
           socket = current;
           endSocket = resolve;
           let transportError = '';
@@ -104,7 +111,10 @@ export function createApp(options: AppOptions) {
           current.onclose = () => {
             if (socket === current) { socket = undefined; endSocket = undefined; }
             if (disposed) resolve();
-            else reject(new Error(transportError || 'The local event connection closed.'));
+            else void Promise.resolve(options.session?.check()).catch(() => {}).finally(() => {
+              if (disposed) resolve();
+              else reject(new Error(transportError || 'The event connection closed.'));
+            });
           };
         });
       } catch (error) {

@@ -15,14 +15,20 @@ export interface ApiRequest {
 export type ApiMutate = <P extends MutationPath>(path: P, payload: MutationInput<P>, onResponse?: (response: MutationResponse<P>) => void) => Promise<boolean>;
 export type ApiDownload = <P extends keyof DownloadContracts>(path: P, ...query: {} extends DownloadContracts[P] ? [query?: DownloadContracts[P]] : [query: DownloadContracts[P]]) => Promise<Blob>;
 
+export class APIError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) { super(message); this.status = status; }
+}
+
 // The client keeps the process-local bearer token in headers and preserves the
 // existing same-origin transport. The generated path decides the wire types.
-export function createAPI(headers: (json?: boolean) => Headers): { request: ApiRequest; download: ApiDownload } {
+export function createAPI(headers: (json?: boolean) => Headers, onFailure?: (status: number) => void): { request: ApiRequest; download: ApiDownload } {
   async function checked(response: Response): Promise<Response> {
     if (response.ok) return response;
     const body: unknown = await response.json().catch(() => null);
     const message = body && typeof body === 'object' && 'error' in body ? body.error : undefined;
-    throw new Error(typeof message === 'string' ? message : `Request failed (${response.status}).`);
+    onFailure?.(response.status);
+    throw new APIError(typeof message === 'string' ? message : `Request failed (${response.status}).`, response.status);
   }
   function queryURL(path: string, query?: object): string {
     const values = new URLSearchParams();

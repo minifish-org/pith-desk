@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 export const test = base.extend({
+  serverAutoLogin: [true, {option: true}],
   hostBinary: [async ({}, use) => {
     const root = await mkdtemp(join(tmpdir(), 'pith-host-binary-'));
     try {
@@ -14,7 +15,7 @@ export const test = base.extend({
       await use(binary);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, { scope: 'worker' }],
-  host: async ({ hostBinary }, use) => {
+  host: async ({ hostBinary, context, serverAutoLogin }, use) => {
     const root = await mkdtemp(join(tmpdir(), 'pith-host-test-'));
     const child = spawn(hostBinary, ['--root', root], { stdio: ['pipe', 'pipe', 'pipe'] });
     let stderr = '', exit;
@@ -33,10 +34,17 @@ export const test = base.extend({
     const next = () => queued.length ? Promise.resolve(queued.shift()) : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
     try {
       const initial = await next();
-      await use({ ...initial, command: (action, values = {}) => {
+      const signIn = async (host) => {
+        const response = await context.request.post(host.url + '/api/server/login', {data: {token: host.token}, headers: {Origin: host.url}});
+        if (!response.ok()) throw new Error(`Fixture sign-in failed: ${response.status()}`);
+      };
+      if (serverAutoLogin) await signIn(initial);
+      await use({ ...initial, command: async (action, values = {}) => {
         const reply = next();
         child.stdin.write(JSON.stringify({ action, ...values }) + '\n');
-        return reply;
+        const result = await reply;
+        if (serverAutoLogin && action === 'restart') await signIn(result);
+        return result;
       } });
     } finally {
       if (exit === undefined) {

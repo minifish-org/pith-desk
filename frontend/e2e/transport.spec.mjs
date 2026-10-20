@@ -10,10 +10,8 @@ async function ready(page, url) {
   await expect(page.locator('.pui-composer-model')).toBeEnabled();
 }
 
-test('real Host broadcasts to two browsers and delayed HTTP cannot revert newer WS state', async ({ page, context, host }) => {
-  const second = await context.newPage();
+test('Server delayed HTTP cannot revert newer WS state', async ({ page, host }) => {
   await ready(page, host.url);
-  await ready(second, host.url);
   const target = host.state.conversations[1];
   await page.getByRole('button', {name: host.state.workspaces.find(entry => entry.id === target.workspaceId).name, exact: true}).click();
   let captured, release;
@@ -30,7 +28,6 @@ test('real Host broadcasts to two browsers and delayed HTTP cannot revert newer 
     await held;
     await host.command('rename', { id: target.id, title: 'Newer streamed title 中文' });
     await expect(page.locator('.pui-breadcrumb-current')).toHaveText('Newer streamed title 中文');
-    await expect(second.locator('.pui-breadcrumb-current')).toHaveText('Newer streamed title 中文');
   } finally { release(); }
   await expect(page.locator('.pui-composer-model')).toBeEnabled();
   await expect(page.locator('.pui-breadcrumb-current')).toHaveText('Newer streamed title 中文');
@@ -46,7 +43,7 @@ test('committed create and send survive failed refresh and WS reconnect without 
     sockets.push({ route, server });
     server.onMessage((message) => { if (!hold) route.send(message); });
     expect(route.protocols()[0]).toBe('pith-desk');
-    expect(route.protocols()[1]).toMatch(/^bearer\./);
+    expect(route.protocols()[1]).toMatch(/^lease\./);
     expect(route.url()).not.toContain('bearer');
   });
   page.on('request', (request) => {
@@ -63,7 +60,7 @@ test('committed create and send survive failed refresh and WS reconnect without 
   });
   await ready(page, host.url);
   await expect.poll(() => sockets.length).toBe(1);
-  expect((await page.request.get(host.url + '/api/state')).status()).toBe(401);
+  expect((await page.request.get(host.url + '/api/state')).status()).toBe(409);
   expect((await page.request.get(host.url + '/api/state', { headers: { Origin: 'https://example.invalid' } })).status()).toBe(403);
   const before = host.state.conversations.length;
   const reconnect = async () => {
@@ -82,8 +79,9 @@ test('committed create and send survive failed refresh and WS reconnect without 
   await reconnect();
   await expect(page.locator('.pui-breadcrumb-current')).toHaveText('New conversation');
   expect(posts.filter((path) => path === '/api/conversations')).toHaveLength(1);
-  for (const request of authenticated.filter((request) => request.resourceType() === 'fetch')) {
-    expect((await request.allHeaders()).authorization).toMatch(/^Bearer [a-f0-9]+$/);
+  for (const request of authenticated.filter((request) => request.resourceType() === 'fetch' && !new URL(request.url()).pathname.startsWith('/api/server/'))) {
+    expect((await request.allHeaders())['x-desk-lease']).toMatch(/^[a-f0-9]{64}$/);
+    expect((await request.allHeaders()).authorization).toBeUndefined();
     expect(new URL(request.url()).origin).toBe(host.url);
     expect(request.url()).not.toContain('bearer');
   }

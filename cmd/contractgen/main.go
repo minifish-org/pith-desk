@@ -339,7 +339,7 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 				if !ok || function.Body == nil {
 					continue
 				}
-				if function.Name.Name == "serve" {
+				if function.Name.Name == "serve" || function.Name.Name == "serveAPI" {
 					ast.Inspect(function.Body, func(node ast.Node) bool {
 						statement, ok := node.(*ast.IfStmt)
 						if !ok {
