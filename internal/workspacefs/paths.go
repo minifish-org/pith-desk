@@ -5,6 +5,7 @@ package workspacefs
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,28 @@ func Directory(path string) (string, error) {
 	info, err := os.Stat(abs)
 	if err != nil || !info.IsDir() {
 		return "", errors.New("Choose an existing folder")
+	}
+	return abs, nil
+}
+
+// ReadableDirectory checks the server account's access without requiring write
+// permission: read-only workspaces remain useful for inspection tasks.
+func ReadableDirectory(path string) (string, error) {
+	abs, err := Directory(path)
+	if err != nil {
+		return "", err
+	}
+	// Stat the child dot to check traversal as well as reading directory names.
+	if _, err := os.Stat(abs + string(filepath.Separator) + "."); err != nil {
+		return "", fmt.Errorf("Access folder: %w", err)
+	}
+	dir, err := os.Open(abs)
+	if err != nil {
+		return "", fmt.Errorf("Read folder: %w", err)
+	}
+	defer dir.Close()
+	if _, err := dir.ReadDir(1); err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("Read folder: %w", err)
 	}
 	return abs, nil
 }

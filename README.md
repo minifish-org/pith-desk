@@ -296,7 +296,10 @@ in Server, stop Desktop and pass its data directory explicitly. Both modes use
 the existing data lock and file formats; only one process may open that data at
 a time. Workspaces are absolute directories **on the server**. Mount or create
 those folders before adding them; browser-local folders are not uploaded or
-mapped to server folders.
+mapped to server folders. Server requires an absolute path, resolves symlinks,
+and checks that its OS account can read and traverse the directory. Read-only
+workspaces are allowed; individual write operations still check permissions.
+The private application data directory cannot be a workspace or sit inside one.
 
 ### Login, ownership and task lifetime
 
@@ -306,6 +309,8 @@ stream additionally requires the active page's exclusive lease. Opening another
 tab or browser shows **Reconnect** and **Take over**. Taking over immediately
 revokes the old lease and closes its state streams. Refresh resumes with a new
 page credential and restores actual Go-owned task and approval state.
+Control handoff also settles already-admitted writes before enabling the new
+page. Old or slow-upload requests cannot overwrite the replacement page's data.
 
 A page renews its 45-second lease every 10 seconds. Closing or losing the browser
 lets the lease expire; another page can then reconnect, or take over immediately.
@@ -321,16 +326,73 @@ or are rejected after the bounded response window expires, rather than executing
 again. These receipts are process/page scoped; they are not an exactly-once
 guarantee for a model provider's retries or external tool effects.
 
+Drafts normally autosave to the server. On disconnect or takeover, the old page
+becomes read-only and stops its controllers and autosave. Unsaved message text
+and open message/queue edits have a text-only recovery copy in that tab's
+`sessionStorage`; image data and saved configuration credentials are not copied there. The reconnect
+screen lets you select/copy the text. After reload, **Recovered unsent text**
+offers a text download and explicit discard. Recovery never submits or replaces
+the current server draft: check the actual conversation and queue before sending
+anything again. Browser quota, disabled storage or permanently closing a tab can
+prevent local recovery; keep the old page open until you have copied its text.
+
+Queue entries, completion/unread flags and pending approvals are server-owned
+and survive browser reconnects. Closing a page does not cancel running or queued
+work. No browser notification permission or background push service is used.
+
 Conversation exports, diagnostics and file links download through the browser.
-Generated-file **Open** downloads the file. Resource **Open** copies the server
-path; View/edit remains in the web UI. **Reveal** is hidden in Server's file list,
+Generated files and previews use **Download**; **Copy server path** copies their
+absolute server path. Resource **Copy server path** also copies its server
+location; View/edit remains in the web UI. **Reveal** is hidden in Server's file list,
 preview and resources; Desktop retains its native behavior. Browser clipboard
-support requires localhost or HTTPS. Native menus, window
+support requires localhost or HTTPS. Dropping/pasting images still uploads image
+attachments. Other browser files and `file://` URLs are never treated as server
+paths or uploaded, even if an identical path exists on the server. Reference a
+server workspace file by typing its workspace-relative path in the message.
+
+Model requests, Base URLs (including `localhost`), MCP commands, environment
+overrides, runtime dependencies, file tools and approved commands all run on
+the **server** under its OS account. Install required MCP executables there.
+Credentials retain the existing private configuration/auth stores; APIs return
+configuration status and environment key names, never saved secret values.
+
+Native menus, window
 controls, notifications, clipboard file references and desktop updating are not
-used in Server. Provider sign-in and new MCP OAuth sign-in rely on local SDK
-callbacks and are unavailable in Server; configure provider API keys and MCP
-bearer tokens instead. Existing saved OAuth credentials are retained. MCP
-commands, file tools and approved commands execute on the server account.
+used in Server. Upgrade Server by stopping it, replacing the binary and restarting
+with the same private data directory. Back up that directory before upgrading.
+
+### Provider and MCP sign-in
+
+Server reuses the pinned Pith SDK's login, token exchange, refresh and existing
+credential storage. It chooses headless methods where available:
+
+| Connection | Remote sign-in |
+|---|---|
+| Anthropic | Copy-code flow; paste the authorization code back into Desk |
+| OpenAI Codex | Device code; authorize on the provider's page |
+| OpenAI ChatGPT | Open the provider's page, then paste its complete final redirect URL; the installation ID persists on the server |
+| GitHub Copilot | Device code, including the SDK's enterprise-host prompt |
+| Kimi Coding, Meta, xAI | Device code |
+| Radius | Device code |
+| OpenRouter | Manual code or final redirect URL |
+| New MCP OAuth authorization | Unavailable remotely: the current flow requires the Desktop loopback callback on port 54819. New login controls are hidden; use an HTTP bearer token instead |
+
+For manual redirect flows, a browser may show a failed localhost callback page:
+copy its complete final URL into Desk rather than opening a port on the server.
+Saved MCP OAuth settings and credentials are retained, can refresh while valid,
+and can be signed out. In an existing connection, turn OAuth off and save a bearer
+token to switch authentication explicitly. New SDK flows are hidden until their remote interaction
+has been reviewed. Provider availability, account eligibility and authorization
+success remain controlled by the provider.
+
+### Phone browsers
+
+The same UI supports narrow screens, a collapsible sidebar, scrollable tool
+approval and browser downloads. The shared frame follows the visual viewport
+when a keyboard opens, keeps input selection/text, and leaves pinch zoom to the
+browser. Use HTTPS for remote clipboard support. Automated Chromium/WebKit checks
+cover a phone viewport and simulated keyboard resize; real iOS/Android keyboard
+and OS download-sheet behavior still need device acceptance.
 
 ### Linux single-binary build
 

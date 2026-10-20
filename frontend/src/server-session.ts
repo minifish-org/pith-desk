@@ -1,9 +1,10 @@
 import {APIError, createAPI} from './api.ts';
 import type {Application} from './ui-contract.ts';
 
-// Only the page's renewable lease lives in sessionStorage. The login token is
-// sent once, then discarded; the browser session cookie is HttpOnly.
-export function createServerSession() {
+// Access stores only the renewable page lease. The login token is sent once,
+// then discarded; the browser session cookie is HttpOnly. Draft recovery has
+// its own text-only storage and never persists authentication tokens.
+export function createServerSession(options: {recoveryText?(): string} = {}) {
   const storageKey = 'pith-desk-server-lease';
   const api = createAPI(() => {
     const headers = new Headers({'Content-Type': 'application/json'});
@@ -26,7 +27,7 @@ export function createServerSession() {
   function show(phase: 'login'|'blocked'|'offline', error = ''): void {
     if (!ui || stopped) return;
     panel?.destroy();
-    panel = ui.openServerAccess({phase, error}, {
+    panel = ui.openServerAccess({phase, error, recoveryText: options.recoveryText?.()}, {
       async onLogin(token) {
         await api.request('/api/server/login', {token});
         // Start a fresh page with the HttpOnly cookie, including authenticated

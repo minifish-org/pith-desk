@@ -17,6 +17,7 @@ export function createCompletionUI(deps: {
   const reading = new Set<string>();
   let notices: Notice[] = [];
   let noticeSignature = '';
+  let destroyed = false;
   const foreground = deps.foreground;
   const viewing = (id: string) => foreground() && deps.state().activeId === id && !deps.ui.read().hasModal;
 
@@ -33,6 +34,7 @@ export function createCompletionUI(deps: {
   }
 
   function acknowledgeViewed(): void {
+    if (destroyed) return;
     const entry = deps.state().conversations.find((entry) => viewing(entry.id) && entry.unread && entry.completedRunId);
     if (!entry?.completedRunId || reading.has(entry.completedRunId)) return;
     const runID = entry.completedRunId;
@@ -48,6 +50,7 @@ export function createCompletionUI(deps: {
   }
 
   function observe(initialized: boolean): void {
+    if (destroyed) return;
     const state = deps.state();
     for (const entry of state.conversations) {
       const runID = entry.completedRunId;
@@ -67,5 +70,5 @@ export function createCompletionUI(deps: {
     return {kind: run?.needsApproval ? 'approval' : run ? 'running' : entry.unread ? 'unread' : 'idle'};
   }
 
-  return { observe, acknowledgeViewed, dismiss, historyStatus, destroy() {} };
+  return { observe, acknowledgeViewed, dismiss, historyStatus, destroy() {destroyed = true;notices = [];renderNotices();} };
 }

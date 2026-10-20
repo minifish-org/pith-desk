@@ -43,7 +43,7 @@ export function createSettingsUI(api: API) {
         if (destroyed) return;
         connectionsPanel?.destroy();
         mcpEditorGeneration++;
-        connectionsState = { disabled: activity.busy || anyRunning() };
+        connectionsState = { disabled: activity.busy || anyRunning(), ...(api.server ? {oauthAvailable: false, connectionHint: 'Connections run on the server. localhost, installed commands, environment variables and runtime dependencies all refer to that server. New MCP OAuth sign-in needs a Desktop loopback callback; use a bearer token here. Existing OAuth credentials are retained and can refresh.'} : {}) };
         connectionsPanel = api.ui.settings.openConnections(connectionsState, {onSubmit: saveMCP, onConnectionAction: api.mcpAction,
             onRefresh: () => {void loadMCP();}, onNew: () => editMCP(), onClose: closeConnections});
         render();
@@ -151,7 +151,7 @@ export function createSettingsUI(api: API) {
         connectionProbe?.abort();
         connectionProbe = null;
         settingsPanel?.destroy();
-        settingsState = { baseUrl: app.state.settings.baseUrl, hasApiKey: app.state.settings.hasApiKey, ready: false };
+        settingsState = { baseUrl: app.state.settings.baseUrl, hasApiKey: app.state.settings.hasApiKey, ready: false, ...(api.server ? {connectionHint: 'Model requests run on the server. localhost in a Base URL refers to the server, not this browser’s device. Credentials stay in the server’s private data directory.', diagnosticsLabel: 'Download diagnostics', updatesAvailable: false} : {}) };
         let catalog: ModelCatalog | null = null, providerGeneration = 0;
         const isCurrent = () => !destroyed && panel.isOpen() && settingsPanel === panel;
         const update = (patch: Partial<SettingsPanelState>) => { if (!isCurrent())

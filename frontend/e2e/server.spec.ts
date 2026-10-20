@@ -63,6 +63,7 @@ test('Server token login, refresh and takeover revoke the old page immediately',
 });
 
 test('Server workspace entry uses server paths and omits the native folder picker',async ({page,host}) => {
+  await page.addInitScript(() => {Object.defineProperty(navigator,'clipboard',{configurable: true,value: {async writeText(text: string) {(window as unknown as {copiedServerPath: string}).copiedServerPath = text;}}});});
   await login(page,host);
   const folder = host.state.workspaces[0].path + '/Server folder 中文';
   await mkdir(folder);
@@ -77,11 +78,15 @@ test('Server workspace entry uses server paths and omits the native folder picke
   await expect(dialog).not.toBeVisible();
   await expect.poll(async () => (await host.command('state')).state.workspaces.some(workspace => workspace.path === folder)).toBe(true);
   await expect(page.getByRole('button',{name: 'Server folder 中文',exact: true})).toBeVisible();
+  await expect(page.locator('.pui-breadcrumb')).toContainText('Server folder 中文');
   await page.getByRole('button',{name: 'Workspace resources',exact: true}).click();
   const resources = page.getByRole('dialog',{name: 'Workspace resources',exact: true});
   await expect(resources).toContainText('AGENTS.md');
   await expect(resources.getByRole('button',{name: 'Reveal',exact: true})).toHaveCount(0);
-  await expect(resources.getByRole('button',{name: 'Open',exact: true}).first()).toBeVisible();
+  const workspaceInstructions = resources.locator('.pui-file-card').filter({hasText: folder + '/AGENTS.md'});
+  await expect(workspaceInstructions.getByRole('button',{name: 'Copy server path',exact: true})).toBeVisible();
+  await workspaceInstructions.getByRole('button',{name: 'Copy server path',exact: true}).click();
+  expect(await page.evaluate(() => (window as unknown as {copiedServerPath: string}).copiedServerPath)).toBe(folder + '/AGENTS.md');
 });
 
 test('closing and reopening a browser page preserves an actual running task without resubmission', async ({page, context, host}) => {
@@ -132,7 +137,7 @@ test('pending tool approval survives takeover, rejects the old lease, and export
   const files = second.locator('.pui-artifacts-panel');
   await expect(files.getByRole('button',{name: 'Reveal',exact: true})).toHaveCount(0);
   const fileDownload = second.waitForEvent('download');
-  await files.getByRole('button',{name: 'Open',exact: true}).click();
+  await files.getByRole('button',{name: 'Download',exact: true}).click();
   expect(await readFile((await (await fileDownload).path())!,'utf8')).toBe('Approved on Server');
   await expect(files).not.toBeVisible();
   await second.getByRole('button', {name: 'Conversation files (1 file)', exact: true}).click();

@@ -19,33 +19,25 @@ type mutationReceipt struct {
 	body   []byte
 }
 
-type receiptWriter struct {
-	http.ResponseWriter
-	receipt *mutationReceipt
-	large   bool
+// Buffer the small command response so a slow/disconnected browser cannot
+// hold the mutation handoff gate while writing its response to the network.
+type mutationResponse struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
 }
 
-func (w *receiptWriter) WriteHeader(status int) {
-	if w.receipt.status != 0 {
-		return
+func (w *mutationResponse) Header() http.Header { return w.header }
+func (w *mutationResponse) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
 	}
-	w.receipt.status = status
-	w.receipt.header = w.Header().Clone()
-	w.ResponseWriter.WriteHeader(status)
 }
-
-func (w *receiptWriter) Write(data []byte) (int, error) {
-	if w.receipt.status == 0 {
+func (w *mutationResponse) Write(data []byte) (int, error) {
+	if w.status == 0 {
 		w.WriteHeader(http.StatusOK)
 	}
-	if !w.large {
-		if len(w.receipt.body)+len(data) > 2<<20 {
-			w.large, w.receipt.body = true, nil
-		} else {
-			w.receipt.body = append(w.receipt.body, data...)
-		}
-	}
-	return w.ResponseWriter.Write(data)
+	return w.body.Write(data)
 }
 
 func (s *Server) serverMutation(w http.ResponseWriter, r *http.Request) {
@@ -123,5 +115,26 @@ func (s *Server) serverMutation(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 	defer close(receipt.done)
 	r.Body = io.NopCloser(bytes.NewReader(body))
-	s.serveAPI(&receiptWriter{ResponseWriter: w, receipt: receipt}, r)
+	response := &mutationResponse{header: w.Header().Clone()}
+	func() {
+		s.operations.Lock()
+		defer s.operations.Unlock()
+		a.mu.Lock()
+		current := a.leaseLocked(r) == lease
+		a.mu.Unlock()
+		if current {
+			s.serveAPI(response, r)
+		} else {
+			s.fail(response, "This page no longer controls Pith Desk.", http.StatusConflict)
+		}
+	}()
+	receipt.status, receipt.header = response.status, response.header.Clone()
+	if response.body.Len() <= 2<<20 {
+		receipt.body = response.body.Bytes()
+	}
+	for key, values := range response.header {
+		w.Header()[key] = values
+	}
+	w.WriteHeader(response.status)
+	_, _ = w.Write(response.body.Bytes())
 }

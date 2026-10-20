@@ -2,7 +2,7 @@
 import {
   createDownloadPart,createFeedbackPart,createStatusActionsPart,createTextPart,
   createButtonPart,createDialogPart,createFormPart,createInputPart,createFieldLabelPart,
-  createFormLayoutPart,createFooterPart,createOptionGroupPart,createOptionActionPart,mountParts,type BrandMarkOptions
+  createFormLayoutPart,createFooterPart,createOptionGroupPart,createOptionActionPart,createTextareaPart,mountParts,type BrandMarkOptions
 } from 'pith-ui';
 import {
   composeFrame,type FrameState,type FrameCallbacks,type FrameContent,composeConversationReader,type Appearance,type RecipeResult,
@@ -32,7 +32,7 @@ export interface DeskOptions {
   onUIStateChange?(state: {hasModal: boolean;appearance: Appearance}): void;onError?(message: string): void;
   server?: boolean;onLogout?(): Promise<void>;
 }
-export interface ServerAccessState {phase: 'login'|'blocked'|'offline';error?: string}
+export interface ServerAccessState {phase: 'login'|'blocked'|'offline';error?: string;recoveryText?: string}
 export interface ServerAccessCallbacks {onLogin(token: string): Promise<void>;onReconnect(): Promise<void>;onTakeover(): Promise<void>}
 export interface DeskShellState extends Pick<FrameState,'workspace'|'conversation'|'reconnecting'> {error?: {message: string;hidden?: boolean};busy?: {key: string;message: string;actionLabel: string}|null}
 export interface DeskAvailability extends NonNullable<FrameState['availability']> {global?: boolean;active?: boolean}
@@ -76,6 +76,22 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
   const mounted = mountParts(mount,frame.part,{appearance});
   const dialogs = createDialogHost(frame,{persistentDialogs: [viewer.part],onChange: changed,onError: report});
   const opening = dialogs.open;
+  function recoveredTextPart(text: string) {
+    return createTextareaPart({purpose: 'text',label: 'Unsent text on this page',value: text,readOnly: true});
+  }
+  function openRecoveredDrafts(text: string,onDiscard: () => void) {
+    return opening('recovered-drafts',onClose => {
+      const part = createDialogPart({title: 'Recovered unsent text',children: [
+        createTextPart({role: 'description',text: 'This page kept text that could not be confirmed as saved. Copy or download it before discarding. Check the current conversation and queue before submitting again; nothing is sent automatically.'}),
+        recoveredTextPart(text),createFooterPart({children: [
+          createButtonPart({label: 'Download text',variant: 'secondary',onAction: () => downloads.download({blob: new Blob([text],{type: 'text/plain;charset=utf-8'}),name: 'pith-desk-unsent-text.txt'}),onError: report}),
+          createButtonPart({label: 'Discard copy',variant: 'secondary',onAction() {onDiscard();part.close();}}),
+          createButtonPart({label: 'Close',variant: 'primary',onAction() {part.close();}}),
+        ]}),
+      ],onClose,onDispose: onClose});
+      return {part,open: part.open,close: part.close,isOpen: part.isOpen,destroy: part.destroy};
+    },local => local.open());
+  }
   function openServerAccess(state: ServerAccessState,actions: ServerAccessCallbacks) {
     return opening('server-session',onClose => {
       const login = state.phase === 'login';
@@ -86,7 +102,7 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
       const fail = (message: string) => feedback.update({message,tone: 'error'});
       const submit = createButtonPart({label: login ? 'Sign in' : 'Reconnect',variant: 'primary',type: 'submit'});
       const takeover = createButtonPart({label: 'Take over',variant: 'secondary',hidden: login,onAction: actions.onTakeover,onError: fail});
-      const form = createFormPart({children: [createFormLayoutPart({children: [description,label,token,feedback]}),createFooterPart({children: [takeover,submit]})],onError: fail,
+      const form = createFormPart({children: [createFormLayoutPart({children: [description,label,token,feedback,...(state.recoveryText ? [createTextPart({role: 'hint',text: 'Unsent text is kept on this page. Copy it below, or reconnect to download it. It will not be submitted automatically.'}),recoveredTextPart(state.recoveryText)] : [])]}),createFooterPart({children: [takeover,submit]})],onError: fail,
         async onSubmit() {const value = token.read();token.reset('');if (login) await actions.onLogin(value);else await actions.onReconnect();}});
       const part = createDialogPart({title: login ? 'Pith Desk Server' : 'Reconnect to Pith Desk',closeDisabled: true,closeOnBackdrop: false,children: [form],onClose,onDispose: onClose});
       return {part,open() {part.open();if (login) token.focus();},close: part.close,isOpen: part.isOpen,destroy: part.destroy};
@@ -155,7 +171,7 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
     openConnections(state: Parameters<typeof composeMCPConnections>[0] = {},actions: Parameters<typeof composeMCPConnections>[1] = {}) {return opening('connections',onClose => composeMCPConnections(state,{...actions,onClose}),local => local.open(),actions.onClose);},
     openModels(state: Parameters<typeof composeModelPicker>[0],actions: Parameters<typeof composeModelPicker>[1] = {}) {let current = state;const local = opening('model',onClose => composeModelPicker(state,{...actions,onClose}),value => value.open(),actions.onClose);return {...local,update(next: typeof state) {if (local.isOpen()) {current = next;local.update(next);}},fail(error: string) {if (local.isOpen()) {current = {...current,error};local.update(current);}}};},
     openConnectionLoading(state: Parameters<typeof composeCustomConnectionLoading>[0],actions: Parameters<typeof composeCustomConnectionLoading>[1] = {}) {return opening('feature',onClose => composeCustomConnectionLoading(state,{...actions,onClose}),local => local.open(),actions.onClose);},
-    openCustomConnection(state: Parameters<typeof composeCustomConnection>[0],actions: Parameters<typeof composeCustomConnection>[1] = {}) {return opening('feature',onClose => composeCustomConnection(state,{...actions,onClose}),local => local.open(),actions.onClose);},
+    openCustomConnection(state: Parameters<typeof composeCustomConnection>[0],actions: Parameters<typeof composeCustomConnection>[1] = {}) {return opening('feature',onClose => composeCustomConnection({...state,...(options.server ? {connectionHint: 'Model requests run on the server. localhost in a Base URL refers to that server. The saved API key is never returned to this page.'} : {})},{...actions,onClose}),local => local.open(),actions.onClose);},
     openProviderLogin(state: Parameters<typeof composeProviderLogin>[0],actions: Parameters<typeof composeProviderLogin>[1] = {}) {return opening('oauth',onClose => composeProviderLogin(state,{...actions,
       ...(options.host?.openExternal ? {onOpenExternal: options.host.openExternal} : {}),onClose}),local => local.open(),actions.onClose);},
   };
@@ -176,6 +192,6 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
     closeArtifacts: artifacts.close,areArtifactsOpen: artifacts.isOpen,
     openPreview(state: PreviewInput,actions: PreviewCallbacks = {}) {return opening('preview',onClose => composeFilePreview(state,{...actions,onCopyCode: actions.onCopyCode ?? callbacks.onCopyCode ?? copyText,onImage(image) {viewer.open(image);changed();},onClose},reader.announcement),local => {artifacts.setRelatedDialogs([viewer.part,local.part]);local.open();},actions.onClose);},
   };
-  return {workspace,settings,resources,files,read,openServerAccess,downloadFile: downloads.download,setAppearance(next: typeof appearance) {if (!disposed) {appearance = next;mounted.setAppearance(next);notify(() => options.onUIStateChange?.(read()));}},
+  return {workspace,settings,resources,files,read,openServerAccess,openRecoveredDrafts,downloadFile: downloads.download,setAppearance(next: typeof appearance) {if (!disposed) {appearance = next;mounted.setAppearance(next);notify(() => options.onUIStateChange?.(read()));}},
     destroy() {if (disposed) return;disposed = true;frame.destroy();changed();}};
 }

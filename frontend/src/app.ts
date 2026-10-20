@@ -43,6 +43,18 @@ export function createApp(options: AppOptions) {
   let endRetry: (() => void) | undefined;
   const reads = new Set<AbortController>();
 
+  // Retired pages may still receive a successful response from an already
+  // admitted write. Never let it clear drafts or start a follow-up operation.
+  function guard<T extends (...args: never[]) => Promise<unknown>>(action: T): T {
+    return ((...args: Parameters<T>) => {
+      if (disposed) return Promise.reject(new Error('This page is disconnected. Reconnect to continue.'));
+      return action(...args).then(result => {
+        if (disposed) throw new Error('This page is disconnected. Check the current task before trying again.');
+        return result;
+      });
+    }) as T;
+  }
+
   function accept(next: WireState): void {
     const previous = state;
     const initialized = loaded;
@@ -130,8 +142,8 @@ export function createApp(options: AppOptions) {
   }
 
   return {
-    request: api.request,
-    download: api.download,
+    request: guard(api.request),
+    download: guard(api.download),
     refresh,
     // Called only after the matching /api/read command has committed.
     confirmRead(id: string, runID: string): void {

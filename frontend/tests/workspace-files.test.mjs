@@ -9,7 +9,7 @@ test('browser URI extraction never treats a basename or remote URL as a local id
   assert.deepEqual(localFileURIs('# comment\nfile:///workspace/%E4%B8%AD%E6%96%87%20file.md\nREADME.md\nhttps://example.com/file.md\nfile://remote/workspace/file.md'), ['file:///workspace/%E4%B8%AD%E6%96%87%20file.md']);
 });
 
-function harness(native, resolve = async () => ['docs/中文 draft.md']) {
+function harness(native, resolve = async () => ['docs/中文 draft.md'], server = false) {
   const inserted = [], errors = [], resolved = [], changes = [], pending = [], events = [];
   let context = 'workspace/chat/1';
   const controller = installWorkspaceFileDrop({
@@ -17,7 +17,7 @@ function harness(native, resolve = async () => ['docs/中文 draft.md']) {
       setDropPending: value => { pending.push(value); events.push({ kind: 'scene-pending', value }); },
       insertReferences: paths => { inserted.push(paths); events.push({ kind: 'insert', paths }); },
     } },
-    native, busy: () => false, context: () => context, workspaceID: () => 'workspace', disposed: () => false,
+    native, server, busy: () => false, context: () => context, workspaceID: () => 'workspace', disposed: () => false,
     resolve: async (workspace, paths) => { resolved.push({ workspace, paths }); return resolve(); },
     pending: value => events.push({ kind: 'host-pending', value }),
     changed: () => changes.push(inserted.at(-1)), error: message => errors.push(message),
@@ -51,7 +51,7 @@ test('browser unidentified reference intent asks for a relative path instead of 
   await settle();
   assert.deepEqual(ui.resolved, []);
   assert.deepEqual(ui.inserted, []);
-  assert.match(ui.errors[0], /Browser preview cannot identify/);
+  assert.match(ui.errors[0], /browser cannot identify/);
 });
 
 test('browser complete local file URI is validated by the host', async () => {
@@ -60,6 +60,18 @@ test('browser complete local file URI is validated by the host', async () => {
   await settle();
   assert.deepEqual(ui.resolved, [{ workspace: 'workspace', paths: ['file:///workspace/docs/%E4%B8%AD%E6%96%87%20draft.md'] }]);
   assert.deepEqual(ui.inserted, [['docs/中文 draft.md']]);
+});
+
+test('Server never resolves browser-local identities even if the same file exists on the server', async () => {
+  const ui = harness(false, async () => ['docs/中文 draft.md'], true);
+  for (const input of [
+    {paths: [], uris: 'file:///workspace/docs/file.md', hasUnidentifiedFiles: false},
+    {paths: ['/workspace/docs/file.md'], hasUnidentifiedFiles: false},
+    {paths: [], hasUnidentifiedFiles: true},
+  ]) ui.references(input);
+  await settle();
+  assert.deepEqual(ui.resolved, []); assert.deepEqual(ui.inserted, []);
+  assert.equal(ui.errors.length, 3); assert.match(ui.errors[0], /server workspace-relative path/);
 });
 
 test('late path validation never inserts into a different workspace or conversation', async () => {

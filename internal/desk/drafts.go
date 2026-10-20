@@ -1,6 +1,7 @@
 package desk
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -70,8 +71,17 @@ func (s *Service) Draft(scope DraftScope) (Draft, error) {
 }
 
 func (s *Service) SaveDraft(in DraftInput) (Draft, error) {
+	return s.SaveDraftContext(context.Background(), in)
+}
+
+// Check lease cancellation under the same lock as the write. An admitted
+// autosave waiting behind another operation must not outlive its page.
+func (s *Service) SaveDraftContext(ctx context.Context, in DraftInput) (Draft, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Draft{}, err
+	}
 	path, err := s.draftFileLocked(in.DraftScope)
 	if err != nil {
 		return Draft{}, err

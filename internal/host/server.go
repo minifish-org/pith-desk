@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,21 +22,23 @@ import (
 	assets "github.com/minifish-org/pith-desk"
 	"github.com/minifish-org/pith-desk/internal/desk"
 	"github.com/minifish-org/pith-desk/internal/wire"
+	"github.com/minifish-org/pith-desk/internal/workspacefs"
 )
 
 type Server struct {
-	URL      string
-	server   *http.Server
-	listener net.Listener
-	token    string
-	service  *desk.Service
-	picker   func() (string, error)
-	files    http.Handler
-	index    []byte
-	ctx      context.Context
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	clients  map[chan []byte]struct{}
+	URL        string
+	server     *http.Server
+	listener   net.Listener
+	token      string
+	service    *desk.Service
+	operations sync.Mutex // Order committed mutations before handing control to another page.
+	picker     func() (string, error)
+	files      http.Handler
+	index      []byte
+	ctx        context.Context
+	cancel     context.CancelFunc
+	mu         sync.Mutex
+	clients    map[chan []byte]struct{}
 
 	appearanceMu      sync.Mutex
 	appearanceChanged func(desk.AppearanceMode)
@@ -331,6 +334,16 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	case "/api/workspaces":
 		var in wire.PathInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
+			if s.access != nil && !filepath.IsAbs(strings.TrimSpace(in.Path)) {
+				s.fail(w, "Enter an absolute directory path on the server.", http.StatusBadRequest)
+				return
+			}
+			if s.access != nil {
+				if in.Path, err = workspacefs.ReadableDirectory(in.Path); err != nil {
+					s.fail(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+			}
 			var workspace desk.Workspace
 			workspace, err = s.service.AddWorkspace(in.Path)
 			if err == nil {

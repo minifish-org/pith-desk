@@ -23,6 +23,17 @@ function setup(t, fetch) {
   return { app, sockets, snapshots, connections, errors };
 }
 
+test('retiring a page rejects late mutation responses and never starts follow-up requests', async t => {
+  let finish, calls = 0;
+  const {app} = setup(t, () => {calls++; return new Promise(resolve => {finish = resolve;});});
+  const write = app.request('/api/send', {id: 'chat', text: 'send once'});
+  app.dispose();
+  finish(Response.json({ok: true}));
+  await assert.rejects(write, /disconnected/);
+  await assert.rejects(app.request('/api/draft', {id: 'chat', text: 'late', revision: 123}), /disconnected/);
+  assert.equal(calls, 1);
+});
+
 test('app owns authenticated HTTP and WS ingress and consumes bootstrap secrets', async (t) => {
   const calls = [];
   const { app, sockets, snapshots } = setup(t, async (url, options) => { calls.push({ url, options }); return Response.json(fixed); });

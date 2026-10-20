@@ -6,6 +6,24 @@ import (
 	"testing"
 )
 
+func TestServerDirectoryChecksReadAndTraversalWithoutRequiringWrite(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+	folder := t.TempDir()
+	defer os.Chmod(folder, 0700)
+	for _, mode := range []os.FileMode{0000, 0100, 0400, 0500, 0700} {
+		if err := os.Chmod(folder, mode); err != nil {
+			t.Fatal(err)
+		}
+		_, err := ReadableDirectory(folder)
+		want := mode == 0500 || mode == 0700
+		if (err == nil) != want {
+			t.Fatalf("permissions %o: %v", mode, err)
+		}
+	}
+}
+
 func TestRelativeGuardsSymlinksPrivateDataAndMissingPaths(t *testing.T) {
 	workspace, err := Directory(t.TempDir())
 	if err != nil {

@@ -7,7 +7,8 @@ export function isImagePath(path: string): boolean {
 }
 
 // File.name and webkitRelativePath do not establish a local file's identity.
-// Only complete file URIs are sent to the host, which validates every path.
+// Desktop browser harnesses may resolve complete URIs; Server must never infer
+// server identity from a browser-local path, even when the same path exists.
 export function localFileURIs(value: string): string[] {
   return value.split(/\r?\n/).map((line) => line.trim()).filter((line) => {
     if (!line || line.startsWith('#')) return false;
@@ -21,6 +22,7 @@ export function localFileURIs(value: string): string[] {
 interface DropOptions {
   ui: Application;
   native: boolean;
+  server?: boolean;
   busy: () => boolean;
   context: () => string;
   workspaceID: () => string | undefined;
@@ -63,13 +65,19 @@ export function installWorkspaceFileDrop(options: DropOptions) {
   };
   function references(input: Parameters<NonNullable<WorkspaceCallbacks['onDropReferences']>>[0]): void {
     if (destroyed || options.busy() || pending) return;
+    if (options.server) {
+      if (input.hasUnidentifiedFiles || input.paths.length || localFileURIs(input.uris || '').some(path => !isImagePath(path))) {
+        options.error('Files on this device are not uploaded. Enter a server workspace-relative path to reference a file. Image attachments can still be uploaded.');
+      }
+      return;
+    }
     if (options.native) {
       if (input.paths.length) void addPaths(input.paths.filter(path => !isImagePath(path)));
       return;
     }
     const paths = localFileURIs(input.uris || '').filter(path => !isImagePath(path));
     if (paths.length) void addPaths(paths);
-    else if (input.hasUnidentifiedFiles) options.error('Browser preview cannot identify this local file. Type its workspace-relative path, or drop it in the desktop app.');
+    else if (input.hasUnidentifiedFiles) options.error('The browser cannot identify this local file. Type its workspace-relative path, or drop it in the desktop app.');
   }
   return {
     references,

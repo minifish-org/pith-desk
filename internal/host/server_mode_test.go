@@ -43,6 +43,129 @@ func testServerMode(t *testing.T, origin string) *Server {
 	return s
 }
 
+func TestServerWorkspaceValidationAndPrivateConnectionMetadata(t *testing.T) {
+	s := testServerMode(t, "")
+	b := &serverBrowser{s: s}
+	b.login(t)
+	b.acquire(t, "", false)
+	for _, path := range []string{".", "relative/folder", filepath.Join(t.TempDir(), "missing")} {
+		resp, data := b.request(t, "POST", "/api/workspaces", wire.PathInput{Path: path}, "")
+		if resp.StatusCode != 400 {
+			t.Fatalf("invalid server path %q: %d %s", path, resp.StatusCode, data)
+		}
+	}
+	folder := t.TempDir()
+	resp, data := b.request(t, "POST", "/api/workspaces", wire.PathInput{Path: folder}, "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("server directory: %d %s", resp.StatusCode, data)
+	}
+	if err := s.service.ConfigureProvider(desk.ProviderConnectionInput{Provider: "deepseek", BaseURL: "https://api.deepseek.com", APIKey: "PRIVATE_PROVIDER_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.service.SaveMCP(desk.MCPInput{Name: "remote-auth", Type: "http", URL: "https://example.invalid/mcp", OAuth: true, Enabled: true, BearerToken: "PRIVATE_MCP_TOKEN"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.service.SaveMCP(desk.MCPInput{Name: "server-command", Type: "stdio", Command: "echo", Enabled: true, Env: map[string]string{"API_TOKEN": "PRIVATE_ENV_VALUE"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/state", "/api/models", "/api/mcp"} {
+		resp, data = b.request(t, "GET", path, nil, "")
+		if resp.StatusCode != 200 || strings.Contains(string(data), "PRIVATE_") {
+			t.Fatalf("unsafe %s: %d %s", path, resp.StatusCode, data)
+		}
+		if path == "/api/models" {
+			var catalog desk.ModelCatalog
+			if err := json.Unmarshal(data, &catalog); err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, provider := range catalog.Providers {
+				if provider.ID == "openai-codex" {
+					found = provider.OAuth
+				}
+			}
+			if !found {
+				t.Fatal("remote device login was hidden")
+			}
+		}
+		if path == "/api/mcp" && (!bytes.Contains(data, []byte(`"oauth":true`)) || !bytes.Contains(data, []byte("API_TOKEN"))) {
+			t.Fatalf("saved OAuth or env metadata lost: %s", data)
+		}
+	}
+	for path, input := range map[string]any{"/api/oauth/start": wire.ProviderInput{Provider: "not-a-remote-flow"}, "/api/mcp/oauth/start": wire.NameInput{Name: "remote-auth"}} {
+		resp, data = b.request(t, "POST", path, input, "")
+		if resp.StatusCode != 400 {
+			t.Fatalf("unavailable sign-in: %d %s", resp.StatusCode, data)
+		}
+	}
+}
+
+func TestServerHandoffRetiresAdmittedWritesWaitingForCommit(t *testing.T) {
+	s := testServerMode(t, "")
+	old := &serverBrowser{s: s}
+	old.login(t)
+	old.acquire(t, "", false)
+	s.access.mu.Lock()
+	lease := s.access.lease
+	s.access.mu.Unlock()
+	s.operations.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			s.operations.Unlock()
+		}
+	}()
+	written := make(chan int, 1)
+	go func() {
+		response, _ := old.request(t, "POST", "/api/appearance", wire.AppearanceInput{Mode: desk.AppearanceDark}, "100")
+		written <- response.StatusCode
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.access.mu.Lock()
+		admitted := lease.requests[100] != nil
+		s.access.mu.Unlock()
+		if admitted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("write did not reach the commit gate")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	current := &serverBrowser{s: s, cookie: old.cookie}
+	taken := make(chan struct{})
+	go func() { current.acquire(t, "", true); close(taken) }()
+	select {
+	case <-lease.ctx.Done(): // Revocation must precede waiting for the commit gate.
+	case <-time.After(5 * time.Second):
+		t.Fatal("takeover did not revoke the old lease immediately")
+	}
+	response, body := old.request(t, "POST", "/api/server/lease", wire.ServerLeaseInput{Resume: old.lease}, "")
+	if response.StatusCode != 409 {
+		t.Fatalf("old reload raced the explicit handoff: %d %s", response.StatusCode, body)
+	}
+	s.operations.Unlock()
+	locked = false
+	select {
+	case status := <-written:
+		if status != 409 {
+			t.Fatalf("retired write: %d", status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("retired write stalled")
+	}
+	select {
+	case <-taken:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handoff stalled")
+	}
+	response, body = current.request(t, "POST", "/api/appearance", wire.AppearanceInput{Mode: desk.AppearanceLight}, "")
+	if response.StatusCode != 200 || s.service.Snapshot().Settings.Appearance != desk.AppearanceLight {
+		t.Fatalf("replacement write: %d %s", response.StatusCode, body)
+	}
+}
+
 type serverBrowser struct {
 	s      *Server
 	cookie *http.Cookie

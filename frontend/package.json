@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "pith-ui": "0.8.6"
+    "pith-ui": "0.8.8"
   },
   "devDependencies": {
     "marked": "16.4.2",

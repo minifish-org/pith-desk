@@ -157,6 +157,6 @@ test('mixed images still arrive when native paths resolve before the DOM drop', 
   expect(result.images).toEqual([['photo.png'], ['photo.png']]);
   expect(result.resolved).toEqual([{workspace: 'workspace', paths: ['/workspace/docs/中文 draft.md']}]);
   expect(result.errors).toHaveLength(1);
-  expect(result.errors[0]).toContain('Browser preview cannot identify');
+  expect(result.errors[0]).toContain('The browser cannot identify');
   expect(result.browserDraft).toBe('Review ');
 });

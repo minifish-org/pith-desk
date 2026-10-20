@@ -25,7 +25,7 @@ type API = {
 export function createFilesUI(api: API) {
     const {ui, view: app, activity, request, mutate, download, render, selectedWorkspace, openWorkspace, conversationRunning, nativeClipboard} = api;
     // Product visibility lives here; shared recipes do not know Desktop or Server.
-    const fileActions = {reveal: !api.server};
+    const fileActions = api.server ? {reveal: false, openLabel: 'Download', copyPathLabel: 'Copy server path'} : {reveal: true};
     let destroyed = false;
     let artifacts: Artifact[] = [];
     let artifactsError = '';
@@ -91,7 +91,7 @@ export function createFilesUI(api: API) {
         return {
             workspace, instructions: resources?.instructions || [], skills: resources?.skills || [], templates: resources?.templates || [],
             diagnostics: resources?.diagnostics || [], canCreateInstructions: !hasInstructions, loading: !resources, error: resourcesError,
-            busy: activity.busy || api.workspaceBusy(resourcesWorkspaceId),fileActions,
+            busy: activity.busy || api.workspaceBusy(resourcesWorkspaceId),fileActions: api.server ? {...fileActions,openLabel: 'Copy server path'} : fileActions,
         };
     }
     function renderResourceAvailability(): void {

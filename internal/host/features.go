@@ -122,12 +122,10 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 		catalog, modelErr := s.service.Models(query.Provider)
 		err = modelErr
 		if s.access != nil {
-			// SDK sign-in callbacks are machine-local. Server retains saved
-			// credentials but does not advertise a browser-remote login flow.
 			providers := catalog.Providers[:0]
 			for _, provider := range catalog.Providers {
-				provider.OAuth = false
-				if provider.APIKeySupported || provider.SignedIn {
+				provider.OAuth = provider.OAuth && (desk.ServerOAuthSupported(provider.ID) || provider.SignedIn)
+				if provider.APIKeySupported || provider.OAuth {
 					providers = append(providers, provider)
 				}
 			}
@@ -223,7 +221,11 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		var in desk.DraftInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			var draft desk.Draft
-			draft, err = s.service.SaveDraft(in)
+			ctx := r.Context()
+			if lease, ok := ctx.Value(leaseContextKey{}).(*browserLease); ok {
+				ctx = lease.ctx // Takeover cancels this synchronously.
+			}
+			draft, err = s.service.SaveDraftContext(ctx, in)
 			if err == nil {
 				wire.WriteJSON(w, r.Method, r.URL.Path, draft)
 				return true
@@ -275,7 +277,7 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		var in wire.ProviderInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			if s.access != nil {
-				err = errors.New("Provider sign-in requires a local callback. Configure an API key in Server mode.")
+				err = s.service.StartServerOAuth(in.Provider)
 			} else {
 				err = s.service.StartOAuth(in.Provider)
 			}

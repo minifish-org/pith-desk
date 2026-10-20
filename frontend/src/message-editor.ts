@@ -43,5 +43,7 @@ export function createMessageEditor(api: { ui: Application; view: AppView; activ
     render();
     editor.focus();
   }
-  return { open, render, close: () => { target = null; editor?.close(); editor = undefined; }, destroy: () => { target = null; editor?.destroy(); editor = undefined; } };
+  return { open, render,
+    unsentText() {const text = editor?.read() || '';return text !== api.view.state.messages.find(message => message.id === target?.messageId)?.text ? text : '';},
+    close: () => { target = null; editor?.close(); editor = undefined; }, destroy: () => { target = null; editor?.destroy(); editor = undefined; } };
 }

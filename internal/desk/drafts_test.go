@@ -1,12 +1,37 @@
 package desk
 
 import (
+	"context"
+	"errors"
 	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRevokedDraftWaitingForServiceCannotOverwriteReplacement(t *testing.T) {
+	s, _, conversation, _ := productFeatureService(t)
+	scope := DraftScope{ID: conversation.ID}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.mu.Lock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.SaveDraftContext(ctx, DraftInput{DraftScope: scope, Draft: Draft{Text: "revoked page", Revision: 9999999999999}})
+		done <- err
+	}()
+	cancel()
+	s.mu.Unlock()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("revoked save: %v", err)
+	}
+	if _, err := s.SaveDraft(DraftInput{DraftScope: scope, Draft: Draft{Text: "new page", Revision: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if draft, err := s.Draft(scope); err != nil || draft.Text != "new page" {
+		t.Fatalf("replacement: %+v %v", draft, err)
+	}
+}
 
 func TestDraftsSurviveRestartAndRejectLateSavesAfterClear(t *testing.T) {
 	s, workspace, conversation, dataDir := productFeatureService(t)

@@ -1,5 +1,6 @@
 import type { ApiRequest, RequestOptions } from './api.ts';
 import type { Draft, DraftScope, DraftImage } from './contract.generated.ts';
+import type {DraftRecovery} from './draft-recovery.ts';
 
 export function draftKey(scope: DraftScope): string {
   return scope.id ? `conversation:${scope.id}` : scope.workspaceId ? `workspace:${scope.workspaceId}` : '';
@@ -7,11 +8,13 @@ export function draftKey(scope: DraftScope): string {
 
 // Revisions let the host reject an older autosave arriving after an unload save
 // or a successful send. Drafts belong to the data profile, not a loopback origin.
-export function createDrafts(request: ApiRequest, error: (message: string) => void, delay = 250) {
+export function createDrafts(request: ApiRequest, error: (message: string) => void, delay = 250, recovery?: DraftRecovery) {
   type Entry = { scope: DraftScope; draft: Draft; saved: number; timer?: ReturnType<typeof setTimeout>; loading?: Promise<Draft>; autosaving?: boolean };
   const entries = new Map<string, Entry>();
+  let suspended = false;
   function schedule(entry: Entry): void {
     clearTimeout(entry.timer);
+    if (suspended) return;
     entry.timer = setTimeout(async () => {
       if (entry.autosaving) return;
       entry.autosaving = true;
@@ -42,6 +45,7 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
     return entry.loading;
   }
   function update(scope: DraftScope, text: string, images: DraftImage[] = []): void {
+    if (suspended) return;
     const key = draftKey(scope);
     if (!key) return;
     let entry = entries.get(key);
@@ -51,9 +55,11 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
     }
     if (entry.loading || entry.draft.text === text && sameImages(entry.draft.images, images)) return;
     entry.draft = { text, images, revision: Math.max(Date.now(), entry.draft.revision + 1) };
+    recovery?.remember(scope, entry.draft);
     schedule(entry);
   }
   async function flush(scope: DraftScope, options?: RequestOptions): Promise<void> {
+    if (suspended) return;
     const entry = entries.get(draftKey(scope));
     if (!entry || entry.loading) return;
     clearTimeout(entry.timer);
@@ -61,9 +67,11 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
     const draft = entry.draft;
     try {
       await request('/api/draft', { ...entry.scope, ...draft }, options);
+      if (suspended) return;
       entry.saved = Math.max(entry.saved, draft.revision);
+      recovery?.saved(scope, draft);
     } catch (reason) {
-      error(`Draft could not be saved: ${reason instanceof Error ? reason.message : String(reason)}`);
+      if (!suspended) error(`Draft could not be saved: ${reason instanceof Error ? reason.message : String(reason)}`);
       throw reason;
     }
   }
@@ -96,7 +104,9 @@ export function createDrafts(request: ApiRequest, error: (message: string) => vo
     }
     return load(target);
   }
-  return { load, update, flush, flushAll, prune, clearIfUnchanged, transfer };
+  return { load, update, flush, flushAll, prune, clearIfUnchanged, transfer,
+    suspend() {suspended = true; for (const entry of entries.values()) clearTimeout(entry.timer);},
+  };
 }
 
 function sameImages(a: DraftImage[] = [], b: DraftImage[] = []): boolean {

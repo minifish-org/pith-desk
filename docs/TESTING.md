@@ -108,6 +108,13 @@ WebViews, with temporary data and local providers. Browser validation alone
 does not establish native behavior. These checks require an interactive desktop
 session; they do not download or install a Desk release.
 
+The macOS foreground/unread check also requires an unlocked screen. A locked
+screen keeps WebKit's document hidden even after showing/focusing the window;
+passing other native checks does not establish foreground acknowledgement.
+Unlock the desktop and rerun that check. Failure diagnostics retain document
+focus/visibility and frame/visual-viewport height to distinguish this condition
+from layout or acknowledgement failures.
+
 For user acceptance, copy the existing application configuration and sessions to
 a private isolated data directory and start Server with the embedded frontend:
 
@@ -134,6 +141,17 @@ Other Host integration scenarios retain ordering, failed-refresh, history,
 drafts, restart, export and Stop behavior in both Chromium and WebKit.
 The mode-specific file checks verify Reveal in Desktop and its absence from
 Server resources, generated files and preview, while file downloads still work.
+
+`frontend/e2e/server-remote.spec.ts` covers revoked autosave/recovery, server
+configuration and diagnostics, browser-local path rejection, image draft restore,
+queued work/unread completion across refresh and page close, and a phone viewport
+with simulated keyboard resize, approval scrolling, sidebar and download.
+`oauth_server_test.go` checks the SDK headless method selection, manual prompt
+forwarding, catalog audit and private persistent ChatGPT device binding. OAuth
+account eligibility and real provider authorization require an external account;
+automated tests do not sign in to live accounts. Directory access, mutation
+handoff and waiting draft writes have Go regressions, including race coverage.
+Mobile emulation does not establish real OS keyboard or download-sheet behavior.
 
 ```sh
 npx playwright test frontend/e2e/server.spec.ts frontend/e2e/transport.spec.mjs frontend/e2e/message-edit-host.spec.ts

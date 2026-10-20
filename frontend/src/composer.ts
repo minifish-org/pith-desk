@@ -1,6 +1,7 @@
 import type { ApiMutate, ApiRequest } from './api.ts';
 import type { DraftScope, ImageContent, QueuedMessage, DraftImage as WireDraftImage, Workspace } from './contract.generated.ts';
 import { createDrafts, draftKey } from './drafts.ts';
+import type {DraftRecovery} from './draft-recovery.ts';
 import type { AppView, UIActivity } from './feature-api.ts';
 import { imagePreviewBlob } from './image-data.ts';
 import type { ActionResult, Application, MessageEditorSession } from './ui-contract.ts';
@@ -26,6 +27,7 @@ type API = {
     openSettings: () => void;
     followLatest: () => void;
     disposed: () => boolean;
+    recovery?: DraftRecovery;
 };
 export function createComposer(api: API) {
     const { view: app, activity, ui, request, mutate, refresh, render, selectedWorkspace, openWorkspace, openSettings } = api;
@@ -53,9 +55,9 @@ export function createComposer(api: API) {
     const drafts = createDrafts(request, (message) => { if (!api.disposed()) {
         activity.error = message;
         render();
-    } });
+    } }, 250, api.recovery);
     function rememberDraft(): void {
-        if (!draftLoading)
+        if (!api.disposed() && !draftLoading)
             drafts.update(composerScope, ui.workspace.readDraft(), draftImages.map(({ url, ...image }) => image));
     }
     function loadComposerDraft(): void {
@@ -286,5 +288,5 @@ export function createComposer(api: API) {
             render();
         }
     }
-    return { destroy() { queueEditTarget = null; queueEditor?.destroy(); queueEditor = undefined; }, rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, drafts, get draftImages() { return draftImages; }, get readingImages() { return readingImages; }, get draftLoading() { return draftLoading; }, get draftGeneration() { return draftGeneration; }, get composerScope() { return composerScope; }, get resolvingReferences() { return resolvingReferences; }, set resolvingReferences(value: boolean) { resolvingReferences = value; }, closeQueueEditor() { queueEditTarget = null; queueEditor?.close(); queueEditor = undefined; } };
+    return { unsentQueueEdit() {const text = queueEditor?.read() || '';return text !== app.state.queuedMessages.find(entry => entry.id === queueEditTarget?.messageId)?.text ? text : '';}, destroy() { drafts.suspend(); draftLoadGeneration++; draftGeneration++; queueEditTarget = null; queueEditor?.destroy(); queueEditor = undefined; }, rememberDraft, loadComposerDraft, renderQueue, openQueueEditor, send, renderDraftImages, clearDraftImages, addImageFiles, drafts, get draftImages() { return draftImages; }, get readingImages() { return readingImages; }, get draftLoading() { return draftLoading; }, get draftGeneration() { return draftGeneration; }, get composerScope() { return composerScope; }, get resolvingReferences() { return resolvingReferences; }, set resolvingReferences(value: boolean) { resolvingReferences = value; }, closeQueueEditor() { queueEditTarget = null; queueEditor?.close(); queueEditor = undefined; } };
 }

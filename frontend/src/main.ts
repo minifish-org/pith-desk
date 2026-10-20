@@ -3,6 +3,7 @@ import './style.css';
 import {createApp} from './app';
 import {readAppBootstrap} from './ui-bootstrap';
 import {createServerSession} from './server-session';
+import {createDraftRecovery} from './draft-recovery';
 import {mountApplication} from './ui-mount';
 import {installNativeDrop, isForeground} from './ui-native';
 import {installAppLifecycle} from './app-lifecycle';
@@ -28,10 +29,12 @@ import type {AppearanceMode, RunSummary} from './contract.generated';
 export type {ProviderChoice} from './contract.generated';
 
 const {token, server, nativeClipboard, nativeFileDrop, nativeMenus, titlebar, appearance} = readAppBootstrap();
-const session = server ? createServerSession() : undefined;
+const recovery = server ? createDraftRecovery() : undefined;
+const recoveredText = recovery?.text();
+const session = server ? createServerSession({recoveryText: () => recovery?.text() || ''}) : undefined;
 const appearanceMode = (value: unknown): AppearanceMode => value === 'light' || value === 'dark' ? value : 'system';
 const activity: UIActivity = {busy: false, error: ''};
-let disposed = false, ready = false, flushingDrafts = false;
+let disposed = false, suspended = false, ready = false, flushingDrafts = false;
 let nativeMenu: ReturnType<typeof installNativeMenu> | undefined;
 const app = createApp({
   token, session, origin: window.location.href, appearance: appearanceMode(appearance), onSnapshot: snapshotChanged,
@@ -105,7 +108,7 @@ const messages = createMessagesUI({ui, view: app, download, disposed: () => disp
 const tasks = createTaskControls({ui, view: app, activity, request, download, mutate, render, selectedWorkspace: () => conversations.selectedWorkspace(), renderCosts: () => costUI.render()});
 const messageEditor = createMessageEditor({ui, view: app, activity, mutate, followLatest: () => messages.followLatest()});
 const composer = createComposer({ui, view: app, activity, request, mutate, refresh, render,
-  selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), openSettings: () => settings.openSettings(), followLatest: () => messages.followLatest(), disposed: () => disposed,
+  selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), openSettings: () => settings.openSettings(), followLatest: () => messages.followLatest(), disposed: () => disposed || suspended, recovery,
 });
 const files = createFilesUI({ui, view: app, activity, request, mutate, download, render, draft: prependDraft,
   selectedWorkspace: () => conversations.selectedWorkspace(), openWorkspace: () => conversations.openWorkspace(), conversationRunning, workspaceBusy: id => !!workspaceRun(id), nativeClipboard, server, editResource: (...args) => sdkUI.resource(...args),
@@ -118,7 +121,7 @@ const settings = createSettingsUI({ui, view: app, activity, request, mutate, ren
 const conversations = createConversationsUI({ui, view: app, activity, request, download, mutate, render, closeSidebar, workspaceRun, conversationRunning,
   historyStatus: entry => completionUI.historyStatus(entry), confirmRemoval, removeWorkspaceResources: id => files.removeWorkspace(id), clearHistoryImages: () => messages.clearHistoryImages(), loadComposerDraft: () => composer.loadComposerDraft(),
 });
-const fileDrop = installWorkspaceFileDrop({ui, native: nativeFileDrop,
+const fileDrop = installWorkspaceFileDrop({ui, native: nativeFileDrop, server,
   busy: () => activity.busy || composer.draftLoading || !app.loaded,
   context: () => `${conversations.selectedWorkspace()?.id}/${app.state.activeId}/${composer.draftGeneration}`,
   workspaceID: () => conversations.selectedWorkspace()?.id, disposed: () => disposed,
@@ -197,7 +200,7 @@ async function mcpAction(action: MCPConnectionAction, target: MCPConnectionTarge
     else settings.setMCPError(activity.error);
     return ok;
   };
-  if (remove) confirmRemoval({title: 'Delete connection?', action: 'Delete connection', description: {before: 'Remove ', subject: entry.name, after: ' and its saved credentials from Pith Desk?'}, hint: 'Workspace files and existing conversations stay on your computer.', scope: {global: true}, unavailable: () => activity.busy || anyRunning(), run: save, error: () => activity.error});
+  if (remove) confirmRemoval({title: 'Delete connection?', action: 'Delete connection', description: {before: 'Remove ', subject: entry.name, after: ' and its saved credentials from Pith Desk?'}, hint: server ? 'Workspace files and existing conversations stay on the server.' : 'Workspace files and existing conversations stay on your computer.', scope: {global: true}, unavailable: () => activity.busy || anyRunning(), run: save, error: () => activity.error});
   else await save();
 }
 
@@ -212,13 +215,13 @@ function render(): void {
   const blocked = !app.state.running && workspaceRun(workspace?.id), error = activity.error || app.state.error || '';
   ui.workspace.updateShell({workspace: workspace?.name ?? 'No workspace', conversation: active?.title || 'New conversation', reconnecting: app.connection === 'reconnecting', busy: blocked ? {key: blocked.conversationId, message: 'A task is running in this workspace or an overlapping folder.', actionLabel: 'Open running conversation'} : null, error: {message: error, hidden: !activity.error && !!app.state.failure}});
   const hasDraft = !!ui.workspace.readDraft().trim() || composer.draftImages.length > 0, stopping = app.state.running && !hasDraft;
-  ui.workspace.updateComposer({action: stopping ? 'stop' : app.state.running ? 'queue' : 'send', readOnly: composer.draftLoading || flushingDrafts,
-    actionDisabled: stopping ? activity.busy : !app.loaded || activity.busy || composer.draftLoading || composer.readingImages || composer.resolvingReferences || !hasDraft || (!!composer.draftImages.length && !app.state.settings.supportsImages) || !workspace || !app.state.settings.hasApiKey || (!app.state.running && !!workspaceRun(workspace?.id)),
+  ui.workspace.updateComposer({action: stopping ? 'stop' : app.state.running ? 'queue' : 'send', readOnly: suspended || composer.draftLoading || flushingDrafts,
+    actionDisabled: suspended || (stopping ? activity.busy : !app.loaded || activity.busy || composer.draftLoading || composer.readingImages || composer.resolvingReferences || !hasDraft || (!!composer.draftImages.length && !app.state.settings.supportsImages) || !workspace || !app.state.settings.hasApiKey || (!app.state.running && !!workspaceRun(workspace?.id))),
     placeholder: !app.loaded ? 'Connecting to Pith…' : !app.state.settings.hasApiKey ? app.state.settings.hasConnections ? 'Choose a model beside the message box' : 'Connect a provider in Settings to get started' : !workspace ? 'Choose a workspace to get started' : app.state.running ? 'Send a message to queue it…' : workspaceRun(workspace?.id) ? 'Another task is running in this workspace. Open its conversation to queue a message.' : 'Ask Pith to help with your work…',
     model: {label: app.state.settings.modelName || app.state.settings.model || 'Choose model', description: `${app.state.settings.provider || 'deepseek'} / ${app.state.settings.model}`, disabled: activity.busy || anyRunning()},
     thinking: {options: levels.map(level => ({value: level, label: settings.thinkingLabel(level)})), value: app.state.settings.thinkingLevel || 'off', disabled: anyRunning() || activity.busy || levels.length < 2},
   });
-  ui.workspace.updateAvailability({busy: activity.busy, global: anyRunning(), active: app.state.running,
+  ui.workspace.updateAvailability({busy: suspended || activity.busy, global: anyRunning(), active: app.state.running,
     conversations: app.state.conversations.filter(entry => activity.busy || conversationRunning(entry.id)).map(entry => entry.id),
     workspaces: app.state.workspaces.filter(entry => activity.busy || workspaceRun(entry.id)).map(entry => entry.id),
   });
@@ -239,7 +242,22 @@ nativeMenu = installNativeMenu({native: nativeMenus,
   error(message) {activity.error = message; render();},
 });
 const runtimeClock = window.setInterval(() => tasks.tick(), 1000);
-function saveDraftsOnLeave(): void {composer.rememberDraft(); void composer.drafts.flushAll({keepalive: true});}
+function preserveText(): void {
+  composer.rememberDraft();
+  recovery?.keepText('Unassigned message', !composer.composerScope.id && !composer.composerScope.workspaceId ? ui.workspace.readDraft() : '');
+  recovery?.keepText('Message edit', messageEditor.unsentText());
+  recovery?.keepText('Pending message edit', composer.unsentQueueEdit());
+}
+function saveDraftsOnLeave(): void {if (!suspended) {preserveText(); void composer.drafts.flushAll({keepalive: true});}}
+function retireControllers(): void {
+  nativeMenu?.dispose(); removeNativeDrop(); fileDrop.destroy(); window.clearInterval(runtimeClock);
+  messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy();
+}
+function suspend(): void {
+  if (disposed || suspended) return;
+  preserveText(); suspended = true; app.dispose();
+  retireControllers(); render();
+}
 async function flushDrafts(): Promise<boolean> {
   composer.rememberDraft(); flushingDrafts = true; render();
   const results = await composer.drafts.flushAll(), saved = results.every(result => result.status === 'fulfilled');
@@ -249,10 +267,14 @@ async function flushDrafts(): Promise<boolean> {
 const removeLifecycle = installAppLifecycle({acknowledge: () => completionUI.acknowledgeViewed(), saveOnLeave: saveDraftsOnLeave, flushDrafts,
   dispose() {
     if (disposed) return;
-    disposed = true; app.dispose(); session?.dispose(); removeLifecycle(); nativeMenu?.dispose(); removeNativeDrop(); fileDrop.destroy(); window.clearInterval(runtimeClock);
-    composer.clearDraftImages(); messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy(); ui.destroy();
+    disposed = true; app.dispose(); session?.dispose(); removeLifecycle();
+    retireControllers(); composer.clearDraftImages(); ui.destroy();
   },
 });
 ready = true; render();
-if (session) void session.start(ui, () => {void app.start();}, () => app.dispose());
+if (session) void session.start(ui, () => {void app.start().then(async () => {
+  if (!recoveredText || !recovery) return;
+  const text = await recovery.recover(scope => request('/api/draft', {query: scope}));
+  if (!disposed && !suspended && text) ui.openRecoveredDrafts(text, () => recovery.discard());
+});}, suspend);
 else void app.start();

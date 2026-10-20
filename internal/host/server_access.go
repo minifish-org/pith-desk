@@ -111,7 +111,7 @@ func requestLeaseID(r *http.Request) string {
 func (a *serverAccess) leaseLocked(r *http.Request) *browserLease {
 	session := a.sessionLocked(r)
 	lease := a.lease
-	if session == "" || lease == nil || session != lease.session || subtle.ConstantTimeCompare([]byte(requestLeaseID(r)), []byte(lease.id)) != 1 {
+	if session == "" || lease == nil || lease.ctx.Err() != nil || session != lease.session || subtle.ConstantTimeCompare([]byte(requestLeaseID(r)), []byte(lease.id)) != 1 {
 		return nil
 	}
 	return lease
@@ -233,12 +233,28 @@ func (s *Server) serveAccess(w http.ResponseWriter, r *http.Request) bool {
 			s.fail(w, "Sign in first.", http.StatusUnauthorized)
 			break
 		}
+		if a.lease != nil && a.lease.ctx.Err() != nil {
+			s.fail(w, "Control is changing. Reconnect after the handoff finishes.", http.StatusConflict)
+			break
+		}
 		if a.lease != nil && !in.Takeover && !(a.lease.session == session && subtle.ConstantTimeCompare([]byte(in.Resume), []byte(a.lease.id)) == 1) {
 			s.fail(w, "Another page controls Pith Desk. Take over to continue here.", http.StatusConflict)
 			break
 		}
 		if a.lease != nil {
 			a.lease.cancel()
+		}
+		// Revoke immediately, then finish already-running mutations before
+		// issuing a new credential. Slow request bodies have not entered this
+		// gate; canceled network probes release it through their request context.
+		previous := a.lease
+		a.mu.Unlock()
+		s.operations.Lock()
+		a.mu.Lock()
+		defer s.operations.Unlock()
+		if a.lease != previous || a.sessionLocked(r) == "" {
+			s.fail(w, "Control changed while reconnecting. Try again.", http.StatusConflict)
+			break
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		a.lease = &browserLease{id: randomCredential(), session: session, expires: a.now().Add(leaseTTL), ctx: ctx, cancel: cancel, requests: make(map[uint64]*mutationReceipt)}
