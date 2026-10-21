@@ -9,7 +9,7 @@ test.beforeEach(async ({page}) => {
   await page.route('**/controller-test.html', route => route.fulfill({contentType: 'text/html', body: '<!doctype html><html><head><title>Real DOM controller regression</title></head><body><div id="app"></div></body></html>'}));
   await page.goto('/controller-test.html');
   await page.evaluate(async () => {
-    const library = '/src/ui-application.ts', styles = '/node_modules/pith-ui/dist/styles.css';
+    const library = '/src/ui-application.ts', styles = '/src/style.css';
     const [{mountDesk}] = await Promise.all([import(library), import(styles)]);
     const ui = mountDesk(document.getElementById('app')!);
     (window as unknown as {controllerFixture: ControllerFixture}).controllerFixture = {ui};

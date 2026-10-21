@@ -41,7 +41,7 @@ export function createFilesUI(api: API) {
     let previewImageURL = '';
     let previewSession: FilePreviewSession | undefined;
     let previewContent: AppFilePreviewState | undefined;
-    let previewOwnerId = '';
+    let previewOwner: AppFileTarget['owner'] | undefined;
     const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
     async function downloadConversationFile(id: string, path: string): Promise<void> {
@@ -59,6 +59,7 @@ export function createFilesUI(api: API) {
         finally {activity.busy = false; render();}
     }
     async function copyText(text: string): Promise<void> {
+        if (destroyed) return;
         if (nativeClipboard) await request('/api/copy-text', {text});
         else await navigator.clipboard.writeText(text);
     }
@@ -107,31 +108,38 @@ export function createFilesUI(api: API) {
                 onPreview: target => openArtifactPreview(target.owner.id, target.path), onFileAction: artifactAction,
             });
         }
-        if (previewContent && previewSession?.isOpen()) previewSession.update({...previewContent, disabled: activity.busy || conversationRunning(previewOwnerId)});
+        if (previewContent && previewSession?.isOpen()) previewSession.update({...previewContent,disabled: activity.busy || previewOwner?.kind === 'artifact' && conversationRunning(previewOwner.id)});
     }
     function clearFilePreview(): void {
         previewRequest++;
         const previous = previewSession;
         previewSession = undefined;
         previewContent = undefined;
-        previewOwnerId = '';
+        previewOwner = undefined;
         previous?.close();
         if (previewImageURL) URL.revokeObjectURL(previewImageURL);
         previewImageURL = '';
     }
     async function openArtifactPreview(id: string, path: string): Promise<void> {
         if (conversationRunning(id) || id !== app.state.activeId) return;
+        return openPreview({kind: 'artifact',id},path);
+    }
+    async function openPreview(owner: AppFileTarget['owner'],path: string): Promise<void> {
+        if (destroyed) return;
+        const {id,kind} = owner;
         clearFilePreview();
         const sequence = previewRequest;
-        const session = ui.files.openPreview({owner: {kind: 'artifact', id}, name: path.split('/').pop() || 'File preview', path, capabilities: {...fileActions,open: true,copyMode: nativeClipboard ? 'file' : 'path'}}, {
-            onFileAction: artifactAction,
+        const workspaceFile = kind === 'workspace';
+        const location = workspaceFile ? `${api.server ? 'Server workspace' : 'Workspace'}: ${selectedWorkspace()?.path.replace(/[\\/]$/,'')}/${path}` : path;
+        const session = ui.files.openPreview({owner,name: path.split('/').pop() || 'File preview',path,location,capabilities: {...fileActions,...(workspaceFile && !nativeClipboard ? {reveal: false,openLabel: 'Download'} : {}),open: true,copyMode: nativeClipboard ? 'file' : 'path'}}, {
+            onFileAction: workspaceFile ? (action,target) => workspaceAction(action,{workspaceId: target.owner.id,path: target.path}) : artifactAction,
             onClose() {if (previewSession === session) clearFilePreview();},
         });
-        previewSession = session; previewOwnerId = id;
-        const current = () => !destroyed && sequence === previewRequest && app.state.activeId === id && previewSession === session && session.isOpen();
-        const update = (content: AppFilePreviewState) => {if (current()) {previewContent = content; session.update({...content, disabled: activity.busy || conversationRunning(id)});}};
+        previewSession = session;previewOwner = owner;
+        const current = () => !destroyed && sequence === previewRequest && (workspaceFile ? selectedWorkspace()?.id === id : app.state.activeId === id) && previewSession === session && session.isOpen();
+        const update = (content: AppFilePreviewState) => {if (current()) {previewContent = content;session.update({...content,disabled: activity.busy || !workspaceFile && conversationRunning(id)});}};
         try {
-            const preview = await request('/api/artifact-preview', {query: {id, path}});
+            const preview = workspaceFile ? await request('/api/workspace-preview',{query: {workspaceId: id,path}}) : await request('/api/artifact-preview',{query: {id,path}});
             if (!current()) return;
             if (preview.kind === 'image' && preview.data && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(preview.mimeType || '')) {
                 const blob = await imagePreviewBlob(preview.data, preview.mimeType!, current);
@@ -140,6 +148,24 @@ export function createFilesUI(api: API) {
                 update({kind: 'image', imageSrc: previewImageURL, imageAlt: path.split('/').pop(), truncated: preview.truncated});
             } else update({kind: preview.kind === 'markdown' ? 'markdown' : 'text', text: preview.text || '', truncated: preview.truncated});
         } catch (error) {if (current()) update({kind: 'text', error: message(error)});}
+    }
+    async function workspaceAction(action: AppFileAction|'preview'|'download',target: {workspaceId: string;path: string}): Promise<void> {
+        if (destroyed || activity.busy || target.workspaceId !== selectedWorkspace()?.id) return;
+        const {workspaceId,path} = target;
+        const current = () => !destroyed && workspaceId === selectedWorkspace()?.id;
+        if (action === 'preview') {await openPreview({kind: 'workspace',id: workspaceId},path);return;}
+        if (action === 'copy-path') {
+            const workspace = selectedWorkspace()!;
+            await copyText(`${workspace.path.replace(/[\\/]$/,'')}/${path}`);return;
+        }
+        if (action === 'download' || action === 'open' && (api.server || !nativeClipboard)) {
+            const result = await request('/api/workspace-file',{workspaceId,path});
+            if (result.native || !current()) return;
+            const blob = await download('/api/workspace-file',{workspaceId,path});
+            if (!current()) return;
+            const saved = await ui.downloadFile({blob,name: result.name});
+            if (!saved.ok) throw new Error(saved.error);
+        } else await request('/api/file',{kind: 'workspace',workspaceId,path,action});
     }
     async function loadArtifacts(id: string): Promise<void> {
         const sequence = ++artifactsRequest;
@@ -206,7 +232,7 @@ export function createFilesUI(api: API) {
     function closeResources(): void {resourcesRequest++; const previous = resourceSession; resourceSession = undefined; previous?.close();}
     return {
         downloadConversationFile, copyText, closeArtifacts: () => ui.files.closeArtifacts(), renderArtifacts, renderResourceAvailability, clearFilePreview,
-        openArtifactPreview, loadArtifacts, openResources, loadResources, setResourceError,
+        openArtifactPreview,workspaceAction,loadArtifacts, openResources, loadResources, setResourceError,
         get artifactsOpen() {return ui.files.areArtifactsOpen();}, get resourcesWorkspaceId() {return resourcesWorkspaceId;},
         activeChanged() {artifacts = []; artifactsError = ''; artifactsLoading = false; artifactsRequest++; ui.files.closeArtifacts(); clearFilePreview();},
         removeWorkspace(id: string) {if (resourcesWorkspaceId === id) {resources = null; resourcesWorkspaceId = ''; closeResources();}},

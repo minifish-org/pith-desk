@@ -134,8 +134,8 @@ test.describe('phone browser',() => {
     const input = page.getByRole('textbox',{name: 'Message Pith',exact: true});await input.fill('Unsent text with the keyboard open');
     await expect.poll(async () => (await input.boundingBox())!.y + (await input.boundingBox())!.height).toBeLessThanOrEqual(330);
     const panels = page.locator('.pui-composer-panels');expect(await panels.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
-    await page.getByRole('button',{name: 'Open sidebar',exact: true}).click();await expect(page.getByRole('button',{name: 'Settings',exact: true})).toBeVisible();
-    await page.mouse.click(380,100);await expect(page.getByRole('button',{name: 'Open sidebar',exact: true})).toHaveAttribute('aria-expanded','false');
+    await page.getByRole('button',{name: 'Toggle navigation',exact: true}).click();await expect(page.getByRole('button',{name: 'Settings',exact: true})).toBeVisible();
+    await page.mouse.click(380,100);await expect(page.getByRole('button',{name: 'Toggle navigation',exact: true})).toHaveAttribute('aria-expanded','false');
     await page.getByRole('button',{name: 'Allow this action',exact: true}).click();
     await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
     await expect(input).toHaveValue('Unsent text with the keyboard open');

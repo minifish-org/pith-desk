@@ -6,7 +6,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
-	"github.com/minifish-org/pith-desk/internal/host"
 )
 
 func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
@@ -25,7 +24,7 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 	if _, err := service.CreateConversation(workspace.ID); err != nil {
 		t.Fatal(err)
 	}
-	server, err := host.Start(service, nil)
+	server, err := startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +51,8 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 		return height === 52 && left > 0 && h.y === 0 && h.height === 52 && s.y === h.y && s.height === height
 			&& s.width === sidebar.getBoundingClientRect().width && brand.getBoundingClientRect().y >= height
 			&& getComputedStyle(header).getPropertyValue('--app-region').trim() === 'drag'
-			&& strip.childElementCount === 0 && root.querySelectorAll('.pui-brand').length === 1 && root.querySelectorAll('aside').length === 1;
+			&& strip.childElementCount === 0 && root.querySelectorAll('.pui-brand').length === 1 && root.querySelectorAll('aside').length === 2
+			&& getComputedStyle(root.querySelector('.pui-tools')).display === 'none';
 	})()`) != true {
 		t.Fatal("native window controls and the existing frame did not share the titlebar")
 	}

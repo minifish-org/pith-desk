@@ -83,6 +83,10 @@ func (s *Service) PreviewArtifact(id, path string) (ArtifactPreview, error) {
 		return ArtifactPreview{}, err
 	}
 	defer file.Close()
+	return previewFile(file, path)
+}
+
+func previewFile(file io.Reader, path string) (ArtifactPreview, error) {
 	reader := bufio.NewReader(file)
 	header, peekErr := reader.Peek(512)
 	if peekErr != nil && peekErr != io.EOF {

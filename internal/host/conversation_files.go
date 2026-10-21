@@ -18,6 +18,10 @@ func (s *Server) SetFileDownloadAction(save func(string, io.Reader) error) {
 
 func (s *Server) serveConversationFile(w http.ResponseWriter, r *http.Request, in wire.ConversationFileInput) bool {
 	name, file, err := s.service.OpenConversationFile(in.ID, in.Path)
+	return s.serveFileDownload(w, r, name, file, err)
+}
+
+func (s *Server) serveFileDownload(w http.ResponseWriter, r *http.Request, name string, file io.ReadCloser, err error) bool {
 	if err != nil {
 		s.fail(w, err.Error(), http.StatusBadRequest)
 		return true

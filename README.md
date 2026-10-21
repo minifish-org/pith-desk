@@ -115,6 +115,30 @@ The sidebar groups conversations under their workspace folders. Expand or collap
 The desktop window shares its native titlebar with the conversation header.
 Native window buttons remain available, and empty header areas drag the window.
 
+The icon at the left of the header toggles navigation; the icon at the right
+toggles **Workspace files**. On wide screens the two sides open independently,
+and the conversation expands into the available space. On phones each side is
+an overlay: only one opens at a time. Close it with its close button, the shaded
+backdrop or Escape; focus returns to its header button.
+
+**Workspace files** lists the selected folder's immediate directories and files.
+Expand a directory to read its contents on demand. **Find workspace files**
+searches file names across that workspace after typing; it returns up to 200
+matches and examines up to 10,000 entries. Search does not descend directory
+symlinks; safe links inside the workspace can still be expanded manually.
+Large directory listings also stop at 10,000 entries and show a limit notice.
+Use **Refresh workspace files** after the Agent or another program changes files;
+it reloads the root and expanded folders, or repeats the current search.
+
+Click a file for the existing online preview. Its **File actions** menu offers
+Preview, Download, Copy path and **Insert reference**. In Desktop it also retains
+Open, Reveal and Copy file. Download uses the native save dialog in Desktop and
+the browser in Server. Insert reference adds the quoted workspace-relative path
+at the message selection, keeping the rest of the draft and its images; it does
+not submit a message. Switching workspaces clears the old list and preview.
+The conversation **Files** button and its count still represent successful
+Agent file writes/edits, independently of this directory browser.
+
 Text and image drafts are saved automatically in the private application data profile,
 separately for each conversation. Switching conversations or restarting the
 app restores the draft. A workspace with no conversation can retain its own
@@ -347,8 +371,11 @@ location; View/edit remains in the web UI. **Reveal** is hidden in Server's file
 preview and resources; Desktop retains its native behavior. Browser clipboard
 support requires localhost or HTTPS. Dropping/pasting images still uploads image
 attachments. Other browser files and `file://` URLs are never treated as server
-paths or uploaded, even if an identical path exists on the server. Reference a
-server workspace file by typing its workspace-relative path in the message.
+paths or uploaded, even if an identical path exists on the server. Use Workspace
+files → Insert reference, or type a workspace-relative path in the message.
+Workspace files explicitly shows **Server workspace** and **Copy server path**;
+directory reads, preview and browser downloads require the current login and
+exclusive page lease. A page that loses control stops its file operations.
 
 Model requests, Base URLs (including `localhost`), MCP commands, environment
 overrides, runtime dependencies, file tools and approved commands all run on
@@ -511,11 +538,13 @@ npm run check:ui -- --ui-source ../pith-ui
 
 Run the relevant behavior checks for the change. For Server integration use
 `npm run test:ui -- frontend/e2e/server.spec.ts`; shared component interactions
-belong in Pith UI's focused tests. Before delivery, run `npm run check` and
-`npm run test:ui`, plus affected native/concurrency checks from
-[Testing](docs/TESTING.md). Source preview, package publication and product
-release are separate steps. Publish and pin a library version when a shared
-change is ready for formal builds, rather than before each local iteration.
+belong in Pith UI's focused tests. Complete local source acceptance against the
+explicit checkout, including affected browser, native and concurrency checks
+from [Testing](docs/TESTING.md). New interfaces can be implemented and validated
+locally before publication. When preparing formal builds or CI, publish and pin
+the validated library, then run `npm run check`, `npm run test:ui` and the affected
+native checks against that locked package. Local source acceptance, package
+publication and product release are separate steps.
 
 For an embedded browser check after `npm run build:ui`, run
 `GOWORK=off CGO_ENABLED=0 go run ./cmd/pith-desk-server --data-dir /path/to/separate/test-data`.

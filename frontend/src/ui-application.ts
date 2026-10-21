@@ -11,6 +11,7 @@ import {
   composeApproval,composeTaskFailure,composeRuntime,type RuntimeState,
   composeCostLedger,type CostLedgerState,composeCompletionNotices,composeImageViewer,
   composeArtifacts,type ArtifactsState,type ArtifactsCallbacks,composeFilePreview,
+  composeFileBrowser,type FileBrowserState,type FileBrowserCallbacks,
   type PreviewInput,type PreviewCallbacks,composeSettings,composeMCPConnections,
   composeModelPicker,composeCustomConnection,composeCustomConnectionLoading,composeProviderLogin,
   composeResourcesInventory,composeResourceEditor,composeResourceLoading,composeWorkspacePicker,
@@ -29,6 +30,7 @@ export interface DeskOptions {
   titlebar?: FrameContent['titlebar'];
   brand?: {name: string;qualifier?: string;mark?: BrandMarkOptions};appearance?: Appearance;
   workspace?: DeskWorkspaceCallbacks;host?: {copyText?(text: string): HostResult;openExternal?(url: string): HostResult};
+  fileBrowser?: FileBrowserCallbacks;
   onUIStateChange?(state: {hasModal: boolean;appearance: Appearance}): void;onError?(message: string): void;
   server?: boolean;onLogout?(): Promise<void>;
 }
@@ -70,9 +72,10 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
   let artifactsState: ArtifactsState = {ownerId: '',files: [],loading: false,error: '',copyMode: 'path'};
   let artifactsCallbacks: ArtifactsCallbacks = {onPreview() {},onFileAction() {}};
   const artifacts = composeArtifacts(artifactsState,artifactsCallbacks,{announcement: reader.announcement,relatedDialogs: [viewer.part]});
+  const fileBrowser = composeFileBrowser({workspaceId: '',location: '',query: '',directories: []},options.fileBrowser);
   const logout = options.server ? createButtonPart({label: 'Log out',title: 'Log out',variant: 'quiet-icon',icon: 'logout',onAction: options.onLogout,onError: report}) : undefined;
   const frame = composeFrame(frameState,{...callbacks,onError: report,onModalChange: changed,onDispose() {disposed = true;changed();}},
-    {titlebar: options.titlebar,main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part,...(logout ? [logout] : [])],brand: options.brand ?? {name: 'Pith'}});
+    {titlebar: options.titlebar,main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part,...(logout ? [logout] : [])],tools: {label: 'Workspace files',children: [fileBrowser.part]},brand: options.brand ?? {name: 'Pith'}});
   const mounted = mountParts(mount,frame.part,{appearance});
   const dialogs = createDialogHost(frame,{persistentDialogs: [viewer.part],onChange: changed,onError: report});
   const opening = dialogs.open;
@@ -154,7 +157,7 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
     readCosts: runtime.readCosts,resetCosts() {if (!disposed) {runtime.resetCosts();ledger.clear();}},
     updateCosts(state: {visible: boolean;error?: string;loading?: boolean;report?: CostLedgerState}) {if (disposed) return;runtime.updateCostsVisible(state.visible);if (state.error) ledger.setError(state.error);else if (state.loading) ledger.loading();else if (state.report) ledger.update(state.report);},
     followLatest: reader.followLatest,openFind: reader.openFind,closeFind: reader.closeFind,pruneConversations: reader.prune,
-    search: frame.search,closeNavigationMenu: frame.closeNavigationMenu,setSidebarOpen: frame.setSidebarOpen,
+    search: frame.search,closeNavigationMenu: frame.closeNavigationMenu,setSidebarOpen: frame.setSidebarOpen,closeNavigationOverlay: frame.closeNavigationOverlay,
     openWorkspacePicker(state: Parameters<typeof composeWorkspacePicker>[0],actions: Parameters<typeof composeWorkspacePicker>[1] = {}) {return options.server ? openServerWorkspace(state,actions) : opening('workspace',onClose => composeWorkspacePicker(state,{...actions,onClose}),local => local.open(),actions.onClose);},
     openRename(state: Parameters<typeof composeRename>[0],actions: Parameters<typeof composeRename>[1] = {}) {let current = state;const local = opening('rename',onClose => composeRename(state,{...actions,onClose}),value => value.open(),actions.onClose);return {...local,update(next: typeof state) {if (local.isOpen()) {current = next;local.update(next);}},fail(error: string) {if (local.isOpen()) {current = {...current,error};local.update(current);}}};},
     openFullAccess(state: Parameters<typeof composeFullAccess>[0],actions: Parameters<typeof composeFullAccess>[1]) {let current = state;const local = opening('permissions',onClose => composeFullAccess(state,{...actions,onClose}),value => value.open(),actions.onClose);return {...local,update(next: typeof state) {if (local.isOpen()) {current = next;local.update(next);}},fail(error: string) {if (local.isOpen()) {current = {...current,error};local.update(current);}}};},
@@ -188,6 +191,7 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
     },
   };
   const files = {
+    updateWorkspace: fileBrowser.update,areToolsOpen: frame.isToolsOpen,setToolsOpen: frame.setToolsOpen,closeToolsOverlay: frame.closeToolsOverlay,
     updateArtifacts(state: ArtifactsState,actions: ArtifactsCallbacks) {if (!disposed) {artifactsState = state;artifactsCallbacks = actions;artifacts.update({...state,disabled: !!state.disabled || !!availability.busy || availability.conversations?.includes(state.ownerId)},actions);}},
     closeArtifacts: artifacts.close,areArtifactsOpen: artifacts.isOpen,
     openPreview(state: PreviewInput,actions: PreviewCallbacks = {}) {return opening('preview',onClose => composeFilePreview(state,{...actions,onCopyCode: actions.onCopyCode ?? callbacks.onCopyCode ?? copyText,onImage(image) {viewer.open(image);changed();},onClose},reader.announcement),local => {artifacts.setRelatedDialogs([viewer.part,local.part]);local.open();},actions.onClose);},

@@ -663,8 +663,25 @@ export interface Workspace {
   path: string;
 }
 
+export interface WorkspaceEntry {
+  name: string;
+  path: string;
+  directory: boolean;
+}
+
+export interface WorkspaceFilesQuery {
+  workspaceId: string;
+  path: string;
+  query?: string;
+}
+
 export interface WorkspaceInput {
   workspaceId: string;
+}
+
+export interface WorkspaceListing {
+  entries: (WorkspaceEntry)[] | null;
+  truncated: boolean;
 }
 
 export interface WorkspaceReferencesInput {
@@ -692,6 +709,8 @@ export interface ReadContracts {
   "/api/resources": { input: WorkspaceInput; output: ResourceInventory };
   "/api/artifacts": { input: IDInput; output: (Artifact)[] | null };
   "/api/artifact-preview": { input: ArtifactQuery; output: ArtifactPreview };
+  "/api/workspace-files": { input: WorkspaceFilesQuery; output: WorkspaceListing };
+  "/api/workspace-preview": { input: ResourceQuery; output: ArtifactPreview };
   "/api/draft": { input: DraftScope; output: Draft };
   "/api/mcp": { input: EmptyInput; output: (MCPServerView)[] | null };
 }
@@ -735,6 +754,7 @@ export interface MutationContracts {
   "/api/diagnostics": { input: EmptyInput; output: NativeResponse };
   "/api/export": { input: IDInput; output: NativeResponse };
   "/api/conversation-file": { input: ConversationFileInput; output: FileDownloadResponse };
+  "/api/workspace-file": { input: ResourceQuery; output: FileDownloadResponse };
   "/api/queue": { input: QueueInput; output: OKResponse };
   "/api/queue/edit": { input: QueueMutationInput; output: OKResponse };
   "/api/queue/delete": { input: QueueMutationInput; output: OKResponse };
@@ -758,6 +778,7 @@ export interface DownloadContracts {
   "/api/export": IDInput;
   "/api/image": ImageQuery;
   "/api/conversation-file": ConversationFileInput;
+  "/api/workspace-file": ResourceQuery;
 }
 
 export interface StreamContracts {
@@ -765,5 +786,5 @@ export interface StreamContracts {
   "/api/events": State;
 }
 
-export const readPaths = ["/api/update", "/api/state", "/api/history", "/api/costs", "/api/resource-content", "/api/custom-connection", "/api/models", "/api/resources", "/api/artifacts", "/api/artifact-preview", "/api/draft", "/api/mcp"] as const;
-export const mutationPaths = ["/api/server/session", "/api/server/login", "/api/server/lease", "/api/server/heartbeat", "/api/server/logout", "/api/update", "/api/config", "/api/appearance", "/api/workspaces", "/api/conversations", "/api/open", "/api/read", "/api/send", "/api/edit-message", "/api/abort", "/api/approval", "/api/permissions", "/api/pick-workspace", "/api/workspace-references", "/api/copy-text", "/api/draft", "/api/custom-connection", "/api/remove-model-connection", "/api/resource", "/api/branch", "/api/compact", "/api/oauth/start", "/api/oauth/answer", "/api/oauth/cancel", "/api/oauth/logout", "/api/provider-config", "/api/test-provider-connection", "/api/model-selection", "/api/test-connection", "/api/continue", "/api/diagnostics", "/api/export", "/api/conversation-file", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/oauth/start", "/api/mcp/oauth/logout", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/native-menu-state"] as const;
+export const readPaths = ["/api/update", "/api/state", "/api/history", "/api/costs", "/api/resource-content", "/api/custom-connection", "/api/models", "/api/resources", "/api/artifacts", "/api/artifact-preview", "/api/workspace-files", "/api/workspace-preview", "/api/draft", "/api/mcp"] as const;
+export const mutationPaths = ["/api/server/session", "/api/server/login", "/api/server/lease", "/api/server/heartbeat", "/api/server/logout", "/api/update", "/api/config", "/api/appearance", "/api/workspaces", "/api/conversations", "/api/open", "/api/read", "/api/send", "/api/edit-message", "/api/abort", "/api/approval", "/api/permissions", "/api/pick-workspace", "/api/workspace-references", "/api/copy-text", "/api/draft", "/api/custom-connection", "/api/remove-model-connection", "/api/resource", "/api/branch", "/api/compact", "/api/oauth/start", "/api/oauth/answer", "/api/oauth/cancel", "/api/oauth/logout", "/api/provider-config", "/api/test-provider-connection", "/api/model-selection", "/api/test-connection", "/api/continue", "/api/diagnostics", "/api/export", "/api/conversation-file", "/api/workspace-file", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/oauth/start", "/api/mcp/oauth/logout", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/native-menu-state"] as const;

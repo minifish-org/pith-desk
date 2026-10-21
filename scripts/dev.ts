@@ -51,6 +51,7 @@ const vite = await createServer({
 await vite.listen();
 const address = vite.httpServer.address();
 if (!address || typeof address === 'string') throw new Error('No frontend listener');
+console.log(`Development frontend: http://127.0.0.1:${address.port}`);
 if (uiSource) console.log(`Local Pith UI: ${uiSource.root} (development only; npm install and lockfile unchanged)`);
 const child = spawn('go', ['run', server ? './cmd/pith-desk-server' : './cmd/pith-desk', ...(server ? ['--listen', '127.0.0.1:0'] : []), '--dev-url', `http://127.0.0.1:${address.port}`, ...(uiSource ? ['--dev-ui-root',uiSource.root] : []), ...args], {
   cwd: root, env, stdio: 'inherit', detached: true,

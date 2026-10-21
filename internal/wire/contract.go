@@ -140,6 +140,11 @@ type ResourceQuery struct {
 	WorkspaceID string `json:"workspaceId"`
 	Path        string `json:"path"`
 }
+type WorkspaceFilesQuery struct {
+	WorkspaceID string `json:"workspaceId"`
+	Path        string `json:"path"`
+	Query       string `json:"query,omitempty"`
+}
 type ArtifactQuery struct {
 	ID   string `json:"id"`
 	Path string `json:"path"`
@@ -222,12 +227,15 @@ var Endpoints = []Endpoint{
 	get[WorkspaceInput, desk.ResourceInventory]("/api/resources"),
 	get[IDInput, []desk.Artifact]("/api/artifacts"),
 	get[ArtifactQuery, desk.ArtifactPreview]("/api/artifact-preview"),
+	get[WorkspaceFilesQuery, desk.WorkspaceListing]("/api/workspace-files"),
+	get[ResourceQuery, desk.ArtifactPreview]("/api/workspace-preview"),
 	get[desk.DraftScope, desk.Draft]("/api/draft"),
 	get[EmptyInput, []desk.MCPServerView]("/api/mcp"),
 	{Method: "GET", Path: "/api/diagnostics", Format: "blob"},
 	{Method: "GET", Path: "/api/export", Query: reflect.TypeFor[IDInput](), Format: "blob"},
 	{Method: "GET", Path: "/api/image", Query: reflect.TypeFor[ImageQuery](), Format: "blob"},
 	{Method: "GET", Path: "/api/conversation-file", Query: reflect.TypeFor[ConversationFileInput](), Format: "blob"},
+	{Method: "GET", Path: "/api/workspace-file", Query: reflect.TypeFor[ResourceQuery](), Format: "blob"},
 	{Method: "GET", Path: "/api/socket", Output: reflect.TypeFor[desk.State](), Format: "stream"},
 	{Method: "GET", Path: "/api/events", Output: reflect.TypeFor[desk.State](), Format: "stream"},
 	post[desk.ConfigInput, OKResponse]("/api/config"),
@@ -262,6 +270,7 @@ var Endpoints = []Endpoint{
 	post[EmptyInput, NativeResponse]("/api/diagnostics"),
 	post[IDInput, NativeResponse]("/api/export"),
 	post[ConversationFileInput, FileDownloadResponse]("/api/conversation-file"),
+	post[ResourceQuery, FileDownloadResponse]("/api/workspace-file"),
 	post[QueueInput, OKResponse]("/api/queue"),
 	post[QueueMutationInput, OKResponse]("/api/queue/edit"),
 	post[QueueMutationInput, OKResponse]("/api/queue/delete"),

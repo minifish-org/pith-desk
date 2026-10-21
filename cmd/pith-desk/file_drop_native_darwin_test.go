@@ -12,7 +12,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
-	"github.com/minifish-org/pith-desk/internal/host"
 )
 
 // This sends a synthetic native event through the production forwarding code,
@@ -49,7 +48,7 @@ func TestWorkspaceFileDropNativeBridge(t *testing.T) {
 		}
 		hashes[path] = sha256.Sum256(data)
 	}
-	server, err := host.Start(service, nil)
+	server, err := startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}

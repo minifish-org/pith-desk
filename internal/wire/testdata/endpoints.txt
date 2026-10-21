@@ -9,12 +9,15 @@ GET json /api/models
 GET json /api/resources
 GET json /api/artifacts
 GET json /api/artifact-preview
+GET json /api/workspace-files
+GET json /api/workspace-preview
 GET json /api/draft
 GET json /api/mcp
 GET blob /api/diagnostics
 GET blob /api/export
 GET blob /api/image
 GET blob /api/conversation-file
+GET blob /api/workspace-file
 GET stream /api/socket
 GET stream /api/events
 POST json /api/config
@@ -49,6 +52,7 @@ POST json /api/continue
 POST json /api/diagnostics
 POST json /api/export
 POST json /api/conversation-file
+POST json /api/workspace-file
 POST json /api/queue
 POST json /api/queue/edit
 POST json /api/queue/delete

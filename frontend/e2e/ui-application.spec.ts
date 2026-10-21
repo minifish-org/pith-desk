@@ -6,7 +6,7 @@ declare global {interface Window {deskPartsHarness: DeskHarness}}
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
 
 async function openFixture(page: Page): Promise<void> {
-  await page.route('**/assembly-test.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body></body></html>'}));await page.goto('/assembly-test.html');await page.evaluate(async()=>{const styles='/node_modules/pith-ui/dist/styles.css';await import(styles);});
+  await page.route('**/assembly-test.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body></body></html>'}));await page.goto('/assembly-test.html');await page.evaluate(async()=>{const styles='/src/style.css';await import(styles);});
 }
 
 async function setup(page: Page,appearance: 'light'|'dark' = 'light'): Promise<void> {

@@ -80,7 +80,7 @@ func TestTaskDockNativeBadgeRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(service.Close)
-	server, err := host.Start(service, nil)
+	server, err := startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestTaskDockNativeUnreadLifecycle(t *testing.T) {
 	if err := service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
-	server, err := host.Start(service, nil)
+	server, err := startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}

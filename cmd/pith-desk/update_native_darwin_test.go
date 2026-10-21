@@ -9,7 +9,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
-	"github.com/minifish-org/pith-desk/internal/host"
 	"github.com/minifish-org/pith-desk/internal/wire"
 )
 
@@ -30,7 +29,7 @@ func TestUpdatesNativeSettingsProgressFailureAndDraftSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := host.Start(service, nil)
+	server, err := startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}

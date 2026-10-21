@@ -65,7 +65,7 @@ test('workspace Change activates as a button while the logo keeps its style with
   expect(appearance).toEqual({ background: 'rgba(0, 0, 0, 0)', font: '16px', align: 'start', border: '0px' });
   const url = page.url();
   expect(await logo.evaluate(el => el.tabIndex)).toBe(-1);
-  await page.locator('.pui-history-search input').focus();
+  await page.getByRole('searchbox',{name: 'Search conversation titles',exact: true}).focus();
   await page.keyboard.press('Shift+Tab');
   await page.keyboard.press('Shift+Tab');
   await expect(logo).not.toBeFocused();

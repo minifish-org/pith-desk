@@ -160,6 +160,28 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 			break
 		}
 		value, err = s.service.PreviewArtifact(query.ID, query.Path)
+	case "/api/workspace-files":
+		query, queryErr := wire.ReadQuery[wire.WorkspaceFilesQuery](r)
+		if queryErr != nil {
+			err = queryErr
+			break
+		}
+		value, err = s.service.WorkspaceFiles(query.WorkspaceID, query.Path, query.Query)
+	case "/api/workspace-preview":
+		query, queryErr := wire.ReadQuery[wire.ResourceQuery](r)
+		if queryErr != nil {
+			err = queryErr
+			break
+		}
+		value, err = s.service.PreviewWorkspaceFile(query.WorkspaceID, query.Path)
+	case "/api/workspace-file":
+		query, queryErr := wire.ReadQuery[wire.ResourceQuery](r)
+		if queryErr != nil {
+			err = queryErr
+			break
+		}
+		name, file, openErr := s.service.OpenWorkspaceFile(query.WorkspaceID, query.Path)
+		return s.serveFileDownload(w, r, name, file, openErr)
 	case "/api/draft":
 		query, queryErr := wire.ReadQuery[desk.DraftScope](r)
 		if queryErr != nil {
@@ -367,6 +389,12 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			return s.serveConversationFile(w, r, in)
 		}
+	case "/api/workspace-file":
+		var in wire.ResourceQuery
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
+			name, file, openErr := s.service.OpenWorkspaceFile(in.WorkspaceID, in.Path)
+			return s.serveFileDownload(w, r, name, file, openErr)
+		}
 	case "/api/edit-message":
 		var in wire.EditMessageInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
@@ -415,7 +443,7 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		var in wire.FileInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			var path string
-			if in.Action == "copy" && in.Kind != "artifact" {
+			if in.Action == "copy" && in.Kind != "artifact" && in.Kind != "workspace" {
 				err = errors.New("Copy a file produced by this conversation")
 			} else {
 				switch in.Kind {
@@ -423,6 +451,8 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 					path, err = s.service.ResolveArtifactFile(in.ID, in.Path)
 				case "resource":
 					path, err = s.service.ResolveResourceFile(in.WorkspaceID, in.Path)
+				case "workspace":
+					path, err = s.service.ResolveWorkspaceFile(in.WorkspaceID, in.Path)
 				default:
 					err = errors.New("Choose a generated file or a discovered workspace resource")
 				}

@@ -15,7 +15,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
-	"github.com/minifish-org/pith-desk/internal/host"
 )
 
 func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
@@ -51,7 +50,7 @@ func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace.Path, "output", "报告 v1.docx"), content, 0600); err != nil {
 		t.Fatal(err)
 	}
-	server, err := host.Start(service, nil)
+	server, err := startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}

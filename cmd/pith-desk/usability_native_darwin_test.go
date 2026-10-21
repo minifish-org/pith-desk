@@ -19,7 +19,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
-	"github.com/minifish-org/pith-desk/internal/host"
 )
 
 // All requests go to a deterministic local provider. The test exercises the
@@ -80,7 +79,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	if err := service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
-	server, err := host.Start(service, nil)
+	server, err := startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +126,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err = host.Start(service, nil)
+	server, err = startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +239,7 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 	if err := service.Configure(desk.ConfigInput{BaseURL: "http://127.0.0.1:1/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
-	server, err := host.Start(service, nil)
+	server, err := startNativeSmokeHost(service)
 	if err != nil {
 		t.Fatal(err)
 	}

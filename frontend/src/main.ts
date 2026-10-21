@@ -23,6 +23,7 @@ import {createSDKUI} from './sdk-features';
 import {createSettingsUI} from './settings';
 import {createTaskControls} from './task-controls';
 import {installWorkspaceFileDrop} from './workspace-files';
+import {createWorkspaceBrowser} from './workspace-browser';
 import {localFilePath} from './local-file-links';
 import type {MutationInput, MutationPath, MutationResponse} from './api';
 import type {AppearanceMode, RunSummary} from './contract.generated';
@@ -53,6 +54,7 @@ const ui = mountApplication({
   appearance: appearanceMode(appearance), host: {copyText: text => files.copyText(text)},
   onUIStateChange() {if (ready && !disposed) {nativeMenu?.update(); completionUI.acknowledgeViewed();}},
   onError(message) {activity.error = message; render();},
+  fileBrowser: {onSearch: query => workspaceBrowser.find(query),onRefresh: () => {void workspaceBrowser.refresh();},onToggle: (target,expanded) => workspaceBrowser.toggle(target,expanded),onAction: (action,target) => workspaceBrowser.action(action,target)},
   workspace: {
     onError(message) {activity.error = message; render();},
     onAction: workspaceAction,
@@ -90,6 +92,7 @@ const ui = mountApplication({
     onCompletionOpen: id => {void selectConversation(id);},
     onCompletionDismiss: id => completionUI.dismiss(id),
     onCostsChange: () => costUI.render(),
+    onToolsToggle() {if (ready) workspaceBrowser.sync();},
   },
 });
 const mutations = createMutations({request, refresh, busy: () => activity.busy, setBusy: value => {activity.busy = value;}, error: message => {activity.error = message;}, render});
@@ -121,6 +124,11 @@ const settings = createSettingsUI({ui, view: app, activity, request, mutate, ren
 const conversations = createConversationsUI({ui, view: app, activity, request, download, mutate, render, closeSidebar, workspaceRun, conversationRunning,
   historyStatus: entry => completionUI.historyStatus(entry), confirmRemoval, removeWorkspaceResources: id => files.removeWorkspace(id), clearHistoryImages: () => messages.clearHistoryImages(), loadComposerDraft: () => composer.loadComposerDraft(),
 });
+const workspaceBrowser = createWorkspaceBrowser({ui,request,workspace: () => conversations.selectedWorkspace(),
+  disabled: () => suspended || activity.busy || !app.loaded,referenceDisabled: () => composer.draftLoading || composer.readingImages || composer.resolvingReferences || flushingDrafts,
+  server,native: nativeClipboard,clearPreview: files.clearFilePreview,fileAction: files.workspaceAction,
+  changedDraft() {composer.rememberDraft();render();},
+});
 const fileDrop = installWorkspaceFileDrop({ui, native: nativeFileDrop, server,
   busy: () => activity.busy || composer.draftLoading || !app.loaded,
   context: () => `${conversations.selectedWorkspace()?.id}/${app.state.activeId}/${composer.draftGeneration}`,
@@ -144,7 +152,7 @@ function workspaceRun(id?: string): RunSummary | undefined {
   });
 }
 function mutate<P extends MutationPath>(path: P, payload: MutationInput<P>, onResponse?: (response: MutationResponse<P>) => void): Promise<boolean> {return mutations(path, payload, onResponse);}
-function closeSidebar(): void {ui.workspace.setSidebarOpen(false);}
+function closeSidebar(): void {ui.workspace.closeNavigationOverlay();}
 function prependDraft(text: string): void {
   ui.workspace.resetDraft(text + ui.workspace.readDraft()); composer.rememberDraft(); ui.workspace.focusComposer(); render();
 }
@@ -209,6 +217,7 @@ function render(): void {
   confirmRemoval.render(); settings.renderAppearance();
   const workspace = conversations.selectedWorkspace();
   if (workspace) conversations.selectedWorkspaceId = workspace.id;
+  workspaceBrowser.sync();
   const active = app.state.conversations.find(entry => entry.id === app.state.activeId), levels = app.state.settings.thinkingLevels || ['off'];
   tasks.renderPermissions(); conversations.renderHistory(); messages.renderMessages(workspace); messageEditor.render();
   tasks.renderApproval(); files.renderArtifacts(); files.renderResourceAvailability(); composer.renderQueue(); tasks.renderRuntime(); sdkUI.render(); composer.renderDraftImages();
@@ -251,7 +260,7 @@ function preserveText(): void {
 function saveDraftsOnLeave(): void {if (!suspended) {preserveText(); void composer.drafts.flushAll({keepalive: true});}}
 function retireControllers(): void {
   nativeMenu?.dispose(); removeNativeDrop(); fileDrop.destroy(); window.clearInterval(runtimeClock);
-  messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy();
+  workspaceBrowser.destroy();messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy();
 }
 function suspend(): void {
   if (disposed || suspended) return;

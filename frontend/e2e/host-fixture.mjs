@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline';
 
 export const test = base.extend({
   serverAutoLogin: [true, {option: true}],
+  hostMode: ['server',{option: true}],
   hostBinary: [async ({}, use) => {
     // CI builds the checkout's fixture once; every test still gets a fresh
     // process and data directory. Local runs retain the worker build fallback.
@@ -21,9 +22,9 @@ export const test = base.extend({
       await use(binary);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, { scope: 'worker' }],
-  host: async ({ hostBinary, context, serverAutoLogin }, use) => {
+  host: async ({ hostBinary, context, serverAutoLogin,hostMode }, use) => {
     const root = await mkdtemp(join(tmpdir(), 'pith-host-test-'));
-    const child = spawn(hostBinary, ['--root', root], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(hostBinary, ['--root',root,...hostMode === 'desktop' ? ['--desktop'] : []], { stdio: ['pipe', 'pipe', 'pipe'] });
     let stderr = '', exit;
     const waiting = [], queued = [];
     child.stderr.on('data', (value) => { stderr += value; });
@@ -44,12 +45,12 @@ export const test = base.extend({
         const response = await context.request.post(host.url + '/api/server/login', {data: {token: host.token}, headers: {Origin: host.url}});
         if (!response.ok()) throw new Error(`Fixture sign-in failed: ${response.status()}`);
       };
-      if (serverAutoLogin) await signIn(initial);
+      if (serverAutoLogin && hostMode === 'server') await signIn(initial);
       await use({ ...initial, command: async (action, values = {}) => {
         const reply = next();
         child.stdin.write(JSON.stringify({ action, ...values }) + '\n');
         const result = await reply;
-        if (serverAutoLogin && action === 'restart') await signIn(result);
+        if (serverAutoLogin && hostMode === 'server' && action === 'restart') await signIn(result);
         return result;
       } });
     } finally {

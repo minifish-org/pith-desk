@@ -20,6 +20,8 @@ import (
 func main() {
 	root := flag.String("root", "", "isolated test directory")
 	frontend := flag.String("frontend", "http://127.0.0.1:5197", "development frontend")
+	uiSource := flag.String("ui-source", "", "explicit local UI source for development browser checks")
+	desktop := flag.Bool("desktop", false, "exercise Desktop transport in a browser")
 	flag.Parse()
 	if *root == "" {
 		panic("test root is required")
@@ -110,7 +112,11 @@ func main() {
 				return err
 			}
 		}
-		server, err = host.StartServer(service, host.ServerOptions{Listen: "127.0.0.1:0", FrontendURL: *frontend, Token: "fixture-server-token-0123456789abcdef"})
+		if *desktop {
+			server, err = host.StartDevelopment(service, nil, host.DevelopmentOptions{URL: *frontend, UIRoot: *uiSource})
+		} else {
+			server, err = host.StartServer(service, host.ServerOptions{Listen: "127.0.0.1:0", FrontendURL: *frontend, FrontendUIRoot: *uiSource, Token: "fixture-server-token-0123456789abcdef"})
+		}
 		return err
 	}
 	closeHost := func() {

@@ -14,9 +14,13 @@ test run. `npm run check:ui -- --ui-source ../pith-ui` uses the explicitly selec
 checkout for types while still checking the registry install and public imports.
 Use `npm run dev:server -- --ui-source ../pith-ui` for live source preview; omit
 the flag after stopping it to restore npm resolution. Neither command changes
-the lock or the installed package. Normal builds and automated product suites
-use the pinned package; local source changes must be published and pinned before
-formal delivery.
+the lock or the installed package. New shared interfaces can be implemented,
+debugged and accepted locally before publication. Complete the affected local
+source checks, including browser and native integration, against that explicit
+checkout. Normal builds and automated product suites use the pinned package;
+publish and pin the validated library when preparing formal consumer builds,
+CI or a product release. Publication is not a prerequisite for local source
+development or its acceptance.
 
 Run the relevant browser spec, for example
 `npm run test:ui -- frontend/e2e/server.spec.ts`. In Pith UI, run the affected
@@ -73,6 +77,8 @@ Mounting, bootstrap metadata and the ownership tree remain bounded.
 | Configuration/resources | original workspace/provider/MCP targets, failed writes keep drafts, async reads retire on close |
 | Application lifetime | shared dialog replacement, callback reentry, session switching, root teardown and native menus |
 | Files | authenticated paths, preview/read limits, clipboard/export/download and recorded generated files |
+| Workspace browser | lazy directories and bounded search, private/symlink boundaries, lease revocation, late workspace/preview responses, reference insertion and draft/image preservation |
+| Sidebars | independent wide panels, phone overlay exclusion, scrim/close/Escape and focus restoration, native titlebar insets |
 | Persistence | literal compatibility fixtures, real creation, restart recovery and failure handling |
 
 Browser scenarios use Chromium and WebKit. Isolated local providers and MCP
@@ -108,6 +114,26 @@ WebViews, with temporary data and local providers. Browser validation alone
 does not establish native behavior. These checks require an interactive desktop
 session; they do not download or install a Desk release.
 
+Include `WorkspaceBrowserNative` in the native test filter to verify the lazy
+workspace list, existing preview and native Open/Reveal/Copy file/save callbacks,
+draft insertion, independent panels and narrow focus restoration. The check
+shows its disposable window before measuring layout and waits for breakpoint
+updates before operating the phone-style controls.
+
+For explicit source integration, keep `npm run dev:server -- --ui-source ../pith-ui`
+running with disposable data, then pass the printed **Development frontend**
+origin and the same source checkout to native acceptance:
+
+```sh
+GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk \
+  -run '^Test(TitlebarNative|UsabilityNative|WorkspaceFileDropNativeBridge|ConversationFileLinkNative|WorkspaceBrowserNative)' -v -count=1 \
+  -args -native-ui-url http://127.0.0.1:PORT -native-ui-root /absolute/path/to/pith-ui
+```
+
+These test-only flags select the same authenticated development Host and public
+source entries as the runner. Omit both flags for formal embedded-package native
+acceptance; no environment variable changes production source resolution.
+
 The macOS foreground/unread check also requires an unlocked screen. A locked
 screen keeps WebKit's document hidden even after showing/focusing the window;
 passing other native checks does not establish foreground acknowledgement.
@@ -139,6 +165,14 @@ sign-out, authenticated Vite HMR, server workspace paths, background task comple
 and pending file approval across takeover.
 Other Host integration scenarios retain ordering, failed-refresh, history,
 drafts, restart, export and Stop behavior in both Chromium and WebKit.
+`frontend/e2e/workspace-browser.spec.ts` uses both actual Desktop and Server
+transports with temporary workspaces. It verifies lazy directory requests,
+bounded name lookup, refresh after file changes, current preview/download,
+relative references without submission, image/text draft restoration, retired
+directory/preview responses and phone keyboard geometry/scrolling/dismissal.
+`internal/host/workspace_browser_test.go` covers current and revoked Server
+leases plus the existing Desktop shell/save callbacks. The endpoint manifest
+also keeps every new route in the all-routes authentication/lease regression.
 The mode-specific file checks verify Reveal in Desktop and its absence from
 Server resources, generated files and preview, while file downloads still work.
 
