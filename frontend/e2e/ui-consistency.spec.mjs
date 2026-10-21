@@ -78,6 +78,7 @@ test('workspace Change activates as a button while the logo keeps its style with
 test('long approval, runtime and queue panels keep the composer reachable in short windows', async ({ page }) => {
   for (const viewport of [{ width: 900, height: 568 }, { width: 1366, height: 736 }]) {
     await page.setViewportSize(viewport);
+    await expect.poll(async () => (await page.locator('.pui-viewport-frame').boundingBox())?.height).toBe(viewport.height);
     await page.evaluate(() => {
       window.reviewState.running = true;
       window.reviewState.runtime.phase = 'tool';
