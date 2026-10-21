@@ -9,6 +9,7 @@ async function ready(page,host) {
   await page.goto(host.url);
   await expect(page.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();
   await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.getByRole('button',{name: 'Attach images',exact: true})).toBeEnabled();
 }
 async function draft(page,context,host) {
   const lease = await page.evaluate(() => sessionStorage.getItem('pith-desk-server-lease'));
@@ -27,6 +28,8 @@ test('revoked autosave cannot overwrite the new owner and unsent text remains re
   await expect.poll(() => held).toBe(1);
   const second = await context.newPage();await second.goto(host.url);
   await second.getByRole('button',{name: 'Take over',exact: true}).click();
+  await expect(second.getByRole('dialog')).not.toBeVisible();
+  await expect(second.getByRole('button',{name: 'Attach images',exact: true})).toBeEnabled();
   await expect(second.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();
   await expect(page.getByRole('dialog')).toContainText('Another page');
   await expect(page.getByRole('textbox',{name: 'Message Pith',exact: true})).not.toBeEditable();

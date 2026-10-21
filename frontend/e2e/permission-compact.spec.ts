@@ -6,7 +6,7 @@ test('compact permission icons preserve full access confirmation and conversatio
   await page.setViewportSize({width:390,height:760});await page.addInitScript(installFixture);await page.goto('/');
   const trigger=page.getByRole('combobox',{name:'Conversation permissions',exact:true}),field=page.getByRole('textbox',{name:'Message Pith',exact:true});
   await expect(field).toBeEditable();await expect(trigger).toHaveAttribute('title','Ask before changes');
-  expect((await trigger.boundingBox())!.width).toBeLessThanOrEqual(44);
+  await expect.poll(async () => (await trigger.boundingBox())?.width ?? Infinity).toBeLessThanOrEqual(44);
   await field.fill('Keep this draft 中文');
   const scope=page.locator('.pui-permission-control'),glyph=()=>scope.locator(':scope > svg').first().innerHTML();
   const ask=await glyph();
