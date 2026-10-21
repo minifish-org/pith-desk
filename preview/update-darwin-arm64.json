@@ -1,8 +1,8 @@
 {
-  "version": "0.1.0-rc.38",
-  "notes": "New in rc.38:\n\n- Reduce the extra space above the sidebar logo and app name with Pith UI 0.8.4.\n- Restore the Linux desktop's standard titlebar and window controls. Mac keeps its integrated titlebar.\n\nApple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n\nUbuntu x86-64: extract `linux-amd64.tar.gz` into its own user-writable directory and run `./pith-desk`. GTK 3 and WebKitGTK 4.1 are required. Linux releases older than rc.36 need one manual replacement with this archive to enable future in-app updates.\n",
-  "date": "2026-10-19T17:08:33.427Z",
-  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.38/pith-desk-0.1.0-rc.38-darwin-arm64.tar.gz",
-  "size": 9651015,
-  "signature": "wXIpWGDISntpm07GIRRX5/jjNvjV7utlDJ4gtC4cfhyQPrxA06XuwKFI+Vqc20vQVgn6XLJGP2djknEOyV9uCQ=="
+  "version": "0.1.0-rc.39",
+  "notes": "New in rc.39:\n\n- Browse workspace files and switch to a manual terminal in the retained right tool rail, with independent sidebars and a narrow-screen overlay.\n- Start one real interactive shell per workspace on the local computer in Desktop or on the server in Server mode. Terminal commands and Agent execution keep separate working directories, environments and processes.\n- Keep shells running across page refresh, disconnect and tool switches, with bounded output replay, explicit close, lease takeover protection and touch controls for interrupt and terminal keys.\n- Use Pith UI 0.10.0 with pinned xterm.js. The terminal runs with the host account's permissions; the workspace is its initial directory, not a sandbox. Service restart does not restore shells. Full-screen redraw and physical-phone limitations are documented in the README.\n\nApple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).\n\nUbuntu x86-64: extract `linux-amd64.tar.gz` into its own user-writable directory and run `./pith-desk`. GTK 3 and WebKitGTK 4.1 are required. Linux releases older than rc.36 need one manual replacement with this archive to enable future in-app updates.\n",
+  "date": "2026-10-21T11:46:17.467Z",
+  "url": "https://github.com/minifish-org/pith-desk/releases/download/v0.1.0-rc.39/pith-desk-0.1.0-rc.39-darwin-arm64.tar.gz",
+  "size": 9802779,
+  "signature": "Bov8zjRQvdS7KlVtaqgb47XquTeAHK4SMR+tlmzsowserTJUtA7fKvTj3rqOIwdT67prqGGBNVsCBWPfIzqGBA=="
 }
