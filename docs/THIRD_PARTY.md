@@ -7,11 +7,13 @@ Pith Desk's own code is covered by the root [LICENSE](../LICENSE), GNU Affero Ge
 | Component | Pinned version | License and retained notice |
 | --- | --- | --- |
 | [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261010121423-8eec8d5b88d3` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
-| [Pith UI](https://github.com/minifish-org/pith-ui/tree/v0.9.0) | `0.9.0` | AGPL-3.0-only: `PITH-UI-LICENSE`. TypeScript UI parts, shared region recipes and styles. |
+| [Pith UI](https://github.com/minifish-org/pith-ui/tree/v0.10.0) | `0.10.0` | AGPL-3.0-only: `PITH-UI-LICENSE`. TypeScript UI parts, shared region recipes and styles. |
 | [MyGo](https://github.com/egoist/mygo) | `v0.3.6` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
 | [Ebitengine purego](https://github.com/ebitengine/purego) | `v0.11.1` | Apache-2.0: `PUREGO-LICENSE`. Native platform interop; its Go-derived source retains `GO-LICENSE`. |
 | [coder/websocket](https://github.com/coder/websocket) | `v1.8.15` | ISC: `WEBSOCKET-LICENSE`. |
 | [gofrs/flock](https://github.com/gofrs/flock) | `v0.13.1` | BSD-3-Clause: `FLOCK-LICENSE`. |
+| [creack/pty](https://github.com/creack/pty/tree/v1.1.24) | `v1.1.24` | MIT: `PTY-LICENSE`. Manual terminal PTY and shell startup. |
+| [xterm.js](https://github.com/xtermjs/xterm.js) | `@xterm/xterm 6.0.0`, `@xterm/addon-fit 0.11.0` | MIT: `XTERM-LICENSE`, `XTERM-FIT-LICENSE`. Manual terminal rendering and container fitting. |
 | [Marked](https://github.com/markedjs/marked) | `16.4.2` | MIT, with upstream Markdown attribution: the complete `MARKED-LICENSE` file is retained. |
 | [DOMPurify](https://github.com/cure53/DOMPurify) | `3.4.16` | Upstream declares `MPL-2.0 OR Apache-2.0`. This distribution uses the Apache-2.0 option and retains that upstream text in `DOMPURIFY-LICENSE`, together with the package's attribution below. |
 
@@ -19,7 +21,7 @@ Desk directly imports the published `pith-ui/recipes` module. The retained
 `PITH-UI-LICENSE` covers the bundled library. The application coordinator remains
 Desk code; region implementations are not copied into this repository.
 
-Marked and DOMPurify are runtime dependencies of Pith UI and remain bundled with Pith Desk.
+Marked, DOMPurify and the two xterm packages are runtime dependencies of Pith UI and remain bundled with Pith Desk.
 
 DOMPurify 3.4.16: Copyright Cure53 and other contributors. The bundled upstream module identifies its license and links to its [versioned license file](https://github.com/cure53/DOMPurify/blob/3.4.16/LICENSE).
 

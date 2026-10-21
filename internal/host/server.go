@@ -21,6 +21,7 @@ import (
 
 	assets "github.com/minifish-org/pith-desk"
 	"github.com/minifish-org/pith-desk/internal/desk"
+	"github.com/minifish-org/pith-desk/internal/terminal"
 	"github.com/minifish-org/pith-desk/internal/wire"
 	"github.com/minifish-org/pith-desk/internal/workspacefs"
 )
@@ -31,6 +32,8 @@ type Server struct {
 	listener   net.Listener
 	token      string
 	service    *desk.Service
+	terminals  *terminal.Manager
+	terminalMu sync.Mutex
 	operations sync.Mutex // Order committed mutations before handing control to another page.
 	picker     func() (string, error)
 	files      http.Handler
@@ -92,7 +95,7 @@ func startListener(service *desk.Service, picker func() (string, error), develop
 		return nil, fmt.Errorf("build frontend first: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Server{URL: origin, listener: ln, token: hex.EncodeToString(key[:]), service: service, picker: picker, files: http.FileServer(http.FS(web)), index: index, ctx: ctx, cancel: cancel, clients: make(map[chan []byte]struct{}), access: access}
+	s := &Server{URL: origin, listener: ln, token: hex.EncodeToString(key[:]), service: service, terminals: terminal.New(), picker: picker, files: http.FileServer(http.FS(web)), index: index, ctx: ctx, cancel: cancel, clients: make(map[chan []byte]struct{}), access: access}
 	if access != nil {
 		// Server never bootstraps the desktop process-local credential.
 		s.token = ""
@@ -114,6 +117,7 @@ func startListener(service *desk.Service, picker func() (string, error), develop
 
 func (s *Server) Close() error {
 	s.cancel()
+	s.terminals.Close()
 	s.clearTaskStatusAction()
 	s.clearNativeMenuAction()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -259,7 +263,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	if r.URL.Path == "/api/socket" && r.Method == http.MethodGet {
+	if (r.URL.Path == "/api/socket" || r.URL.Path == "/api/terminal/socket") && r.Method == http.MethodGet {
 		// Browsers cannot set Authorization on a WebSocket handshake. Carry
 		// the process-local token in a request subprotocol, never in a URL.
 		valid := s.access != nil // Server has already checked its cookie and lease.
@@ -273,7 +277,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		s.socket(w, r)
+		if r.URL.Path == "/api/terminal/socket" {
+			s.terminalSocket(w, r)
+		} else {
+			s.socket(w, r)
+		}
 		return
 	}
 	if s.access == nil && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.token)) != 1 {
@@ -289,6 +297,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/api/terminal" && r.Method == http.MethodGet {
+		s.readTerminal(w, r)
+		return
+	}
+	if s.serveTerminal(w, r) {
+		return
+	}
 	if r.URL.Path == "/api/state" && r.Method == http.MethodGet {
 		_, _ = w.Write(s.snapshot())
 		return

@@ -211,6 +211,10 @@ func get[Q, O any](path string) Endpoint {
 }
 
 var Endpoints = []Endpoint{
+	get[WorkspaceInput, TerminalResponse]("/api/terminal"),
+	post[TerminalOpenInput, TerminalResponse]("/api/terminal"),
+	post[TerminalTarget, OKResponse]("/api/terminal/close"),
+	{Method: "GET", Path: "/api/terminal/socket", Query: reflect.TypeFor[TerminalTarget](), Input: reflect.TypeFor[TerminalControl](), Output: reflect.TypeFor[TerminalEvent](), Format: "stream"},
 	post[EmptyInput, ServerSessionResponse]("/api/server/session"),
 	post[ServerLoginInput, OKResponse]("/api/server/login"),
 	post[ServerLeaseInput, ServerLeaseResponse]("/api/server/lease"),

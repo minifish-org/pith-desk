@@ -24,6 +24,7 @@ import {createSettingsUI} from './settings';
 import {createTaskControls} from './task-controls';
 import {installWorkspaceFileDrop} from './workspace-files';
 import {createWorkspaceBrowser} from './workspace-browser';
+import {createWorkspaceTerminal} from './terminal';
 import {localFilePath} from './local-file-links';
 import type {MutationInput, MutationPath, MutationResponse} from './api';
 import type {AppearanceMode, RunSummary} from './contract.generated';
@@ -55,6 +56,8 @@ const ui = mountApplication({
   onUIStateChange() {if (ready && !disposed) {nativeMenu?.update(); completionUI.acknowledgeViewed();}},
   onError(message) {activity.error = message; render();},
   fileBrowser: {onSearch: query => workspaceBrowser.find(query),onRefresh: () => {void workspaceBrowser.refresh();},onToggle: (target,expanded) => workspaceBrowser.toggle(target,expanded),onAction: (action,target) => workspaceBrowser.action(action,target)},
+  terminal: {onStart: () => terminal.start(),onClose: () => terminal.close(),onInput: data => terminal.input(data),onResize: size => terminal.resize(size),onCopy: text => files.copyText(text)},
+  onToolViewChange() {if (ready) {workspaceBrowser.sync();terminal.sync();}},
   workspace: {
     onError(message) {activity.error = message; render();},
     onAction: workspaceAction,
@@ -92,7 +95,7 @@ const ui = mountApplication({
     onCompletionOpen: id => {void selectConversation(id);},
     onCompletionDismiss: id => completionUI.dismiss(id),
     onCostsChange: () => costUI.render(),
-    onToolsToggle() {if (ready) workspaceBrowser.sync();},
+    onToolsToggle() {if (ready) {workspaceBrowser.sync();terminal.sync();}},
   },
 });
 const mutations = createMutations({request, refresh, busy: () => activity.busy, setBusy: value => {activity.busy = value;}, error: message => {activity.error = message;}, render});
@@ -128,6 +131,9 @@ const workspaceBrowser = createWorkspaceBrowser({ui,request,workspace: () => con
   disabled: () => suspended || activity.busy || !app.loaded,referenceDisabled: () => composer.draftLoading || composer.readingImages || composer.resolvingReferences || flushingDrafts,
   server,native: nativeClipboard,clearPreview: files.clearFilePreview,fileAction: files.workspaceAction,
   changedDraft() {composer.rememberDraft();render();},
+});
+const terminal = createWorkspaceTerminal({ui,request,workspace: () => conversations.selectedWorkspace(),disabled: () => suspended || !app.loaded,
+  protocols: () => session?.protocols() ?? ['pith-desk',`bearer.${token}`],checkAccess: () => session?.check() ?? Promise.resolve(),
 });
 const fileDrop = installWorkspaceFileDrop({ui, native: nativeFileDrop, server,
   busy: () => activity.busy || composer.draftLoading || !app.loaded,
@@ -218,6 +224,7 @@ function render(): void {
   const workspace = conversations.selectedWorkspace();
   if (workspace) conversations.selectedWorkspaceId = workspace.id;
   workspaceBrowser.sync();
+  terminal.sync();
   const active = app.state.conversations.find(entry => entry.id === app.state.activeId), levels = app.state.settings.thinkingLevels || ['off'];
   tasks.renderPermissions(); conversations.renderHistory(); messages.renderMessages(workspace); messageEditor.render();
   tasks.renderApproval(); files.renderArtifacts(); files.renderResourceAvailability(); composer.renderQueue(); tasks.renderRuntime(); sdkUI.render(); composer.renderDraftImages();
@@ -260,7 +267,7 @@ function preserveText(): void {
 function saveDraftsOnLeave(): void {if (!suspended) {preserveText(); void composer.drafts.flushAll({keepalive: true});}}
 function retireControllers(): void {
   nativeMenu?.dispose(); removeNativeDrop(); fileDrop.destroy(); window.clearInterval(runtimeClock);
-  workspaceBrowser.destroy();messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy();
+  terminal.destroy();workspaceBrowser.destroy();messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy();
 }
 function suspend(): void {
   if (disposed || suspended) return;

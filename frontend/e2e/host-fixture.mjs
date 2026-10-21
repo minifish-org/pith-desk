@@ -8,6 +8,8 @@ import { createInterface } from 'node:readline';
 export const test = base.extend({
   serverAutoLogin: [true, {option: true}],
   hostMode: ['server',{option: true}],
+  hostFrontend: [undefined,{option: true}],
+  hostUISource: [undefined,{option: true}],
   hostBinary: [async ({}, use) => {
     // CI builds the checkout's fixture once; every test still gets a fresh
     // process and data directory. Local runs retain the worker build fallback.
@@ -22,9 +24,9 @@ export const test = base.extend({
       await use(binary);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, { scope: 'worker' }],
-  host: async ({ hostBinary, context, serverAutoLogin,hostMode }, use) => {
+  host: async ({ hostBinary, context, serverAutoLogin,hostMode,hostFrontend,hostUISource }, use) => {
     const root = await mkdtemp(join(tmpdir(), 'pith-host-test-'));
-    const child = spawn(hostBinary, ['--root',root,...hostMode === 'desktop' ? ['--desktop'] : []], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(hostBinary, ['--root',root,...hostMode === 'desktop' ? ['--desktop'] : [],...(hostFrontend ? ['--frontend',hostFrontend] : []),...(hostUISource ? ['--ui-source',hostUISource] : [])], { stdio: ['pipe', 'pipe', 'pipe'] });
     let stderr = '', exit;
     const waiting = [], queued = [];
     child.stderr.on('data', (value) => { stderr += value; });

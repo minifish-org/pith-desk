@@ -98,7 +98,7 @@ func (a *serverAccess) sessionLocked(r *http.Request) string {
 }
 
 func requestLeaseID(r *http.Request) string {
-	if r.URL.Path == "/api/socket" {
+	if r.URL.Path == "/api/socket" || r.URL.Path == "/api/terminal/socket" {
 		for _, protocol := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
 			if value, ok := strings.CutPrefix(strings.TrimSpace(protocol), "lease."); ok {
 				return value

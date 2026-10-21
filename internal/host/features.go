@@ -421,12 +421,17 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 			err = s.service.DeleteConversation(in.ID)
 		}
 	case "/api/remove-workspace":
+		s.terminalMu.Lock()
+		defer s.terminalMu.Unlock()
 		var in wire.RemoveWorkspaceInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			if in.ConversationCount == nil {
 				err = errors.New("Review the workspace's conversation count before removing it")
 			} else {
 				err = s.service.RemoveWorkspace(in.ID, *in.ConversationCount)
+				if err == nil {
+					err = s.terminals.CloseSession(in.ID, "")
+				}
 			}
 		}
 	case "/api/create-instructions":

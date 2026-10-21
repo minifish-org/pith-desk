@@ -1,7 +1,9 @@
-New in rc.38:
+New in rc.39:
 
-- Reduce the extra space above the sidebar logo and app name with Pith UI 0.8.4.
-- Restore the Linux desktop's standard titlebar and window controls. Mac keeps its integrated titlebar.
+- Browse workspace files and switch to a manual terminal in the retained right tool rail, with independent sidebars and a narrow-screen overlay.
+- Start one real interactive shell per workspace on the local computer in Desktop or on the server in Server mode. Terminal commands and Agent execution keep separate working directories, environments and processes.
+- Keep shells running across page refresh, disconnect and tool switches, with bounded output replay, explicit close, lease takeover protection and touch controls for interrupt and terminal keys.
+- Use Pith UI 0.10.0 with pinned xterm.js. The terminal runs with the host account's permissions; the workspace is its initial directory, not a sandbox. Service restart does not restore shells. Full-screen redraw and physical-phone limitations are documented in the README.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
 

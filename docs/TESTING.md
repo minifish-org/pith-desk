@@ -79,6 +79,7 @@ Mounting, bootstrap metadata and the ownership tree remain bounded.
 | Files | authenticated paths, preview/read limits, clipboard/export/download and recorded generated files |
 | Workspace browser | lazy directories and bounded search, private/symlink boundaries, lease revocation, late workspace/preview responses, reference insertion and draft/image preservation |
 | Sidebars | independent wide panels, phone overlay exclusion, scrim/close/Escape and focus restoration, native titlebar insets |
+| Manual terminal | real PTY interaction/interrupt/resize/UTF-8, bounded history/parse acknowledgements, page-independent lifetime, reconnect/takeover/late controls, separate workspace shells and cleanup |
 | Persistence | literal compatibility fixtures, real creation, restart recovery and failure handling |
 
 Browser scenarios use Chromium and WebKit. Isolated local providers and MCP
@@ -195,3 +196,27 @@ GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/pith-desk-ser
 
 Native smoke checks continue to launch Desktop and retain its local bearer-token
 transport. A successful Server check alone does not establish native behavior.
+
+## Terminal acceptance
+
+Start with `go test ./internal/terminal ./internal/host -run 'TestTerminal|TestRealShell|TestCloseCleans|TestBoundedByte'`
+and `node --experimental-strip-types --test frontend/tests/terminal.test.ts`.
+`frontend/e2e/terminal.spec.ts` covers Desktop/Server real shells, Agent command
+approval and cwd/environment independence, retained drafts/files, page close,
+network reconnect, parse-bounded output, truncation, workspace command lines,
+lease takeover, vim/top and phone keyboard geometry. Tests use disposable host
+profiles, workspaces and deterministic provider requests. Native
+`TestTerminalNative` exercises the same public UI in a real macOS WKWebView;
+include it in the opt-in native filter above. Physical phone acceptance is
+separate from browser visual-viewport simulation.
+Its visual checks require an unlocked desktop: the test waits for a visible
+document and actual rendering frames before checking cell geometry, inherited
+theme and taking a screenshot. A locked screen's frozen snapshot does not prove
+the current terminal display.
+
+For explicit local source browser acceptance, the shared host fixture accepts
+`hostFrontend` and `hostUISource` test options; select the development runner's
+printed frontend origin and absolute UI checkout in a local Playwright config.
+These are test-only options; default formal suites still use the locked registry
+package and ordinary frontend origin. Do not change installed dependencies,
+lockfiles or production resolution to simulate a package release.

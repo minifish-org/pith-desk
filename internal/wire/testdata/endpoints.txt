@@ -1,6 +1,7 @@
 GET json /api/update
 POST json /api/update
 GET json /api/state
+GET json /api/terminal
 GET json /api/history
 GET json /api/costs
 GET json /api/resource-content
@@ -19,6 +20,7 @@ GET blob /api/image
 GET blob /api/conversation-file
 GET blob /api/workspace-file
 GET stream /api/socket
+GET stream /api/terminal/socket
 GET stream /api/events
 POST json /api/config
 POST json /api/appearance
@@ -70,6 +72,8 @@ POST json /api/mcp/connect
 POST json /api/mcp/disconnect
 POST json /api/native-menu-state
 POST json /api/server/session
+POST json /api/terminal
+POST json /api/terminal/close
 POST json /api/server/login
 POST json /api/server/lease
 POST json /api/server/heartbeat

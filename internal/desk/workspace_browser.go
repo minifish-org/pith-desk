@@ -14,6 +14,18 @@ import (
 const maxWorkspaceMatches = 200
 const maxWorkspaceScan = 10000
 
+// WorkspaceDirectory captures only identity/path, without building a transcript
+// snapshot for manual terminal input or holding the lock during process IO.
+func (s *Service) WorkspaceDirectory(id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	workspace, found := s.workspaceLocked(id)
+	if s.closed || !found {
+		return "", errors.New("Workspace not found")
+	}
+	return workspace.Path, nil
+}
+
 type WorkspaceEntry struct {
 	Name      string `json:"name"`
 	Path      string `json:"path"` // Workspace-relative, retaining the visible symlink name.

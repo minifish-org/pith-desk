@@ -345,12 +345,13 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 						if !ok {
 							return true
 						}
-						var route, method string
+						var routes []string
+						var method string
 						ast.Inspect(statement.Cond, func(node ast.Node) bool {
 							if literal, ok := node.(*ast.BasicLit); ok && literal.Kind == token.STRING {
 								value, _ := strconv.Unquote(literal.Value)
 								if strings.HasPrefix(value, "/api/") && !strings.HasSuffix(value, "/") {
-									route = value
+									routes = append(routes, value)
 								}
 							}
 							if selector, ok := node.(*ast.SelectorExpr); ok {
@@ -363,7 +364,10 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 							}
 							return true
 						})
-						if route != "" && method != "" {
+						for _, route := range routes {
+							if method == "" {
+								continue
+							}
 							key := method + " " + route
 							if _, exists := registered[key]; !exists {
 								errors = append(errors, "missing contract for "+key)

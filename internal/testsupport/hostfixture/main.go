@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/minifish-org/pith-desk/internal/testsupport/shellfixture"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,10 +27,18 @@ func main() {
 	if *root == "" {
 		panic("test root is required")
 	}
+	shell, err := shellfixture.Create(*root)
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("SHELL", shell); err != nil {
+		panic(err)
+	}
 	var requests, canceled atomic.Int32
 	var lastRequest atomic.Value
 	var hold atomic.Bool
 	var writeTool atomic.Bool
+	var commandTool atomic.Bool
 	release := make(chan struct{}, 1)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer fixture-provider-key" {
@@ -58,6 +67,12 @@ func main() {
 			data, _ := json.Marshal(value)
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			w.(http.Flusher).Flush()
+		}
+		if commandTool.Swap(false) {
+			write(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "fixture-command", "type": "function", "function": map[string]any{"name": "run_command", "arguments": `{"command":"pwd > agent-cwd.txt; printf '%s' \"${MANUAL_ONLY-unset}\" > agent-env.txt"}`}}}}}}})
+			write(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "tool_calls"}}})
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
 		}
 		if writeTool.Swap(false) {
 			write(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "fixture-write", "type": "function", "function": map[string]any{"name": "write_file", "arguments": `{"path":"approved.txt","content":"Approved on Server"}`}}}}}}})
@@ -174,6 +189,8 @@ func main() {
 			}
 		case "write-tool":
 			writeTool.Store(command.Enabled)
+		case "command-tool":
+			commandTool.Store(command.Enabled)
 		case "restart":
 			closeHost()
 			err = open()

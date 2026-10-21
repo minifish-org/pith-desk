@@ -148,6 +148,78 @@ or added to the transcript until submitted. Removing a conversation or
 workspace also removes its drafts. Text drafts have an 8 MiB limit; image
 attachments use the upload limits described below.
 
+### Manual terminal
+
+Open the right tool rail, choose **Terminal**, then **Start terminal**. There is
+one shell per workspace, created on demand (up to 16 retained terminal sessions
+per service). **Files** switches back to the workspace browser. Hiding the rail,
+switching views/workspaces, closing the page, logging out or losing the connection
+does not stop the shell. Refresh/reconnect attaches to that same session while
+the same Go service is running. An exited shell stays exited; close it before
+starting another. **Close terminal** stops its shell and foreground/background
+jobs. Removing the workspace or exiting the service also cleans them up.
+Explicitly detached processes that start a different OS session are outside this
+terminal's process session and may outlive it.
+
+The rail identifies **Local computer** in Desktop and **Server** in Server mode,
+including the host name and initial absolute directory. The shell's `pwd` shows
+its current directory after `cd`; the initial-directory label remains the
+workspace path. The host account's executable `$SHELL` is preferred, then its
+account configuration and `/bin/zsh`, `/bin/bash`, `/bin/sh` fallbacks, in
+interactive mode. macOS and Linux require a usable shell and PTY support
+(`/dev/ptmx`/`devpts` in Linux containers). Programs such as vim/top must be
+installed on that host. The embedded frontend uses pinned `@xterm/xterm` and
+`@xterm/addon-fit`; Go uses `github.com/creack/pty`. Running a packaged Desktop
+or headless Server needs no Node.js, terminal service or extra daemon. Existing
+GUI-free Linux Server and `CGO_ENABLED=0` builds remain supported.
+
+Select text and use system Copy, **Copy selection**, system Paste or **Paste into
+terminal** (browser clipboard permission may be required). Paste/input messages
+are limited to 16 KiB. The touch controls provide Ctrl+C (interrupt), Escape,
+Tab, arrows and Ctrl+D. Keyboard shortcuts stay in the focused terminal; Escape
+is delivered to terminal programs, so use **Close tools** or the backdrop to
+dismiss a phone overlay. Short keyboard viewports retain the emulator and touch
+keys, with scrollable metadata/actions. Conversation drafts and file-browser
+inputs stay intact across tool switches.
+
+**This is a host-account shell, not a workspace sandbox.** The workspace is only
+its initial directory. A signed-in Server controller can execute commands with
+the server account's permissions, including access beyond the workspace.
+Creation, reads, input, resize and close use the existing authentication and
+exclusive page lease; takeover revokes the old socket and rejects late controls.
+Shell environment construction allows ordinary identity, PATH, locale and
+temporary-directory values; it does not inherit application login tokens, model
+keys or MCP credentials. Your shell startup files still run as your host account
+and can load its configuration or credentials.
+
+The Agent continues using its existing `run_command`, permission and approval
+flow. Its working directory, environment and processes are separate. Both can
+change the workspace files; there is no input arbitration or Agent terminal
+tool. Terminal input/output/history is never automatically added to Agent
+context. Review files yourself when running commands alongside an Agent task.
+
+Output travels on a separate authenticated WebSocket and is acknowledged after
+xterm parses each block; terminal traffic does not update application snapshots.
+Go continues draining output without a browser into a **1 MiB byte ring** per
+session; the emulator keeps **1,000 scrollback lines**. A slow page may lose old
+output rather than accumulate unbounded buffers. Reconnect resets the emulator
+and replays the retained bytes; truncation displays an explicit notice. Input is
+disabled while disconnected/restoring and is never queued for retransmission.
+Commands near a disconnection may already have reached the shell: inspect before
+typing them again.
+
+Replay is a bounded raw stream, not a saved terminal screen. Reconnect requests
+a foreground-program redraw, including when dimensions stay the same. vim/top
+receive focused automated browser checks; truncation inside control sequences,
+old size-dependent output, alternate-screen state outside the ring and programs
+that ignore resize/redraw can leave an incomplete display. Use the program's
+redraw command (for example Ctrl+L or vim `:redraw!`) when needed. Service restart
+does not restore shells or re-execute commands. There is no multi-user sharing,
+cross-instance recovery, terminal recording, sandbox or Agent takeover feature.
+Phone soft-keyboard checks are automated simulations; physical iOS/Android
+keyboard, selection handles and system clipboard behavior still need device
+acceptance.
+
 Pith Desk supports **concurrent tasks in separate workspace folders**. Add folders, create conversations and switch views while other tasks continue in the background. The sidebar marks each running conversation and shows when it needs approval. Stop, pending input, permissions and run statistics belong to that conversation. A workspace can run one task at a time; nested or overlapping workspace folders share that restriction. An occupied workspace offers **Open running conversation**. Global model, credential and MCP connection changes require all tasks to stop. See [workspace concurrency](docs/WORKSPACE_CONCURRENCY.md) for the execution contract and validation.
 
 The sidebar shows a small blue spinning ring for running tasks and an amber approval icon when a decision is needed. The ring indicates activity, without estimating progress. A completed task leaves a blue unread dot until its conversation is viewed. Completion in another conversation shows an in-app notice; when the desktop app is in the background, it sends a silent macOS notification instead. Both offer navigation to the completed conversation. System notifications require OS permission and remain subject to Focus and screen-sharing rules.
