@@ -90,13 +90,20 @@ func TestRealShellIsolationUnicodeResizeInterruptAndReconnect(t *testing.T) {
 	}
 	readUntil(t, s, &cursor, "INTERRUPTED")
 	// No subscriber is needed to drain PTY output or complete a file write.
-	if err := s.Write([]byte("(sleep .1; printf detached > after-disconnect; printf '\\nDETACHED_DONE\\n') &\n")); err != nil {
+	if err := s.Write([]byte("(sleep .4; printf detached > after-disconnect; printf '\\nDETACHED_DONE\\n') &\n")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(250 * time.Millisecond)
-	data, err := os.ReadFile(filepath.Join(s.Info().Directory, "after-disconnect"))
-	if err != nil || string(data) != "detached" {
-		t.Fatal("background job died without a page", string(data), err)
+	// Observe the file independently of PTY reads, without assuming when the
+	// background process gets scheduled on a slower or race-enabled runner.
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		data, err := os.ReadFile(filepath.Join(s.Info().Directory, "after-disconnect"))
+		if err == nil && string(data) == "detached" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background job did not finish without a page", string(data), err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	var replay uint64
 	output = readUntil(t, s, &replay, "DETACHED_DONE")
