@@ -12,7 +12,7 @@ import {
   composeCostLedger,type CostLedgerState,composeCompletionNotices,composeImageViewer,
   composeArtifacts,type ArtifactsState,type ArtifactsCallbacks,composeFilePreview,
   composeFileBrowser,type FileBrowserState,type FileBrowserCallbacks,
-  composeTerminal,composeWorkspaceTools,type TerminalCallbacks,
+  composeTerminal,composeWorkspaceTools,type TerminalCallbacks,type WorkspaceToolsCallbacks,
   type PreviewInput,type PreviewCallbacks,composeSettings,composeMCPConnections,
   composeModelPicker,composeCustomConnection,composeCustomConnectionLoading,composeProviderLogin,
   composeResourcesInventory,composeResourceEditor,composeResourceLoading,composeWorkspacePicker,
@@ -31,13 +31,12 @@ export interface DeskOptions {
   titlebar?: FrameContent['titlebar'];
   brand?: {name: string;qualifier?: string;mark?: BrandMarkOptions};appearance?: Appearance;
   workspace?: DeskWorkspaceCallbacks;host?: {copyText?(text: string): HostResult;openExternal?(url: string): HostResult};
-  fileBrowser?: FileBrowserCallbacks;
-  terminal?: TerminalCallbacks;onToolViewChange?(): void;
+  tools?: WorkspaceToolsCallbacks;
   onUIStateChange?(state: {hasModal: boolean;appearance: Appearance}): void;onError?(message: string): void;
   server?: boolean;onLogout?(): Promise<void>;
 }
 export interface ServerAccessState {phase: 'login'|'blocked'|'offline';error?: string;recoveryText?: string}
-export interface ServerAccessCallbacks {onLogin(token: string): Promise<void>;onReconnect(): Promise<void>;onTakeover(): Promise<void>}
+export interface ServerAccessCallbacks {onLogin(token: string): Promise<void>;onContinue(): Promise<void>}
 export interface DeskShellState extends Pick<FrameState,'workspace'|'conversation'|'reconnecting'> {error?: {message: string;hidden?: boolean};busy?: {key: string;message: string;actionLabel: string}|null}
 export interface DeskAvailability extends NonNullable<FrameState['availability']> {global?: boolean;active?: boolean}
 
@@ -74,12 +73,10 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
   let artifactsState: ArtifactsState = {ownerId: '',files: [],loading: false,error: '',copyMode: 'path'};
   let artifactsCallbacks: ArtifactsCallbacks = {onPreview() {},onFileAction() {}};
   const artifacts = composeArtifacts(artifactsState,artifactsCallbacks,{announcement: reader.announcement,relatedDialogs: [viewer.part]});
-  const fileBrowser = composeFileBrowser({workspaceId: '',location: '',query: '',directories: []},options.fileBrowser);
-  const terminal = composeTerminal({location: '',directory: '',status: 'Choose a workspace to use its terminal.',connected: false,exists: false,disabled: true},options.terminal);
-  const tools = composeWorkspaceTools({files: fileBrowser.part,terminal: terminal.part},{onView() {fileBrowser.closeMenu();options.onToolViewChange?.();}});
+  const tools = composeWorkspaceTools({tabs: [],activeId: '',location: options.server ? 'Server' : 'Local',detail: ''},options.tools);
   const logout = options.server ? createButtonPart({label: 'Log out',title: 'Log out',variant: 'quiet-icon',icon: 'logout',onAction: options.onLogout,onError: report}) : undefined;
   const frame = composeFrame(frameState,{...callbacks,onError: report,onModalChange: changed,onDispose() {disposed = true;changed();}},
-    {titlebar: options.titlebar,main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part,...(logout ? [logout] : [])],tools: {label: 'Workspace files',children: [tools.part]},brand: options.brand ?? {name: 'Pith'}});
+    {titlebar: options.titlebar,main: [reader.find,reader.region,composer.part],siblings: [notices.part,reader.announcement,downloads],dialogs: [viewer.part],topbarActions: [artifacts.part,...(logout ? [logout] : [])],tools: {label: 'Workspace tools',layout: 'tabs',close: tools.dismiss,children: [tools.part]},brand: options.brand ?? {name: 'Pith'}});
   const mounted = mountParts(mount,frame.part,{appearance});
   const dialogs = createDialogHost(frame,{persistentDialogs: [viewer.part],onChange: changed,onError: report});
   const opening = dialogs.open;
@@ -105,12 +102,11 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
       const token = createInputPart({kind: 'password',label: 'Server token',name: 'server-token',autocomplete: 'current-password',required: login,hidden: !login});
       const label = createFieldLabelPart({label: 'Server token',control: token,hidden: !login});
       const feedback = createFeedbackPart({message: state.error ?? '',tone: 'error'});
-      const description = createTextPart({role: 'description',text: login ? 'Sign in with the token configured on your Pith Desk server.' : 'Another page may control Pith Desk. Reconnect after it disconnects, or take over now. Tasks keep running.'});
+      const description = createTextPart({role: 'description',text: login ? 'Sign in with the token configured on your Pith Desk server.' : 'Continue here to take control. Other pages will disconnect. Tasks and terminals keep running.'});
       const fail = (message: string) => feedback.update({message,tone: 'error'});
-      const submit = createButtonPart({label: login ? 'Sign in' : 'Reconnect',variant: 'primary',type: 'submit'});
-      const takeover = createButtonPart({label: 'Take over',variant: 'secondary',hidden: login,onAction: actions.onTakeover,onError: fail});
-      const form = createFormPart({children: [createFormLayoutPart({children: [description,label,token,feedback,...(state.recoveryText ? [createTextPart({role: 'hint',text: 'Unsent text is kept on this page. Copy it below, or reconnect to download it. It will not be submitted automatically.'}),recoveredTextPart(state.recoveryText)] : [])]}),createFooterPart({children: [takeover,submit]})],onError: fail,
-        async onSubmit() {const value = token.read();token.reset('');if (login) await actions.onLogin(value);else await actions.onReconnect();}});
+      const submit = createButtonPart({label: login ? 'Sign in' : 'Continue here',variant: 'primary',type: 'submit'});
+      const form = createFormPart({children: [createFormLayoutPart({children: [description,label,token,feedback,...(state.recoveryText ? [createTextPart({role: 'hint',text: 'Unsent text is kept on this page. Copy it below, or continue here to download it. It will not be submitted automatically.'}),recoveredTextPart(state.recoveryText)] : [])]}),createFooterPart({children: [submit]})],onError: fail,
+        async onSubmit() {const value = token.read();token.reset('');if (login) await actions.onLogin(value);else await actions.onContinue();}});
       const part = createDialogPart({title: login ? 'Pith Desk Server' : 'Reconnect to Pith Desk',closeDisabled: true,closeOnBackdrop: false,children: [form],onClose,onDispose: onClose});
       return {part,open() {part.open();if (login) token.focus();},close: part.close,isOpen: part.isOpen,destroy: part.destroy};
     },local => local.open());
@@ -195,12 +191,23 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
     },
   };
   const files = {
-    toolView: tools.read,
-    updateWorkspace: fileBrowser.update,areToolsOpen: frame.isToolsOpen,setToolsOpen: frame.setToolsOpen,closeToolsOverlay: frame.closeToolsOverlay,
+    areToolsOpen: frame.isToolsOpen,setToolsOpen: frame.setToolsOpen,closeToolsOverlay: frame.closeToolsOverlay,
     updateArtifacts(state: ArtifactsState,actions: ArtifactsCallbacks) {if (!disposed) {artifactsState = state;artifactsCallbacks = actions;artifacts.update({...state,disabled: !!state.disabled || !!availability.busy || availability.conversations?.includes(state.ownerId)},actions);}},
     closeArtifacts: artifacts.close,areArtifactsOpen: artifacts.isOpen,
     openPreview(state: PreviewInput,actions: PreviewCallbacks = {}) {return opening('preview',onClose => composeFilePreview(state,{...actions,onCopyCode: actions.onCopyCode ?? callbacks.onCopyCode ?? copyText,onImage(image) {viewer.open(image);changed();},onClose},reader.announcement),local => {artifacts.setRelatedDialogs([viewer.part,local.part]);local.open();},actions.onClose);},
   };
-  return {workspace,settings,resources,files,terminal: {update: terminal.update,write: terminal.write,reset: terminal.reset,fit: terminal.fit,focus: terminal.focus,readSize: terminal.readSize},read,openServerAccess,openRecoveredDrafts,downloadFile: downloads.download,setAppearance(next: typeof appearance) {if (!disposed) {appearance = next;mounted.setAppearance(next);notify(() => options.onUIStateChange?.(read()));}},
+  const layout = {setSidebarWidths: frame.setSidebarWidths};
+  const toolViews = {
+    update: tools.update,closeMenu: tools.closeMenu,
+    createFiles(id: string,callbacks: FileBrowserCallbacks) {
+      const browser = composeFileBrowser({workspaceId: '',location: '',directories: []},callbacks);tools.attach(id,browser.part);
+      return {update: browser.update,closeMenu: browser.closeMenu,restorePosition: browser.restorePosition,destroy() {tools.remove(id);}};
+    },
+    createTerminal(id: string,callbacks: TerminalCallbacks) {
+      const terminal = composeTerminal({id,location: '',directory: '',status: 'Connecting…',connected: false,exists: false},callbacks);tools.attach(id,terminal.part);
+      return {update: terminal.update,write: terminal.write,reset: terminal.reset,fit: terminal.fit,focus: terminal.focus,readSize: terminal.readSize,destroy() {tools.remove(id);}};
+    },
+  };
+  return {workspace,settings,resources,files,layout,tools: toolViews,read,openServerAccess,openRecoveredDrafts,downloadFile: downloads.download,setAppearance(next: typeof appearance) {if (!disposed) {appearance = next;mounted.setAppearance(next);notify(() => options.onUIStateChange?.(read()));}},
     destroy() {if (disposed) return;disposed = true;frame.destroy();changed();}};
 }

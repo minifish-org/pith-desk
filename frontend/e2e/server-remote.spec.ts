@@ -27,11 +27,11 @@ test('revoked autosave cannot overwrite the new owner and unsent text remains re
   await page.getByRole('textbox',{name: 'Message Pith',exact: true}).fill('Unsent text from the old page');
   await expect.poll(() => held).toBe(1);
   const second = await context.newPage();await second.goto(host.url);
-  await second.getByRole('button',{name: 'Take over',exact: true}).click();
+  await second.getByRole('button',{name: 'Continue here',exact: true}).click();
   await expect(second.getByRole('dialog')).not.toBeVisible();
   await expect(second.getByRole('button',{name: 'Attach images',exact: true})).toBeEnabled();
   await expect(second.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();
-  await expect(page.getByRole('dialog')).toContainText('Another page');
+  await expect(page.getByRole('dialog')).toContainText('Other pages will disconnect');
   await expect(page.getByRole('textbox',{name: 'Message Pith',exact: true})).not.toBeEditable();
   await expect(page.getByRole('textbox',{name: 'Unsent text on this page',exact: true})).toContainText('Unsent text from the old page');
   await second.getByRole('textbox',{name: 'Message Pith',exact: true}).fill('Draft belonging to the new page');
@@ -41,7 +41,7 @@ test('revoked autosave cannot overwrite the new owner and unsent text remains re
   await page.evaluate(() => {window.dispatchEvent(new Event('pagehide'));window.dispatchEvent(new Event('focus'));});
   await expect.poll(async () => (await draft(second,context,host)).text).toBe('Draft belonging to the new page');
   expect(draftPosts).toBe(1);
-  await Promise.all([page.waitForEvent('load'),page.getByRole('button',{name: 'Take over',exact: true}).click()]);
+  await Promise.all([page.waitForEvent('load'),page.getByRole('button',{name: 'Continue here',exact: true}).click()]);
   const recovery = page.getByRole('dialog',{name: 'Recovered unsent text',exact: true});
   await expect(recovery).toBeVisible();
   await expect(recovery.getByRole('textbox')).toHaveValue(/Unsent text from the old page/);
@@ -79,7 +79,7 @@ test('takeover preserves an unsubmitted message edit without editing or resendin
   await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
   await page.getByRole('button',{name: 'Edit message',exact: true}).click();
   await page.locator('.pui-text-edit textarea').fill('Unsubmitted edit from the old page');
-  const second = await context.newPage();await second.goto(host.url);await second.getByRole('button',{name: 'Take over',exact: true}).click();
+  const second = await context.newPage();await second.goto(host.url);await second.getByRole('button',{name: 'Continue here',exact: true}).click();
   await expect(page.getByRole('textbox',{name: 'Unsent text on this page',exact: true})).toHaveValue(/Unsubmitted edit from the old page/);
   await expect(page.getByRole('button',{name: 'Send again',exact: true})).toHaveCount(0);
   const actual = await host.command('state');expect(actual.requests).toBe(1);
@@ -122,7 +122,7 @@ test('queued work and unread completion survive a refresh and closed browser wit
   const finished = await host.command('state');
   expect(finished.requests).toBe(2);expect(finished.state.queuedMessages).toHaveLength(0);
   expect(finished.state.conversations.find(conversation => conversation.id === host.state.activeId).unread).toBe(true);
-  const reopened = await context.newPage();await reopened.goto(host.url);await reopened.getByRole('button',{name: 'Take over',exact: true}).click();
+  const reopened = await context.newPage();await reopened.goto(host.url);await reopened.getByRole('button',{name: 'Continue here',exact: true}).click();
   await expect(reopened.locator('.pui-messages')).toContainText('Queued follow up');
   expect((await host.command('stats')).requests).toBe(2);expect((await host.command('state')).canceled).toBe(0);
 });

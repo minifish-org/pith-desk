@@ -24,6 +24,7 @@ GET stream /api/terminal/socket
 GET stream /api/events
 POST json /api/config
 POST json /api/appearance
+POST json /api/sidebar-widths
 POST json /api/workspaces
 POST json /api/conversations
 POST json /api/open

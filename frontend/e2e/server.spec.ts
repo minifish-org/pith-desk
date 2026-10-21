@@ -45,11 +45,17 @@ test('Server token login, refresh and takeover revoke the old page immediately',
 
   const second = await context.newPage();
   await second.goto(host.url);
-  await expect(second.getByRole('dialog')).toContainText('Another page');
-  await second.getByRole('button', {name: 'Take over', exact: true}).click();
+  const access = second.getByRole('dialog');
+  await expect(access).toContainText('Other pages will disconnect');
+  await expect(access.getByRole('button',{name: 'Take over',exact: true})).toHaveCount(0);
+  await expect(access.getByRole('button',{name: 'Reconnect',exact: true})).toHaveCount(0);
+  await expect(access.getByRole('button',{name: 'Continue here',exact: true})).toBeEnabled();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.getByRole('textbox', {name: 'Message Pith'})).toBeEditable();
+  await access.getByRole('button', {name: 'Continue here', exact: true}).click();
   await expect(second.getByRole('dialog')).not.toBeVisible();
   await expect(second.getByRole('textbox', {name: 'Message Pith'})).toBeEditable();
-  await expect(page.getByRole('dialog')).toContainText('Another page');
+  await expect(page.getByRole('dialog')).toContainText('Other pages will disconnect');
   expect((await context.request.post(host.url + '/api/conversations', {
     data: {workspaceId: host.state.workspaces[0].id}, headers: {'X-Desk-Lease': renewed!, 'X-Desk-Request': '100'},
   })).status()).toBe(409);
@@ -102,7 +108,7 @@ test('closing and reopening a browser page preserves an actual running task with
   expect(disconnected.canceled).toBe(0);
   const reopened = await context.newPage();
   await reopened.goto(host.url);
-  await reopened.getByRole('button', {name: 'Take over', exact: true}).click();
+  await reopened.getByRole('button', {name: 'Continue here', exact: true}).click();
   await expect(reopened.getByRole('button', {name: 'Stop agent', exact: true})).toBeVisible();
   await host.command('hold-provider', {enabled: false});
   await expect(reopened.locator('.pui-messages')).toContainText('Fixture answer');
@@ -123,7 +129,7 @@ test('pending tool approval survives takeover, rejects the old lease, and export
   const oldLease = await page.evaluate(() => sessionStorage.getItem('pith-desk-server-lease'));
   const second = await context.newPage();
   await second.goto(host.url);
-  await second.getByRole('button', {name: 'Take over', exact: true}).click();
+  await second.getByRole('button', {name: 'Continue here', exact: true}).click();
   await expect(second.getByRole('button', {name: 'Allow this action', exact: true})).toBeVisible();
   expect((await context.request.post(host.url + '/api/approval', {
     data: {id: pending.id, allow: true}, headers: {'X-Desk-Lease': oldLease!, 'X-Desk-Request': '100'},

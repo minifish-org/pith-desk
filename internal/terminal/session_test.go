@@ -75,7 +75,7 @@ func TestRealShellIsolationUnicodeResizeInterruptAndReconnect(t *testing.T) {
 	if !strings.Contains(output, "37 101") || !strings.Contains(output, "中文") {
 		t.Fatalf("size or UTF8 lost: %q", output)
 	}
-	if same, err := m.Open("replacement", "workspace", s.Info().Directory, 80, 24); err != nil || same != s {
+	if same, err := m.Open(s.Info().ID, "workspace", s.Info().Directory, 80, 24); err != nil || same != s {
 		t.Fatal("reconnect started another shell", err)
 	}
 	if err := s.Write([]byte("sleep 60\n")); err != nil {
@@ -122,7 +122,7 @@ func TestRealShellIsolationUnicodeResizeInterruptAndReconnect(t *testing.T) {
 	if s.Info().Running || s.Info().ExitCode != 7 {
 		t.Fatal("wrong exit", s.Info())
 	}
-	if same, err := m.Open("new", "workspace", s.Info().Directory, 80, 24); err != nil || same != s || same.Info().Running {
+	if same, err := m.Open(s.Info().ID, "workspace", s.Info().Directory, 80, 24); err != nil || same != s || same.Info().Running {
 		t.Fatal("an exited shell restarted on read")
 	}
 }
@@ -148,8 +148,8 @@ func TestCloseCleansForegroundBackgroundAndAllowsExplicitRestart(t *testing.T) {
 		}
 		pids = append(pids, pid)
 	}
-	if err := m.CloseSession("workspace", "stale-id"); err == nil {
-		t.Fatal("stale close accepted")
+	if err := m.CloseSession("workspace", "stale-id"); err != nil || !s.Info().Running {
+		t.Fatal("stale close changed the live session", err)
 	}
 	if err := m.CloseSession("workspace", "session"); err != nil {
 		t.Fatal(err)
@@ -207,5 +207,53 @@ func TestBoundedByteHistoryAndExplicitEnvironment(t *testing.T) {
 		if ValidateSize(size[0], size[1]) == nil {
 			t.Fatal("invalid size accepted", size)
 		}
+	}
+}
+
+func TestWorkspaceTerminalTabsHaveIndependentProcessesAndCleanup(t *testing.T) {
+	m, first := testSession(t)
+	second, err := m.Open("second", "workspace", first.Info().Directory, 92, 31)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == first || second.Info().ID == first.Info().ID {
+		t.Fatal("new terminal tab reused another tab's shell")
+	}
+	if sessions := m.List("workspace"); len(sessions) != 2 || len(m.List("another-workspace")) != 0 {
+		t.Fatal("terminal inventory crossed workspace boundaries", sessions)
+	}
+	if _, err := m.Open("second", "another-workspace", first.Info().Directory, 80, 24); err == nil {
+		t.Fatal("another workspace reused a terminal ID")
+	}
+	if err := m.CloseSession("another-workspace", "second"); err == nil || !second.Info().Running {
+		t.Fatal("another workspace closed a terminal")
+	}
+	if err := first.Write([]byte("export TAB_ONLY=first; cd /; printf '\\nFIRST_%s\\n' \"$TAB_ONLY\"\n")); err != nil {
+		t.Fatal(err)
+	}
+	var firstCursor, secondCursor uint64
+	readUntil(t, first, &firstCursor, "FIRST_first")
+	if err := second.Write([]byte("printf '\\nSECOND_%s\\n' \"${TAB_ONLY-unset}\"; pwd; stty size\n")); err != nil {
+		t.Fatal(err)
+	}
+	output := readUntil(t, second, &secondCursor, "31 92")
+	if !strings.Contains(output, "SECOND_unset") || !strings.Contains(output, first.Info().Directory) {
+		t.Fatal("terminal tabs shared cwd or environment", output)
+	}
+	if same, err := m.Open("second", "workspace", first.Info().Directory, 80, 24); err != nil || same != second {
+		t.Fatal("restoring an existing tab restarted its shell", err)
+	}
+	if err := m.CloseSession("workspace", first.Info().ID); err != nil {
+		t.Fatal(err)
+	}
+	if first.Info().Running || !second.Info().Running {
+		t.Fatal("closing one tab changed another shell")
+	}
+	if err := second.Write([]byte("printf '\\nSTILL_RUNNING\\n'\n")); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, second, &secondCursor, "STILL_RUNNING")
+	if err := m.CloseSession("workspace", ""); err != nil || second.Info().Running {
+		t.Fatal("workspace removal retained a terminal", err)
 	}
 }

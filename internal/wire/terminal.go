@@ -4,16 +4,22 @@ import "github.com/minifish-org/pith-desk/internal/terminal"
 
 type TerminalOpenInput struct {
 	WorkspaceID string `json:"workspaceId"`
+	ID          string `json:"id,omitempty"`
 	Cols        int    `json:"cols"`
 	Rows        int    `json:"rows"`
+}
+type TerminalReadInput struct {
+	WorkspaceID string `json:"workspaceId"`
+	ID          string `json:"id,omitempty"`
 }
 type TerminalTarget struct {
 	WorkspaceID string `json:"workspaceId"`
 	ID          string `json:"id"`
 }
 type TerminalResponse struct {
-	Session  *terminal.Info `json:"session"`
-	Location string         `json:"location"`
+	Session  *terminal.Info  `json:"session"`
+	Sessions []terminal.Info `json:"sessions"`
+	Location string          `json:"location"`
 }
 
 // Output is separate from application snapshots. Data is base64 of raw PTY

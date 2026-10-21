@@ -16,6 +16,8 @@ type Settings struct {
 	HasConnections   bool           `json:"hasConnections"`
 	HasAPIKey        bool           `json:"hasApiKey"`
 	Appearance       AppearanceMode `json:"appearance"`
+	NavigationWidth  int            `json:"navigationWidth,omitempty"`
+	ToolsWidth       int            `json:"toolsWidth,omitempty"`
 	SupportsImages   bool           `json:"supportsImages"`
 	ImageUploadLimit int            `json:"imageUploadLimit"`
 }
@@ -117,14 +119,16 @@ type ConversationState struct {
 }
 
 type savedConfig struct {
-	AuthPath      string                     `json:"-"`
-	Provider      string                     `json:"provider"`
-	ThinkingLevel string                     `json:"thinkingLevel"`
-	Connections   map[string]savedConnection `json:"connections,omitempty"`
-	BaseURL       string                     `json:"baseUrl"`
-	Model         string                     `json:"model"`
-	APIKey        string                     `json:"apiKey,omitempty"`
-	Appearance    AppearanceMode             `json:"appearance"`
+	AuthPath        string                     `json:"-"`
+	Provider        string                     `json:"provider"`
+	ThinkingLevel   string                     `json:"thinkingLevel"`
+	Connections     map[string]savedConnection `json:"connections,omitempty"`
+	BaseURL         string                     `json:"baseUrl"`
+	Model           string                     `json:"model"`
+	APIKey          string                     `json:"apiKey,omitempty"`
+	Appearance      AppearanceMode             `json:"appearance"`
+	NavigationWidth int                        `json:"navigationWidth,omitempty"`
+	ToolsWidth      int                        `json:"toolsWidth,omitempty"`
 }
 
 type RunSummary struct {

@@ -75,7 +75,7 @@ func (c *Connections) refreshSettings() {
 	for _, connection := range c.config.Connections {
 		hasConnections = hasConnections || connectionReady(connection)
 	}
-	c.Settings = Settings{HasConnections: hasConnections, Provider: c.config.Provider, ModelName: name, ThinkingLevel: c.config.ThinkingLevel, ThinkingLevels: thinkingLevels(model), BaseURL: c.config.BaseURL, Model: c.config.Model, HasAPIKey: connectionReady(c.config.Connections[c.config.Provider]), Appearance: c.config.Appearance, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
+	c.Settings = Settings{HasConnections: hasConnections, Provider: c.config.Provider, ModelName: name, ThinkingLevel: c.config.ThinkingLevel, ThinkingLevels: thinkingLevels(model), BaseURL: c.config.BaseURL, Model: c.config.Model, HasAPIKey: connectionReady(c.config.Connections[c.config.Provider]), Appearance: c.config.Appearance, NavigationWidth: c.config.NavigationWidth, ToolsWidth: c.config.ToolsWidth, ImageUploadLimit: MaxImageUploadBytes, SupportsImages: model != nil && model.SupportsImageInput()}
 }
 
 func (c *Connections) beginProbe(cancel context.CancelFunc, done chan struct{}) {

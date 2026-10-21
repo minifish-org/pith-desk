@@ -51,12 +51,12 @@ test('reload rotates a lease, numbers mutations, and suspends the old page after
   assert.equal(fixture.values.size,0);
   assert.throws(() => fixture.session.headers(true),/Reconnect/);
   assert.equal(fixture.panels.at(-1).state.phase,'blocked');
-  await fixture.panels.at(-1).actions.onTakeover();
+  await fixture.panels.at(-1).actions.onContinue();
   assert.equal(fixture.requests.at(-1).body.takeover,true);
   assert.deepEqual(fixture.counts(),{reloads: 1,ready: 1,revoked: 1});
 });
 
-test('a duplicated tab cannot silently resume a copied credential',async t => {
+test('a duplicated tab waits for Continue here, which takes control in one action',async t => {
   const fixture = setup(t,request => {
     if (request.path === '/api/server/session') return Response.json({authenticated: true});
     if (request.body.takeover) return Response.json({lease: 'new-page-lease',expiresIn: 45});
@@ -64,11 +64,14 @@ test('a duplicated tab cannot silently resume a copied credential',async t => {
   },'navigate','copied-lease');
   await fixture.start();
   assert.equal(fixture.requests[1].body.resume,'');
+  assert.equal(fixture.requests[1].body.takeover,false);
   assert.equal(fixture.panels.at(-1).state.phase,'blocked');
-  await fixture.panels.at(-1).actions.onReconnect();
-  assert.equal(fixture.requests.at(-1).body.resume,'');
+  assert.equal(fixture.panels.at(-1).state.error,'');
+  await fixture.session.check();
+  assert.equal(fixture.requests.length,2);
   assert.equal(fixture.counts().ready,0);
-  await fixture.panels.at(-1).actions.onTakeover();
+  await fixture.panels.at(-1).actions.onContinue();
+  assert.deepEqual(fixture.requests.at(-1).body,{resume: '',takeover: true});
   assert.equal(fixture.counts().ready,1);
 });
 
@@ -82,7 +85,7 @@ test('a late heartbeat from a revoked lease cannot suspend its replacement',asyn
   await fixture.start();
   const checking = fixture.session.check();
   fixture.session.failed(409);
-  await fixture.panels.at(-1).actions.onTakeover();
+  await fixture.panels.at(-1).actions.onContinue();
   finishHeartbeat(Response.json({error: 'Old lease expired.'},{status: 409}));
   await checking;
   assert.equal(fixture.session.headers().get('X-Desk-Lease'),'lease-2');

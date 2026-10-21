@@ -58,15 +58,20 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 	win.Focus()
 	show := func() {
 		waitNativeDropCondition(t, win, `!!document.querySelector('textarea[aria-label="Message Pith"]') && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
-		nativeDropEval(t, win, `document.querySelector('button[aria-label="Toggle tools"]').click();[...document.querySelectorAll('.pui-tools button')].find(b=>b.textContent==='Terminal').click();return true;`)
+		nativeDropEval(t, win, `const toggle=document.querySelector('button[aria-label="Toggle tools"]');if(toggle.getAttribute('aria-expanded')!=='true') toggle.click();[...document.querySelectorAll('.pui-tools [role="tab"]')].find(b=>b.textContent==='Terminal').click();return true;`)
 	}
-	show()
-	waitNativeDropCondition(t, win, `[...document.querySelectorAll('.pui-tools button')].some(b=>!b.hidden && b.textContent==='Start terminal' && !b.disabled)`)
-	nativeDropEval(t, win, `[...document.querySelectorAll('.pui-tools button')].find(b=>b.textContent==='Start terminal').click();return true;`)
+	waitNativeDropCondition(t, win, `!!document.querySelector('textarea[aria-label="Message Pith"]') && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
+	nativeDropEval(t, win, `document.querySelector('button[aria-label="Toggle tools"]').click();return true;`)
+	newTerminal := func() {
+		nativeDropEval(t, win, `document.querySelector('button[aria-label="New tool tab"]').click();return true;`)
+		waitNativeDropCondition(t, win, `!!document.querySelector('[role="menu"]:not([hidden]) [role="menuitem"]')`)
+		nativeDropEval(t, win, `[...document.querySelectorAll('[role="menuitem"]')].find(b=>b.textContent==='New terminal').click();return true;`)
+	}
+	newTerminal()
 	enter := func(text string) {
 		t.Log("native terminal input:", text)
-		waitNativeDropCondition(t, win, `!!document.querySelector('.pui-tools textarea[aria-label="Terminal input"]') && document.querySelector('.pui-tools').textContent.includes('Connected · manual shell')`)
-		nativeDropEval(t, win, `const input=document.querySelector('.pui-tools textarea[aria-label="Terminal input"]');input.focus();input.value=`+strconv.Quote(text)+`;input.dispatchEvent(new InputEvent('input',{data:`+strconv.Quote(text)+`,inputType:'insertText',bubbles:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));return true;`)
+		waitNativeDropCondition(t, win, `!!document.querySelector('.pui-tool-panel:not([hidden]) textarea[aria-label="Terminal input"]') && !!document.querySelector('.pui-tool-panel:not([hidden]) [aria-label="Interactive terminal"][aria-disabled="false"]')`)
+		nativeDropEval(t, win, `const input=document.querySelector('.pui-tool-panel:not([hidden]) textarea[aria-label="Terminal input"]');input.focus();input.value=`+strconv.Quote(text)+`;input.dispatchEvent(new InputEvent('input',{data:`+strconv.Quote(text)+`,inputType:'insertText',bubbles:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));return true;`)
 	}
 	enter(`stty -echo; echo $$ > first.pid; printf '\033[32mNative 中文\033[0m\n'; echo ready > native-ready`)
 	path := filepath.Join(workspace.Path, "native-ready")
@@ -91,9 +96,9 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 	show()
 	waitNativeDropCondition(t, win, `document.querySelector('[aria-label="Terminal display"]').textContent.includes('Native 中文')`)
 	enter(`echo $$ > after-refresh.pid; sleep 60`)
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-tools').textContent.includes('Connected · manual shell')`)
+	waitNativeDropCondition(t, win, `!!document.querySelector('.pui-tool-panel:not([hidden]) [aria-label="Interactive terminal"][aria-disabled="false"]')`)
 	time.Sleep(100 * time.Millisecond)
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Interrupt terminal"]').click();return true;`)
+	nativeDropEval(t, win, `document.querySelector('.pui-tool-panel:not([hidden]) textarea[aria-label="Terminal input"]').dispatchEvent(new KeyboardEvent('keydown',{key:'c',code:'KeyC',keyCode:67,which:67,ctrlKey:true,bubbles:true}));return true;`)
 	enter(`echo interrupted > native-interrupted`)
 	for deadline := time.Now().Add(5 * time.Second); ; {
 		data, _ := os.ReadFile(filepath.Join(workspace.Path, "native-interrupted"))
@@ -110,6 +115,20 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 	if len(first) == 0 || string(first) != string(second) {
 		t.Fatal("native refresh replaced shell")
 	}
+	enter(`export NATIVE_FIRST=only`)
+	newTerminal()
+	enter(`stty -echo; printf '%s' ${NATIVE_FIRST-unset} > native-second-state; printf 'Independent second terminal 中文\n'`)
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		data, _ := os.ReadFile(filepath.Join(workspace.Path, "native-second-state"))
+		if string(data) == "unset" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("native terminal tabs shared a process environment")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	nativeDropEval(t, win, `[...document.querySelectorAll('.pui-tools [role="tab"]')].find(b=>b.textContent==='Terminal').click();return true;`)
 	if value := nativeDropEval(t, win, `return document.querySelector('textarea[aria-label="Message Pith"]').value;`); value != "Native draft 中文" {
 		t.Fatal("terminal changed native draft", value)
 	}
@@ -120,8 +139,12 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 	waitNativeDropCondition(t, win, `window.__terminalPainted`)
 	waitNativeDropCondition(t, win, `(() => {const root=document.querySelector('.pui-terminal-viewport'),rows=document.querySelector('.xterm-rows'),cell=rows?.querySelector('span'),surface=document.querySelector('.xterm-scrollable-element'),viewport=document.querySelector('.xterm-viewport');return !!cell && cell.getBoundingClientRect().width>20 && getComputedStyle(rows).fontSize===getComputedStyle(root).fontSize && getComputedStyle(rows).color===getComputedStyle(root).color && [surface,viewport].every(node=>getComputedStyle(node).backgroundColor===getComputedStyle(root).backgroundColor);})()`)
 	saveUsabilityScreenshot(t, win, "terminal-native.png")
-	nativeDropEval(t, win, `[...document.querySelectorAll('.pui-tools button')].find(b=>b.textContent==='Close terminal').click();return true;`)
-	waitNativeDropCondition(t, win, `[...document.querySelectorAll('.pui-tools button')].some(b=>!b.hidden && b.textContent==='Start terminal')`)
+	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close Terminal"]').click();return true;`)
+	waitNativeDropCondition(t, win, `![...document.querySelectorAll('.pui-tools [role="tab"]')].find(b=>b.textContent==='Terminal') && !![...document.querySelectorAll('.pui-tools [role="tab"][aria-selected="true"]')].find(b=>b.textContent==='Terminal 2')`)
+	enter(`printf 'still running\n'; echo alive > native-second-alive`)
+	waitNativeDropCondition(t, win, `document.querySelector('.pui-tool-panel:not([hidden]) [aria-label="Terminal display"]').textContent.includes('still running')`)
+	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close Terminal 2"]').click();return true;`)
+	waitNativeDropCondition(t, win, `![...document.querySelectorAll('.pui-tools [role="tab"]')].find(b=>b.textContent==='Terminal 2')`)
 	if files, err := os.ReadDir(workspace.Path); err != nil || len(files) < 3 {
 		t.Fatal("native fixture lost workspace files", err)
 	}

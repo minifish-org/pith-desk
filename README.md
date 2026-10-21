@@ -115,27 +115,51 @@ The sidebar groups conversations under their workspace folders. Expand or collap
 The desktop window shares its native titlebar with the conversation header.
 Native window buttons remain available, and empty header areas drag the window.
 
-The icon at the left of the header toggles navigation; the icon at the right
-toggles **Workspace files**. On wide screens the two sides open independently,
-and the conversation expands into the available space. On phones each side is
-an overlay: only one opens at a time. Close it with its close button, the shaded
-backdrop or Escape; focus returns to its header button.
+An expanded sidebar keeps its compact collapse icon at its own top: navigation
+beside the brand (in the native window-controls row on macOS), tools beside its
+tabs. Once collapsed, the corresponding left/right end of the conversation
+header shows its opener. On wide screens the sides open independently and the
+conversation expands into the available space. Column headers share one compact
+row height: 44px in browsers, or the native window-controls height when taller.
+Opening or closing a sidebar does not change that height. On phones each side is an
+overlay: only one opens at a time. Close it with its top icon, shaded backdrop
+or Escape; focus returns to its opener. Tab and Shift+Tab stay inside an open
+phone panel, while focused terminal programs retain their own keys.
 
-**Workspace files** lists the selected folder's immediate directories and files.
-Expand a directory to read its contents on demand. **Find workspace files**
-searches file names across that workspace after typing; it returns up to 200
-matches and examines up to 10,000 entries. Search does not descend directory
-symlinks; safe links inside the workspace can still be expanded manually.
-Large directory listings also stop at 10,000 entries and show a limit notice.
-Use **Refresh workspace files** after the Agent or another program changes files;
-it reloads the root and expanded folders, or repeats the current search.
+Drag the left rail's right edge or the right rail's left edge to resize them
+independently. Focus the separator with Tab and use Left/Right for 10px steps,
+Shift+Left/Right for 40px steps, or Home/End for its limits. Navigation normally
+ranges from 200–480px and tools from 240–800px. Smaller windows temporarily
+constrain both rails to retain at least 320px for the conversation; enlarging
+the window restores the preference. Narrow screens continue to use overlays.
+Files and terminal columns adapt live without replacing their views or shells.
+Completed adjustments are saved with Desk settings in its data directory,
+survive collapse, refresh and app/service restart, and apply to the controlling
+page in both Desktop and Server. A viewport constraint is never saved as a
+new preference. These widths are shared by workspaces in that Desk profile.
+
+The right tool rail opens with one **Files** tab. Use the adjacent **+** menu for
+**New files** or **New terminal**. Tabs retain their content when switched or
+hidden. Each workspace restores its own tabs and selection after refresh;
+each Files tab keeps its expanded directories and reading position.
+These preferences are local to the browser/profile. Closing Files destroys only
+that view. Closing every tab leaves an empty rail with the **+** menu available.
+
+**Files** lists the selected folder's immediate directories and files.
+Expand a directory to read its contents on demand; safe links inside the
+workspace can also be expanded. The compact row above the tree contains the
+workspace path and **Refresh workspace files**. Large directory listings stop
+at 10,000 entries and show a limit notice. Use Refresh after the Agent or another
+program changes files; it reloads the root and expanded folders. Older saved
+file-name filters are ignored while expansion and reading positions still restore.
 
 Click a file for the existing online preview. Its **File actions** menu offers
 Preview, Download, Copy path and **Insert reference**. In Desktop it also retains
 Open, Reveal and Copy file. Download uses the native save dialog in Desktop and
 the browser in Server. Insert reference adds the quoted workspace-relative path
 at the message selection, keeping the rest of the draft and its images; it does
-not submit a message. Switching workspaces clears the old list and preview.
+not submit a message. Switching workspaces closes the preview and shows that
+workspace's retained tool views.
 The conversation **Files** button and its count still represent successful
 Agent file writes/edits, independently of this directory browser.
 
@@ -150,20 +174,20 @@ attachments use the upload limits described below.
 
 ### Manual terminal
 
-Open the right tool rail, choose **Terminal**, then **Start terminal**. There is
-one shell per workspace, created on demand (up to 16 retained terminal sessions
-per service). **Files** switches back to the workspace browser. Hiding the rail,
-switching views/workspaces, closing the page, logging out or losing the connection
+Choose **+ → New terminal** in the right tool rail to start a shell immediately.
+Each Terminal tab owns an independent shell, environment, current directory and
+process session (up to 16 retained terminal sessions per service). Hiding the rail,
+switching tabs/workspaces, closing the page, logging out or losing the connection
 does not stop the shell. Refresh/reconnect attaches to that same session while
 the same Go service is running. An exited shell stays exited; close it before
-starting another. **Close terminal** stops its shell and foreground/background
+starting another. The Terminal tab's **×** stops its shell and foreground/background
 jobs. Removing the workspace or exiting the service also cleans them up.
 Explicitly detached processes that start a different OS session are outside this
 terminal's process session and may outlive it.
 
-The rail identifies **Local computer** in Desktop and **Server** in Server mode,
-including the host name and initial absolute directory. The shell's `pwd` shows
-its current directory after `cd`; the initial-directory label remains the
+Hover a tab for the Local/Server location, host name, initial absolute directory
+and shell; the tab bar has no permanent location badge. The shell's `pwd` shows
+its current directory after `cd`; the initial-directory tooltip remains the
 workspace path. The host account's executable `$SHELL` is preferred, then its
 account configuration and `/bin/zsh`, `/bin/bash`, `/bin/sh` fallbacks, in
 interactive mode. macOS and Linux require a usable shell and PTY support
@@ -173,14 +197,14 @@ installed on that host. The embedded frontend uses pinned `@xterm/xterm` and
 or headless Server needs no Node.js, terminal service or extra daemon. Existing
 GUI-free Linux Server and `CGO_ENABLED=0` builds remain supported.
 
-Select text and use system Copy, **Copy selection**, system Paste or **Paste into
-terminal** (browser clipboard permission may be required). Paste/input messages
-are limited to 16 KiB. The touch controls provide Ctrl+C (interrupt), Escape,
+Select text and use standard Copy/Paste shortcuts or the system context menu.
+Paste/input messages are limited to 16 KiB. On phones and touch layouts, compact
+bottom controls provide Ctrl+C (interrupt), Escape,
 Tab, arrows and Ctrl+D. Keyboard shortcuts stay in the focused terminal; Escape
 is delivered to terminal programs, so use **Close tools** or the backdrop to
 dismiss a phone overlay. Short keyboard viewports retain the emulator and touch
-keys, with scrollable metadata/actions. Conversation drafts and file-browser
-inputs stay intact across tool switches.
+keys. Desktop keeps those buttons hidden. Conversation drafts and file-browser
+positions stay intact across tool switches.
 
 **This is a host-account shell, not a workspace sandbox.** The workspace is only
 its initial directory. A signed-in Server controller can execute commands with
@@ -216,6 +240,10 @@ that ignore resize/redraw can leave an incomplete display. Use the program's
 redraw command (for example Ctrl+L or vim `:redraw!`) when needed. Service restart
 does not restore shells or re-execute commands. There is no multi-user sharing,
 cross-instance recovery, terminal recording, sandbox or Agent takeover feature.
+Only tab layout and Files preferences enter browser storage; terminal input,
+output and history do not. A new browser/profile can discover the running
+workspace sessions, but has its own layout. Saved terminal tabs whose service
+has restarted show that the session ended; creating a new tab starts a new shell.
 Phone soft-keyboard checks are automated simulations; physical iOS/Android
 keyboard, selection handles and system clipboard behavior still need device
 acceptance.
@@ -402,14 +430,16 @@ The private application data directory cannot be a workspace or sit inside one.
 Login creates a 24-hour HttpOnly, SameSite=Strict browser session; HTTPS origins
 also require a Secure cookie. Every business API, image, file download and state
 stream additionally requires the active page's exclusive lease. Opening another
-tab or browser shows **Reconnect** and **Take over**. Taking over immediately
-revokes the old lease and closes its state streams. Refresh resumes with a new
-page credential and restores actual Go-owned task and approval state.
+tab or browser shows a single **Continue here** button. Clicking it takes control
+immediately, revokes the old lease and closes its state streams. Refresh resumes
+with a new page credential and restores actual Go-owned task and approval state.
 Control handoff also settles already-admitted writes before enabling the new
 page. Old or slow-upload requests cannot overwrite the replacement page's data.
 
 A page renews its 45-second lease every 10 seconds. Closing or losing the browser
-lets the lease expire; another page can then reconnect, or take over immediately.
+lets the lease expire. **Continue here** reconnects and takes control immediately;
+opening a page or retrying a background connection never steals control
+automatically.
 Sleeping/throttled browsers may need to reconnect. Closing a page, losing its
 lease or signing out never stops an Agent task. Use **Stop** to abort a task.
 **Log out** saves drafts, releases the lease and invalidates the current

@@ -370,7 +370,7 @@ func validatedConfig(input ConfigInput, current savedConfig) (savedConfig, error
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return savedConfig{}, errors.New("Enter an HTTP or HTTPS API base URL without credentials, query, or fragment")
 	}
-	next := savedConfig{AuthPath: current.AuthPath, Provider: provider, BaseURL: base, Model: strings.TrimSpace(input.Model), Appearance: current.Appearance, Connections: map[string]savedConnection{}}
+	next := savedConfig{AuthPath: current.AuthPath, Provider: provider, BaseURL: base, Model: strings.TrimSpace(input.Model), Appearance: current.Appearance, NavigationWidth: current.NavigationWidth, ToolsWidth: current.ToolsWidth, Connections: map[string]savedConnection{}}
 	for id, connection := range current.Connections {
 		next.Connections[id] = connection
 	}

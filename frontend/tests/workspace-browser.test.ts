@@ -8,7 +8,8 @@ function harness() {
   let workspace = {id: 'first',path: '/srv/first',name: 'First'},disabled = false,referenceDisabled = false,open = false,cleared = 0,changed = 0;
   const states: Array<any> = [],reads: Array<{query: any;signal: AbortSignal;resolve(value: unknown): void}> = [],inserted: string[][] = [],actions: unknown[] = [];
   const browser = createWorkspaceBrowser({
-    ui: {files: {updateWorkspace(state) {states.push(state);},areToolsOpen: () => open,closeToolsOverlay() {}},workspace: {insertReferences(paths) {inserted.push([...paths]);},focusComposer() {}}} as Application,
+    ui: {files: {areToolsOpen: () => open,closeToolsOverlay() {}},workspace: {insertReferences(paths) {inserted.push([...paths]);},focusComposer() {}}} as Application,
+    view: {update(state) {states.push(state);}},visible: () => open,
     request: ((_: string,options: any) => new Promise(resolve => {reads.push({...options,resolve});})) as ApiRequest,
     workspace: () => workspace,disabled: () => disabled,referenceDisabled: () => referenceDisabled,server: true,native: false,
     clearPreview() {cleared++;},changedDraft() {changed++;},async fileAction(action,target) {actions.push({action,target});},

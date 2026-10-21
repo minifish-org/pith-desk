@@ -3,17 +3,20 @@ import {readFile,writeFile} from 'node:fs/promises';
 import {test} from './host-fixture.mjs';
 
 test.setTimeout(60000);
-const tools = (page: any) => page.getByRole('complementary',{name: 'Workspace files',exact: true});
-const keyboard = (page: any) => page.getByRole('textbox',{name: 'Terminal input',exact: true});
+const tools = (page: any) => page.getByRole('complementary',{name: 'Workspace tools',exact: true});
+const panel = (page: any) => tools(page).getByRole('tabpanel');
+const keyboard = (page: any) => panel(page).getByRole('textbox',{name: 'Terminal input',exact: true});
+const connected = (page: any) => expect(panel(page).getByLabel('Interactive terminal',{exact:true})).toHaveAttribute('aria-disabled','false');
+async function newTerminal(page: any) {await tools(page).getByRole('button',{name:'New tool tab',exact:true}).click();await page.getByRole('menuitem',{name:'New terminal',exact:true}).click();await connected(page);}
 async function showTerminal(page: any) {
-  const toggle = page.getByRole('button',{name: 'Toggle tools',exact: true});
+  const toggle = page.getByRole('button',{name: 'Toggle tools',exact: true,includeHidden:true});
   if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
-  await tools(page).getByRole('button',{name: 'Terminal',exact: true}).click();
+  await tools(page).getByRole('tab',{name: 'Terminal',exact: true}).click();
+  await connected(page);
 }
 async function startTerminal(page: any,host: any) {
   await page.goto(host.url);await expect(page.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();
-  await showTerminal(page);await tools(page).getByRole('button',{name: 'Start terminal',exact: true}).click();
-  await expect(tools(page)).toContainText('Connected · manual shell');await expect(keyboard(page)).toBeAttached();
+  await page.getByRole('button',{name:'Toggle tools',exact:true}).click();await newTerminal(page);await expect(keyboard(page)).toBeAttached();
 }
 async function command(page: any,text: string) {await keyboard(page).focus();await page.keyboard.insertText(text);await keyboard(page).press('Enter');}
 async function file(path: string) {return readFile(path,'utf8').catch(() => '');}
@@ -22,12 +25,13 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
   test.use({hostMode: mode});
   test('shell state, tools and drafts remain independent from Agent commands and approval',async ({page,host}) => {
     const root = host.state.workspaces[0].path;
-    await startTerminal(page,host);await expect(tools(page)).toContainText(mode === 'server' ? 'Server ·' : 'Local computer ·');await expect(tools(page)).toContainText('Initial directory: '+root);
+    await startTerminal(page,host);await expect(tools(page).getByText(/^(Local|Server)$/)).toHaveCount(0);
+    const tab=tools(page).getByRole('tab',{name:'Terminal',exact:true});await expect(tab).toHaveAttribute('title',new RegExp('^'+(mode==='server'?'Server':'Local')));await expect(tab).toHaveAttribute('title',new RegExp(root));
     await command(page,"mkdir manual-dir; cd manual-dir; export MANUAL_ONLY=manual; echo 'terminal 中文' > shared.txt");
     await expect.poll(() => file(root+'/manual-dir/shared.txt')).toBe('terminal 中文\n');
-    await tools(page).getByRole('button',{name: 'Files',exact: true}).click();await tools(page).getByRole('button',{name: 'Refresh workspace files',exact: true}).click();
+    await tools(page).getByRole('tab',{name: 'Files',exact: true}).click();await tools(page).getByRole('button',{name: 'Refresh workspace files',exact: true}).click();
     await tools(page).getByRole('button',{name: 'manual-dir',exact: true}).click();await expect(tools(page).getByRole('button',{name: 'shared.txt',exact: true})).toBeVisible();
-    await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();
+    await tools(page).getByRole('button',{name: 'Close tools',exact: true}).click();
     const draft = page.getByRole('textbox',{name: 'Message Pith',exact: true});await draft.fill('Agent verifies its own execution state');
     await host.command('command-tool',{enabled: true});await page.getByRole('button',{name: 'Send message',exact: true}).click();
     await expect(page.getByRole('button',{name: 'Allow this action',exact: true})).toBeVisible();await expect.poll(() => file(root+'/agent-cwd.txt')).toBe('');
@@ -38,7 +42,7 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
     await draft.fill('Unsubmitted draft 中文');await showTerminal(page);
     await command(page,"pwd > terminal-cwd; printf '%s' $MANUAL_ONLY > terminal-env");
     await expect.poll(() => file(root+'/manual-dir/terminal-cwd')).toBe(root+'/manual-dir\n');await expect.poll(() => file(root+'/manual-dir/terminal-env')).toBe('manual');
-    await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();await expect(draft).toHaveValue('Unsubmitted draft 中文');
+    await tools(page).getByRole('button',{name: 'Close tools',exact: true}).click();await expect(draft).toHaveValue('Unsubmitted draft 中文');
   });
 
   test('hide, reload, page close and disconnect keep one shell and bounded replay without input replay',async ({page,host,context}) => {
@@ -48,27 +52,27 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
     await startTerminal(page,host);await command(page,"echo $$ > shell.pid; stty -echo; printf '\\344'; sleep .1; printf '\\270\\255\\346\\226\\207'; printf '\\nSPLIT_DONE\\n'");
     await expect(tools(page)).toContainText('中文');const pid = await file(root+'/shell.pid');expect(pid.trim()).toMatch(/^\d+$/);
     await command(page,"printf x >> once.txt; (sleep .25; printf 'while-away\\n'; echo finished > detached.txt) &");
-    connections.at(-1).server.close();await expect.poll(() => connections.length).toBeGreaterThan(1);await expect(tools(page)).toContainText('Connected · manual shell');
+    connections.at(-1).server.close();await expect.poll(() => connections.length).toBeGreaterThan(1);await connected(page);
     await expect.poll(() => file(root+'/once.txt')).toBe('x');
     await page.reload();await expect(page.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();await showTerminal(page);await expect(tools(page)).toContainText('while-away');
     expect(starts).toBe(1);await command(page,'echo $$ > reconnected.pid');await expect.poll(() => file(root+'/reconnected.pid')).toBe(pid);
-    await command(page,"sleep 60");await tools(page).getByRole('button',{name: 'Interrupt terminal',exact: true}).click();await command(page,'echo interrupted > interrupted.txt');await expect.poll(() => file(root+'/interrupted.txt')).toBe('interrupted\n');
+    await command(page,"sleep 60");await keyboard(page).press('Control+c');await command(page,'echo interrupted > interrupted.txt');await expect.poll(() => file(root+'/interrupted.txt')).toBe('interrupted\n');
     await command(page,"head -c 2097152 /dev/zero | tr '\\000' x; printf '\\nTAIL_MARKER\\n'");
     await expect(tools(page)).toContainText('TAIL_MARKER');await page.reload();await showTerminal(page);await expect(tools(page)).toContainText('Earlier terminal output was truncated');await expect(tools(page)).toContainText('TAIL_MARKER');
     await command(page,"(sleep .2; echo page-closed > page-closed.txt) &");await page.close();await expect.poll(() => file(root+'/page-closed.txt')).toBe('page-closed\n');
     const next = await context.newPage();await next.goto(host.url);
-    if (mode==='server') {await expect(next.getByRole('button',{name: 'Take over',exact: true})).toBeVisible();await next.getByRole('button',{name: 'Take over',exact: true}).click();}
-    await expect(next.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();await showTerminal(next);await expect(tools(next)).toContainText('Connected · manual shell');
-    await tools(next).getByRole('button',{name: 'Close terminal',exact: true}).click();await expect(tools(next).getByRole('button',{name: 'Start terminal',exact: true})).toBeVisible();
+    if (mode==='server') {await expect(next.getByRole('button',{name: 'Continue here',exact: true})).toBeVisible();await next.getByRole('button',{name: 'Continue here',exact: true}).click();}
+    await expect(next.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();await showTerminal(next);await connected(next);
+    await tools(next).getByRole('button',{name: 'Close Terminal',exact: true}).click();await expect(tools(next).getByRole('tab',{name:'Terminal',exact:true})).toHaveCount(0);
   });
 
   test('workspace switches show separate shells and preserve their pending command lines',async ({page,host}) => {
     const [first,second] = host.state.workspaces;await startTerminal(page,host);
     await command(page,'export WORKSPACE_MARKER=first');await keyboard(page).pressSequentially('echo pending-first > pending.txt');
     await page.getByRole('button',{name: second.name,exact: true}).click();await page.getByRole('button',{name: second.name+' conversation',exact: true}).click();
-    await expect(tools(page).getByRole('button',{name: 'Start terminal',exact: true})).toBeVisible();await tools(page).getByRole('button',{name: 'Start terminal',exact: true}).click();
-    await expect(tools(page)).toContainText('Connected · manual shell');await command(page,"printf '%s' ${WORKSPACE_MARKER-unset} > marker.txt");await expect.poll(() => file(second.path+'/marker.txt')).toBe('unset');
-    await page.getByRole('button',{name: first.name+' conversation',exact: true}).click();await expect(tools(page)).toContainText('pending-first');
+    await expect(tools(page).getByRole('tab',{name:'Files',exact:true})).toHaveAttribute('aria-selected','true');await newTerminal(page);
+    await connected(page);await command(page,"printf '%s' ${WORKSPACE_MARKER-unset} > marker.txt");await expect.poll(() => file(second.path+'/marker.txt')).toBe('unset');
+    await page.getByRole('button',{name: first.name+' conversation',exact: true}).click();await expect(panel(page)).toContainText('pending-first');
     await keyboard(page).press('Enter');await expect.poll(() => file(first.path+'/pending.txt')).toBe('pending-first\n');expect(await file(second.path+'/pending.txt')).toBe('');
   });
 
@@ -76,17 +80,17 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
     let snapshots=0;page.on('websocket',socket=>{if(new URL(socket.url()).pathname==='/api/socket') socket.on('framereceived',()=>snapshots++);});
     await startTerminal(page,host);const before=snapshots;
     await command(page,'yes terminal-flood');await expect(tools(page)).toContainText('Earlier terminal output was truncated');
-    await tools(page).getByRole('button',{name:'Interrupt terminal',exact:true}).click();await command(page,'echo responsive > flood-stopped');
+    await keyboard(page).press('Control+c');await command(page,'echo responsive > flood-stopped');
     await expect.poll(()=>file(host.state.workspaces[0].path+'/flood-stopped')).toBe('responsive\n');expect(snapshots).toBe(before);
   });
 });
 
 test('Server takeover retires terminal input while preserving unsent conversation text',async ({page,host,context}) => {
   const root = host.state.workspaces[0].path;await startTerminal(page,host);await command(page,'echo $$ > original.pid');
-  await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();const draft = page.getByRole('textbox',{name: 'Message Pith',exact: true});await draft.fill('Keep my draft');await showTerminal(page);
-  const other = await context.newPage();await other.goto(host.url);await other.getByRole('button',{name: 'Take over',exact: true}).click();await expect(page.getByRole('dialog',{name: 'Reconnect to Pith Desk',exact: true})).toBeVisible();
-  await showTerminal(other);await expect(tools(other)).toContainText('Connected · manual shell');await command(other,'echo $$ > taken-over.pid');await expect.poll(() => file(root+'/taken-over.pid')).toBe(await file(root+'/original.pid'));
-  await other.getByRole('button',{name: 'Toggle tools',exact: true}).click();await expect(other.getByRole('textbox',{name: 'Message Pith',exact: true})).toHaveValue('Keep my draft');
+  await tools(page).getByRole('button',{name: 'Close tools',exact: true}).click();const draft = page.getByRole('textbox',{name: 'Message Pith',exact: true});await draft.fill('Keep my draft');await showTerminal(page);
+  const other = await context.newPage();await other.goto(host.url);await other.getByRole('button',{name: 'Continue here',exact: true}).click();await expect(page.getByRole('dialog',{name: 'Reconnect to Pith Desk',exact: true})).toBeVisible();
+  await showTerminal(other);await connected(other);await command(other,'echo $$ > taken-over.pid');await expect.poll(() => file(root+'/taken-over.pid')).toBe(await file(root+'/original.pid'));
+  await tools(other).getByRole('button',{name: 'Close tools',exact: true}).click();await expect(other.getByRole('textbox',{name: 'Message Pith',exact: true})).toHaveValue('Keep my draft');
 });
 
 test('vim and top redraw across reconnect; unsaved editor state stays in the process',async ({page,host}) => {
@@ -102,15 +106,14 @@ test('vim and top redraw across reconnect; unsaved editor state stays in the pro
 test.describe('phone terminal',() => {
   test.use({viewport: {width:390,height:844},isMobile:true,hasTouch:true});
   test('simulated soft keyboard keeps terminal sizing, scrolling, Esc and touch keys usable',async ({page,host}) => {
-    await page.goto(host.url);const draft = page.getByRole('textbox',{name:'Message Pith',exact:true});await expect(draft).toBeEditable();await draft.fill('Phone draft 中文');await showTerminal(page);
-    await tools(page).getByRole('button',{name:'Start terminal',exact:true}).click();await expect(tools(page)).toContainText('Connected · manual shell');
+    await page.goto(host.url);const draft = page.getByRole('textbox',{name:'Message Pith',exact:true});await expect(draft).toBeEditable();await draft.fill('Phone draft 中文');await page.getByRole('button',{name:'Toggle tools',exact:true}).click();await newTerminal(page);
     await page.evaluate(() => {Object.defineProperty(window.visualViewport!,'height',{configurable:true,value:330});window.visualViewport!.dispatchEvent(new Event('resize'));});
     await keyboard(page).focus();await command(page,'stty size > phone-size');
     await expect.poll(() => file(host.state.workspaces[0].path+'/phone-size')).toMatch(/\d+ \d+/);
     const box = await page.locator('.pui-terminal-viewport').boundingBox();expect(box!.height).toBeGreaterThan(25);expect(box!.y+box!.height).toBeLessThanOrEqual(330);
     const interrupt = tools(page).getByRole('button',{name:'Interrupt terminal',exact:true});await expect(interrupt).toBeVisible();const keyBox = await interrupt.boundingBox();expect(keyBox!.y+keyBox!.height).toBeLessThanOrEqual(330);
     await command(page,'sleep 60');await interrupt.click();await command(page,'echo phone-ok > phone.txt');await expect.poll(() => file(host.state.workspaces[0].path+'/phone.txt')).toBe('phone-ok\n');
-    await keyboard(page).press('Escape');await expect(tools(page)).toBeVisible();await tools(page).getByRole('button',{name:'Files',exact:true}).click();await expect(tools(page).getByRole('searchbox',{name:'Find workspace files',exact:true})).toBeVisible();
+    await keyboard(page).press('Escape');await expect(tools(page)).toBeVisible();await tools(page).getByRole('tab',{name:'Files',exact:true}).click();await expect(tools(page).getByRole('button',{name:'Refresh workspace files',exact:true})).toBeVisible();
     await tools(page).getByRole('button',{name:'Close tools',exact:true}).click();await expect(draft).toHaveValue('Phone draft 中文');await expect(page.getByRole('button',{name:'Toggle tools',exact:true})).toBeFocused();
   });
 });

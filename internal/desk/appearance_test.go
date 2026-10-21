@@ -119,6 +119,9 @@ func TestAppearanceCanChangeDuringActiveProviderRun(t *testing.T) {
 	if err := s.SetAppearance(AppearanceDark); err != nil {
 		t.Fatalf("appearance could not change during a task: %v", err)
 	}
+	if err := s.SetSidebarWidths(SidebarWidths{300, 400}); err != nil {
+		t.Fatalf("sidebar preferences could not change during a task: %v", err)
+	}
 	if state := s.Snapshot(); !state.Running || state.Settings.Appearance != AppearanceDark || !state.Settings.HasAPIKey {
 		t.Fatalf("appearance update disrupted the active task: %+v", state)
 	}

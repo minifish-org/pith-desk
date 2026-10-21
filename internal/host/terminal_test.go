@@ -19,7 +19,7 @@ import (
 
 func openTestTerminal(t *testing.T, b *serverBrowser, workspace string) wire.TerminalResponse {
 	t.Helper()
-	resp, data := b.request(t, "POST", "/api/terminal", wire.TerminalOpenInput{WorkspaceID: workspace, Cols: 80, Rows: 24}, "")
+	resp, data := b.request(t, "POST", "/api/terminal", wire.TerminalOpenInput{WorkspaceID: workspace, ID: "terminal-" + workspace, Cols: 80, Rows: 24}, "")
 	var result wire.TerminalResponse
 	if resp.StatusCode != 200 || json.Unmarshal(data, &result) != nil || result.Session == nil {
 		t.Fatalf("terminal open: %d %s", resp.StatusCode, data)
@@ -233,5 +233,67 @@ func TestTerminalFlowControlBoundedReplayWorkspaceRemovalAndShutdown(t *testing.
 	}
 	if remaining.Info().Running {
 		t.Fatal("service shutdown retained shell")
+	}
+}
+
+func TestTerminalMultipleTabsInventoryAndScopedClose(t *testing.T) {
+	shell, err := shellfixture.Create(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", shell)
+	s := testServerMode(t, "")
+	b := &serverBrowser{s: s}
+	b.login(t)
+	b.acquire(t, "", false)
+	workspace, err := s.service.AddWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.service.AddWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := openTestTerminal(t, b, workspace.ID)
+	input := wire.TerminalOpenInput{WorkspaceID: workspace.ID, ID: "second-tab", Cols: 90, Rows: 30}
+	resp, data := b.request(t, "POST", "/api/terminal", input, "")
+	var second wire.TerminalResponse
+	if resp.StatusCode != 200 || json.Unmarshal(data, &second) != nil || second.Session == nil || second.Session.ID == first.Session.ID {
+		t.Fatalf("second tab: %d %s", resp.StatusCode, data)
+	}
+	// A retried create has the same process identity; opening another ID does not.
+	resp, data = b.request(t, "POST", "/api/terminal", input, "")
+	if resp.StatusCode != 200 {
+		t.Fatal(resp.StatusCode, string(data))
+	}
+	third := openTestTerminal(t, b, other.ID)
+	resp, data = b.request(t, "GET", "/api/terminal?workspaceId="+url.QueryEscape(workspace.ID)+"&id=second-tab", nil, "")
+	var listed wire.TerminalResponse
+	if resp.StatusCode != 200 || json.Unmarshal(data, &listed) != nil || len(listed.Sessions) != 2 || listed.Session == nil || listed.Session.ID != "second-tab" {
+		t.Fatalf("workspace inventory: %d %s", resp.StatusCode, data)
+	}
+	for _, info := range listed.Sessions {
+		if info.WorkspaceID != workspace.ID {
+			t.Fatal("cross-workspace terminal inventory", info)
+		}
+	}
+	resp, data = b.request(t, "POST", "/api/terminal/close", wire.TerminalTarget{WorkspaceID: other.ID, ID: first.Session.ID}, "")
+	if resp.StatusCode != 400 {
+		t.Fatal("cross-workspace close admitted", resp.StatusCode, string(data))
+	}
+	one, _ := s.terminals.Get(workspace.ID, first.Session.ID)
+	two, _ := s.terminals.Get(workspace.ID, second.Session.ID)
+	resp, data = b.request(t, "POST", "/api/terminal/close", wire.TerminalTarget{WorkspaceID: workspace.ID, ID: first.Session.ID}, "")
+	if resp.StatusCode != 200 || one.Info().Running || !two.Info().Running {
+		t.Fatal("closing a tab affected the wrong shell", resp.StatusCode, string(data))
+	}
+	// Workspace removal closes every remaining tab, while another workspace survives.
+	resp, data = b.request(t, "POST", "/api/remove-workspace", map[string]any{"id": workspace.ID, "conversationCount": 0}, "")
+	if resp.StatusCode != 200 || two.Info().Running {
+		t.Fatal("workspace removal retained a tab", resp.StatusCode, string(data))
+	}
+	three, _ := s.terminals.Get(other.ID, third.Session.ID)
+	if !three.Info().Running {
+		t.Fatal("removing workspace ended another workspace's terminal")
 	}
 }

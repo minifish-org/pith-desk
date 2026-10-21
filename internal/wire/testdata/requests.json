@@ -3,6 +3,7 @@
   {"method": "GET", "format": "json", "path": "/api/history", "url": "/api/history?id=chat%2F%E4%B8%AD%E6%96%87", "input": {"id": "chat/中文"}},
   {"method": "GET", "format": "blob", "path": "/api/image", "url": "/api/image?id=chat-a&message=image+one&index=0", "input": {"id": "chat-a", "message": "image one", "index": 0}},
   {"method": "POST", "format": "json", "path": "/api/open", "url": "/api/open", "input": {"id": "chat-b"}},
+  {"method": "POST", "format": "json", "path": "/api/sidebar-widths", "url": "/api/sidebar-widths", "input": {"navigation": 340, "tools": 420}},
   {"method": "POST", "format": "json", "path": "/api/edit-message", "url": "/api/edit-message", "input": {"id": "chat-a", "messageId": "user-a", "expectedLastMessageId": "reply-a", "text": "修改后的消息"}},
   {"method": "POST", "format": "json", "path": "/api/send", "url": "/api/send", "input": {"id": "chat-a", "text": "你好", "images": [{"type": "image", "data": "Zml4dHVyZQ==", "mimeType": "image/png"}]}},
   {"method": "POST", "format": "json", "path": "/api/queue", "url": "/api/queue", "input": {"id": "chat-a", "text": "下一步", "mode": "steer", "images": [{"type": "image", "data": "Zml4dHVyZQ==", "mimeType": "image/png"}]}},

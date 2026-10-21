@@ -23,8 +23,7 @@ import {createSDKUI} from './sdk-features';
 import {createSettingsUI} from './settings';
 import {createTaskControls} from './task-controls';
 import {installWorkspaceFileDrop} from './workspace-files';
-import {createWorkspaceBrowser} from './workspace-browser';
-import {createWorkspaceTerminal} from './terminal';
+import {createWorkspaceToolsController} from './workspace-tools';
 import {localFilePath} from './local-file-links';
 import type {MutationInput, MutationPath, MutationResponse} from './api';
 import type {AppearanceMode, RunSummary} from './contract.generated';
@@ -37,6 +36,7 @@ const session = server ? createServerSession({recoveryText: () => recovery?.text
 const appearanceMode = (value: unknown): AppearanceMode => value === 'light' || value === 'dark' ? value : 'system';
 const activity: UIActivity = {busy: false, error: ''};
 let disposed = false, suspended = false, ready = false, flushingDrafts = false;
+let sidebarSave: Promise<unknown> = Promise.resolve();
 let nativeMenu: ReturnType<typeof installNativeMenu> | undefined;
 const app = createApp({
   token, session, origin: window.location.href, appearance: appearanceMode(appearance), onSnapshot: snapshotChanged,
@@ -55,9 +55,7 @@ const ui = mountApplication({
   appearance: appearanceMode(appearance), host: {copyText: text => files.copyText(text)},
   onUIStateChange() {if (ready && !disposed) {nativeMenu?.update(); completionUI.acknowledgeViewed();}},
   onError(message) {activity.error = message; render();},
-  fileBrowser: {onSearch: query => workspaceBrowser.find(query),onRefresh: () => {void workspaceBrowser.refresh();},onToggle: (target,expanded) => workspaceBrowser.toggle(target,expanded),onAction: (action,target) => workspaceBrowser.action(action,target)},
-  terminal: {onStart: () => terminal.start(),onClose: () => terminal.close(),onInput: data => terminal.input(data),onResize: size => terminal.resize(size),onCopy: text => files.copyText(text)},
-  onToolViewChange() {if (ready) {workspaceBrowser.sync();terminal.sync();}},
+  tools: {onSelect: id => toolTabs.select(id),onNew: kind => toolTabs.create(kind),onClose: id => {void toolTabs.close(id);}},
   workspace: {
     onError(message) {activity.error = message; render();},
     onAction: workspaceAction,
@@ -95,7 +93,13 @@ const ui = mountApplication({
     onCompletionOpen: id => {void selectConversation(id);},
     onCompletionDismiss: id => completionUI.dismiss(id),
     onCostsChange: () => costUI.render(),
-    onToolsToggle() {if (ready) {workspaceBrowser.sync();terminal.sync();}},
+    onToolsToggle() {if (ready) toolTabs.sync();},
+    onSidebarResize(widths) {
+      if (!ready || !app.loaded || disposed || suspended) return;
+      // Serialize committed preferences; pointer moves never write snapshots.
+      // Retired pages neither save queued changes nor replay failed writes.
+      sidebarSave=sidebarSave.then(async()=>{if (!disposed && !suspended) await request('/api/sidebar-widths',widths,{keepalive:true});}).catch(error=>{if (!disposed && !suspended) {activity.error=String(error);render();}});
+    },
   },
 });
 const mutations = createMutations({request, refresh, busy: () => activity.busy, setBusy: value => {activity.busy = value;}, error: message => {activity.error = message;}, render});
@@ -127,12 +131,11 @@ const settings = createSettingsUI({ui, view: app, activity, request, mutate, ren
 const conversations = createConversationsUI({ui, view: app, activity, request, download, mutate, render, closeSidebar, workspaceRun, conversationRunning,
   historyStatus: entry => completionUI.historyStatus(entry), confirmRemoval, removeWorkspaceResources: id => files.removeWorkspace(id), clearHistoryImages: () => messages.clearHistoryImages(), loadComposerDraft: () => composer.loadComposerDraft(),
 });
-const workspaceBrowser = createWorkspaceBrowser({ui,request,workspace: () => conversations.selectedWorkspace(),
-  disabled: () => suspended || activity.busy || !app.loaded,referenceDisabled: () => composer.draftLoading || composer.readingImages || composer.resolvingReferences || flushingDrafts,
+const toolTabs = createWorkspaceToolsController({ui,request,workspace: () => conversations.selectedWorkspace(),workspaces: () => app.state.workspaces ?? [],
+  disabled: () => suspended || !app.loaded,filesDisabled: () => suspended || activity.busy || !app.loaded,referenceDisabled: () => composer.draftLoading || composer.readingImages || composer.resolvingReferences || flushingDrafts,
   server,native: nativeClipboard,clearPreview: files.clearFilePreview,fileAction: files.workspaceAction,
   changedDraft() {composer.rememberDraft();render();},
-});
-const terminal = createWorkspaceTerminal({ui,request,workspace: () => conversations.selectedWorkspace(),disabled: () => suspended || !app.loaded,
+  copy: files.copyText,
   protocols: () => session?.protocols() ?? ['pith-desk',`bearer.${token}`],checkAccess: () => session?.check() ?? Promise.resolve(),
 });
 const fileDrop = installWorkspaceFileDrop({ui, native: nativeFileDrop, server,
@@ -223,8 +226,7 @@ function render(): void {
   confirmRemoval.render(); settings.renderAppearance();
   const workspace = conversations.selectedWorkspace();
   if (workspace) conversations.selectedWorkspaceId = workspace.id;
-  workspaceBrowser.sync();
-  terminal.sync();
+  toolTabs.sync();
   const active = app.state.conversations.find(entry => entry.id === app.state.activeId), levels = app.state.settings.thinkingLevels || ['off'];
   tasks.renderPermissions(); conversations.renderHistory(); messages.renderMessages(workspace); messageEditor.render();
   tasks.renderApproval(); files.renderArtifacts(); files.renderResourceAvailability(); composer.renderQueue(); tasks.renderRuntime(); sdkUI.render(); composer.renderDraftImages();
@@ -244,6 +246,7 @@ function render(): void {
   nativeMenu?.update();
 }
 function snapshotChanged(next: State, previous: State, initialized: boolean): void {
+  if (!initialized) ui.layout.setSidebarWidths({navigation:next.settings.navigationWidth || undefined,tools:next.settings.toolsWidth || undefined});
   const shouldLoadArtifacts = !next.running && (!initialized || next.activeId !== previous.activeId || previous.running);
   const activeChanged = next.activeId !== previous.activeId, runFinished = previous.runs.length > 0 && !next.runs.length;
   if (activeChanged) {activity.error = ''; messages.clearHistoryImages(); files.activeChanged();}
@@ -267,7 +270,7 @@ function preserveText(): void {
 function saveDraftsOnLeave(): void {if (!suspended) {preserveText(); void composer.drafts.flushAll({keepalive: true});}}
 function retireControllers(): void {
   nativeMenu?.dispose(); removeNativeDrop(); fileDrop.destroy(); window.clearInterval(runtimeClock);
-  terminal.destroy();workspaceBrowser.destroy();messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy();
+  toolTabs.destroy();messages.destroy(); composer.destroy(); files.destroy(); completionUI.destroy(); costUI.destroy(); messageEditor.destroy(); confirmRemoval.destroy(); conversations.destroy(); settings.destroy(); tasks.destroy(); sdkUI.destroy();
 }
 function suspend(): void {
   if (disposed || suspended) return;
@@ -276,6 +279,7 @@ function suspend(): void {
 }
 async function flushDrafts(): Promise<boolean> {
   composer.rememberDraft(); flushingDrafts = true; render();
+  await sidebarSave;
   const results = await composer.drafts.flushAll(), saved = results.every(result => result.status === 'fulfilled');
   if (!saved) {flushingDrafts = false; render();}
   return saved;

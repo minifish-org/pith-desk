@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -40,14 +41,21 @@ type Manager struct {
 
 func New() *Manager { return &Manager{sessions: make(map[string]*Session)} }
 
-// Open is idempotent, including after a shell exits. Only explicit Close removes it.
+// A stable tab ID makes Open idempotent, including after its shell exits.
+// Different IDs in the same workspace own independent process sessions.
 func (m *Manager) Open(id, workspace, directory string, cols, rows int) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return nil, errors.New("Terminal service has stopped")
 	}
-	if s := m.sessions[workspace]; s != nil {
+	if id == "" || workspace == "" {
+		return nil, errors.New("Terminal and workspace IDs are required")
+	}
+	if s := m.sessions[id]; s != nil {
+		if s.Info().WorkspaceID != workspace {
+			return nil, errors.New("Terminal belongs to another workspace")
+		}
 		return s, nil
 	}
 	if len(m.sessions) >= SessionLimit {
@@ -60,32 +68,52 @@ func (m *Manager) Open(id, workspace, directory string, cols, rows int) (*Sessio
 	if err != nil {
 		return nil, err
 	}
-	m.sessions[workspace] = s
+	m.sessions[id] = s
 	return s, nil
 }
 
 func (m *Manager) Get(workspace, id string) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s := m.sessions[workspace]
-	if m.closed || s == nil || id != "" && s.Info().ID != id {
+	var s *Session
+	for key, candidate := range m.sessions {
+		if candidate.Info().WorkspaceID == workspace && (id == "" || key == id) && (s == nil || key < s.Info().ID) {
+			s = candidate
+		}
+	}
+	if m.closed || s == nil {
 		return nil, errors.New("Terminal session is no longer available")
 	}
 	return s, nil
 }
 
+func (m *Manager) List(workspace string) []Info {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]Info, 0)
+	if !m.closed {
+		for _, session := range m.sessions {
+			if info := session.Info(); info.WorkspaceID == workspace {
+				result = append(result, info)
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
 func (m *Manager) CloseSession(workspace, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s := m.sessions[workspace]
-	if s == nil {
-		return nil
+	if s := m.sessions[id]; s != nil && s.Info().WorkspaceID != workspace {
+		return errors.New("Terminal belongs to another workspace")
 	}
-	if id != "" && s.Info().ID != id {
-		return errors.New("Terminal session has changed")
+	for key, session := range m.sessions {
+		if session.Info().WorkspaceID == workspace && (id == "" || key == id) {
+			session.Close()
+			delete(m.sessions, key)
+		}
 	}
-	s.Close()
-	delete(m.sessions, workspace)
 	return nil
 }
 

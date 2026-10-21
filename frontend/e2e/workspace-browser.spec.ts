@@ -19,8 +19,9 @@ for (const mode of ['desktop','server']) test.describe(mode+' workspace browser'
     expect(reads).toEqual([]);
     await draft.fill('Before after');await draft.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(7,7));
     const picker = page.waitForEvent('filechooser');await page.getByRole('button',{name: 'Attach images',exact: true}).click();await (await picker).setFiles({name: 'draft.png',mimeType: 'image/png',buffer: png});
-    await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();const tools = page.getByRole('complementary',{name: 'Workspace files',exact: true});
-    await expect(tools).toContainText((mode === 'server' ? 'Server workspace: ' : 'Workspace: ')+workspace.path);
+    await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();const tools = page.getByRole('complementary',{name: 'Workspace tools',exact: true});
+    await expect(tools.getByRole('searchbox')).toHaveCount(0);
+    await expect(tools.getByRole('tab',{name:'Files',exact:true})).toHaveAttribute('title',new RegExp(workspace.path));
     await expect(tools.getByRole('button',{name: 'docs',exact: true})).toBeVisible();expect(reads).toEqual(['']);
     await tools.getByRole('button',{name: 'docs',exact: true}).click();await expect(tools.getByRole('button',{name: '中文 draft.md',exact: true})).toBeVisible();expect(reads).toEqual(['','docs']);
     await tools.getByRole('button',{name: 'Actions for docs/中文 draft.md',exact: true}).click();
@@ -38,8 +39,9 @@ for (const mode of ['desktop','server']) test.describe(mode+' workspace browser'
     await writeFile(workspace.path+'/docs/中文 draft.md','# Changed after refresh');await writeFile(workspace.path+'/new-result.txt','New result');
     await tools.getByRole('button',{name: 'Refresh workspace files',exact: true}).click();await expect(tools.getByRole('button',{name: 'new-result.txt',exact: true})).toBeVisible();
     await tools.getByRole('button',{name: '中文 draft.md',exact: true}).click();await expect(preview).toContainText('Changed after refresh');await preview.getByRole('button',{name: 'Close 中文 draft.md',exact: true}).click();
-    await tools.getByRole('searchbox',{name: 'Find workspace files',exact: true}).fill('unopened');await expect(tools.getByRole('button',{name: 'docs/nested/unopened.txt',exact: true})).toBeVisible();
+    await tools.getByRole('button',{name:'nested',exact:true}).click();await expect(tools.getByRole('button',{name:'unopened.txt',exact:true})).toBeVisible();
     await page.reload();await expect(draft).toHaveValue('Before `docs/中文 draft.md` after');await expect(page.getByRole('button',{name: 'Remove draft.png',exact: true})).toBeVisible();
+    await page.getByRole('button',{name:'Toggle tools',exact:true}).click();await expect(tools.getByRole('searchbox')).toHaveCount(0);await expect(tools.getByRole('button',{name:'unopened.txt',exact:true})).toBeVisible();
     expect((await host.command('stats')).requests).toBe(0);
   });
 
@@ -55,7 +57,7 @@ for (const mode of ['desktop','server']) test.describe(mode+' workspace browser'
     });
     await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();await expect.poll(() => waiting).toBe(true);
     await page.getByRole('button',{name: second.name,exact: true}).click();await page.getByRole('button',{name: second.name+' conversation',exact: true}).click();
-    const tools = page.getByRole('complementary',{name: 'Workspace files',exact: true});await expect(tools.getByRole('button',{name: 'current.txt',exact: true})).toBeVisible();release();
+    const tools = page.getByRole('complementary',{name: 'Workspace tools',exact: true});await expect(tools.getByRole('button',{name: 'current.txt',exact: true})).toBeVisible();release();
     await expect(tools.getByRole('button',{name: 'old.txt',exact: true})).toHaveCount(0);
     let previewRelease!: () => void;const previewPending = new Promise<void>(resolve => {previewRelease = resolve;});let previewWaiting = false;
     await page.route('**/api/workspace-preview?**',async route => {const response = await route.fetch();previewWaiting = true;await previewPending;await route.fulfill({response}).catch(() => {});});
@@ -74,7 +76,7 @@ test.describe('phone workspace files',() => {
     await Promise.all(Array.from({length: 60},(_,index) => writeFile(root+`/docs/file-${String(index).padStart(2,'0')}.txt`,'Phone preview')));
     await page.goto(host.url);const draft = page.getByRole('textbox',{name: 'Message Pith',exact: true});await expect(draft).toBeEditable();await draft.fill('Phone draft stays');
     await page.evaluate(() => {Object.defineProperty(window.visualViewport!,'height',{configurable: true,value: 330});window.visualViewport!.dispatchEvent(new Event('resize'));});
-    await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();const tools = page.getByRole('complementary',{name: 'Workspace files',exact: true});
+    await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();const tools = page.getByRole('complementary',{name: 'Workspace tools',exact: true});
     await tools.getByRole('button',{name: 'docs',exact: true}).click();const nav = tools.getByRole('navigation',{name: 'Workspace files',exact: true});
     await expect.poll(async () => nav.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
     await tools.getByRole('button',{name: 'file-59.txt',exact: true}).click();const preview = page.getByRole('dialog',{name: 'file-59.txt',exact: true});await expect(preview).toContainText('Phone preview');

@@ -8,7 +8,7 @@ function harness(request: (...args: any[])=>Promise<any>) {
   let workspace = {id: 'one',path: '/one',name: 'One'},state: any,view = 'terminal',open = true,disabled = false;
   const writes: string[] = [],parsed: Array<()=>void> = [],sockets: any[] = [];
   const ui: any = {files: {areToolsOpen: () => open,toolView: () => view},terminal: {update(next: any) {state = next;},reset() {},fit() {},focus() {},readSize: () => ({cols: 80,rows: 24}),write(bytes: Uint8Array,done: ()=>void) {writes.push(new TextDecoder().decode(bytes));parsed.push(done);}}};
-  const terminal = createWorkspaceTerminal({ui,request: request as any,workspace: () => workspace,disabled: () => disabled,protocols: () => ['pith-desk','lease.test'],origin: 'http://localhost',socket() {const socket: any = {readyState: 1,bufferedAmount: 0,sent: [],send(data: string) {this.sent.push(JSON.parse(data));},close() {this.readyState = 3;this.onclose?.();},event(value: any) {this.onmessage?.({data: JSON.stringify(value)});}};sockets.push(socket);return socket;}});
+  const terminal = createWorkspaceTerminal({view: ui.terminal,get id() {return workspace.id;},visible: () => open && view === 'terminal',request: request as any,workspace: () => workspace,disabled: () => disabled,protocols: () => ['pith-desk','lease.test'],origin: 'http://localhost',socket() {const socket: any = {readyState: 1,bufferedAmount: 0,sent: [],send(data: string) {this.sent.push(JSON.parse(data));},close() {this.readyState = 3;this.onclose?.();},event(value: any) {this.onmessage?.({data: JSON.stringify(value)});}};sockets.push(socket);return socket;}});
   return {terminal,sockets,writes,parsed,state: () => state,setWorkspace(id: string) {workspace = {id,path: '/'+id,name: id};},hide() {open = false;view = 'files';},disable() {disabled = true;}};
 }
 const session = (workspaceId: string,id = workspaceId) => ({id,workspaceId,directory: '/'+workspaceId,shell: '/bin/sh',running: true,cols: 80,rows: 24,exitCode: -1});
@@ -30,8 +30,10 @@ test('workspace switches retire delayed reads, starts, frames and parse acknowle
 test('parse ACK limits output and reconnect never replays input; hidden views retain the connection',async () => {
   const h = harness(async () => response('one'));h.terminal.sync();await tick();const ws = h.sockets[0];
   ws.event({type: 'ready',session: session('one'),start: 0,end: 3});
+  assert.equal(h.state().restoring,true);
   ws.event({type: 'output',data: btoa('one'),start: 0,end: 3});h.terminal.input('during replay');assert.equal(ws.sent.length,0);
   h.parsed.shift()!();assert.deepEqual(ws.sent,[{type: 'ack',end: 3}]);ws.event({type: 'live',start: 0,end: 0});
+  assert.equal(h.state().restoring,false);
   h.terminal.input('manual');assert.equal(ws.sent.at(-1).data,'manual');h.hide();h.terminal.sync();assert.equal(ws.readyState,1);
   ws.readyState = 3;ws.onclose();h.terminal.input('offline');h.terminal.resize({cols: 90,rows: 40});assert.equal(ws.sent.filter((item:any) => item.type === 'input').length,1);
   await new Promise(resolve => setTimeout(resolve,550));await tick();const next = h.sockets[1];ready(next);assert.equal(next.sent.filter((item:any) => item.type === 'input').length,0);
@@ -50,4 +52,11 @@ test('a delayed pre-start read cannot erase a newly opened session',async () => 
   const stale = deferred<any>();const h = harness(async (_path,input) => input?.query ? stale.promise : response('one'));
   h.terminal.sync();await h.terminal.start();ready(h.sockets[0]);assert.equal(h.state().exists,true);
   stale.resolve({location:'Host',session:null});await tick();assert.equal(h.state().exists,true);assert.match(h.state().status,/Connected/);h.terminal.destroy();
+});
+
+test('lookup and create responses cannot attach a different tab or workspace',async () => {
+  for (const wrong of [session('one','another-tab'),session('another-workspace','one')]) {
+    const lookup=harness(async()=>({location:'Host',session:wrong}));lookup.terminal.sync();await tick();assert.equal(lookup.sockets.length,0);assert.match(lookup.state().error,/session changed/);lookup.terminal.destroy();
+    const create=harness(async(_path,input)=>({location:'Host',session:input.query?null:wrong}));create.terminal.sync();await tick();await create.terminal.start();assert.equal(create.sockets.length,0);assert.match(create.state().error,/session changed/);create.terminal.destroy();
+  }
 });

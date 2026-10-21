@@ -99,7 +99,7 @@ func TestWorkspaceBrowserNativeSidebarPreviewReferenceAndSave(t *testing.T) {
 	if opened.Load() != 1 || revealed.Load() != 1 || copied.Load() != 1 || saved.Load() != 1 || automatic.Load() != 0 {
 		t.Fatalf("native actions: open=%d reveal=%d copy=%d save=%d browser=%d", opened.Load(), revealed.Load(), copied.Load(), saved.Load(), automatic.Load())
 	}
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Toggle navigation"]').click();return true;`)
+	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close navigation"]').click();return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('button[aria-label="Toggle tools"]').getAttribute('aria-expanded')==='true' && document.querySelector('button[aria-label="Toggle navigation"]').getAttribute('aria-expanded')==='false' && document.querySelector('button[aria-label="Toggle navigation"]').getBoundingClientRect().x>=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mygo-titlebar-inset-left'))`)
 
 	nativeDropEval(t, win, `[...document.querySelectorAll('.pui-tools .pui-history-item')].find(button=>button.textContent==='Native 中文.md').click();return true;`)

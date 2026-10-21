@@ -34,7 +34,7 @@ export function createServerSession(options: {recoveryText?(): string} = {}) {
         // Vite HMR in development. The login token is never stored for reload.
         window.location.reload();
       },
-      onReconnect: () => acquire(false), onTakeover: () => acquire(true),
+      onContinue: () => acquire(true),
     });
   }
   function lost(status: number): void {
@@ -63,7 +63,7 @@ export function createServerSession(options: {recoveryText?(): string} = {}) {
       onReady();
     } catch (error) {
       if (error instanceof APIError && error.status === 401) show('login', message(error));
-      else if (error instanceof APIError && error.status === 409) show('blocked', message(error));
+      else if (error instanceof APIError && error.status === 409) show('blocked');
       else throw error;
     } finally {acquiring = false;}
   }

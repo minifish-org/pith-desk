@@ -211,7 +211,7 @@ func get[Q, O any](path string) Endpoint {
 }
 
 var Endpoints = []Endpoint{
-	get[WorkspaceInput, TerminalResponse]("/api/terminal"),
+	get[TerminalReadInput, TerminalResponse]("/api/terminal"),
 	post[TerminalOpenInput, TerminalResponse]("/api/terminal"),
 	post[TerminalTarget, OKResponse]("/api/terminal/close"),
 	{Method: "GET", Path: "/api/terminal/socket", Query: reflect.TypeFor[TerminalTarget](), Input: reflect.TypeFor[TerminalControl](), Output: reflect.TypeFor[TerminalEvent](), Format: "stream"},
@@ -244,6 +244,7 @@ var Endpoints = []Endpoint{
 	{Method: "GET", Path: "/api/events", Output: reflect.TypeFor[desk.State](), Format: "stream"},
 	post[desk.ConfigInput, OKResponse]("/api/config"),
 	post[AppearanceInput, OKResponse]("/api/appearance"),
+	post[desk.SidebarWidths, OKResponse]("/api/sidebar-widths"),
 	post[PathInput, WorkspaceResponse]("/api/workspaces"),
 	post[WorkspaceInput, ConversationResponse]("/api/conversations"),
 	post[IDInput, OKResponse]("/api/open"),

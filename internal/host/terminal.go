@@ -57,8 +57,13 @@ func (s *Server) serveTerminal(w http.ResponseWriter, r *http.Request) bool {
 		var in wire.TerminalOpenInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			var directory string
-			if directory, err = s.terminalDirectory(in.WorkspaceID); err == nil {
-				session, err = s.terminals.Open(randomCredential(), in.WorkspaceID, directory, in.Cols, in.Rows)
+			if len(in.ID) > 128 {
+				err = errors.New("Terminal ID is too long")
+			} else if directory, err = s.terminalDirectory(in.WorkspaceID); err == nil {
+				if in.ID == "" {
+					in.ID = randomCredential()
+				}
+				session, err = s.terminals.Open(in.ID, in.WorkspaceID, directory, in.Cols, in.Rows)
 			}
 		}
 	case "/api/terminal/close":
@@ -87,7 +92,7 @@ func (s *Server) serveTerminal(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) readTerminal(w http.ResponseWriter, r *http.Request) {
-	query, err := wire.ReadQuery[wire.WorkspaceInput](r)
+	query, err := wire.ReadQuery[wire.TerminalReadInput](r)
 	if err == nil {
 		_, err = s.terminalDirectory(query.WorkspaceID)
 	}
@@ -95,8 +100,10 @@ func (s *Server) readTerminal(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	session, _ := s.terminals.Get(query.WorkspaceID, "")
-	wire.WriteJSON(w, r.Method, r.URL.Path, s.terminalResponse(session))
+	session, _ := s.terminals.Get(query.WorkspaceID, query.ID)
+	response := s.terminalResponse(session)
+	response.Sessions = s.terminals.List(query.WorkspaceID)
+	wire.WriteJSON(w, r.Method, r.URL.Path, response)
 }
 
 // Recheck under the same handoff gate as HTTP mutations, at the moment an

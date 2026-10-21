@@ -4,20 +4,22 @@ import type {Application} from './ui-contract.ts';
 
 /** Manual shell coordinator. It never reads or writes Agent/composer state. */
 export function createWorkspaceTerminal(api: {
-  ui: Application;request: ApiRequest;workspace(): Workspace|undefined;disabled(): boolean;
+  view: ReturnType<Application['tools']['createTerminal']>;request: ApiRequest;workspace(): Workspace|undefined;disabled(): boolean;
+  id: string;visible(): boolean;initialInfo?: Info;initialLocation?: string;changed?(value: {info?: Info;location: string;pending: boolean}): void;
   protocols(): string[];checkAccess?(): Promise<void>;origin?: string;
   socket?(url: string,protocols: string[]): WebSocket;
 }) {
-  let alive = true,epoch = 0,connection = 0,workspace: Workspace|undefined,info: Info|undefined,location = '';
+  let alive = true,epoch = 0,connection = 0,workspace: Workspace|undefined,info: Info|undefined = api.initialInfo,location = api.initialLocation ?? '';
   let socket: WebSocket|undefined,timer: ReturnType<typeof setTimeout>|undefined,read: AbortController|undefined;
   let loaded = false,pending = false,connected = false,opening = false,delay = 500,error = '',notice = '',status = '';
-  const visible = () => api.ui.files.areToolsOpen() && api.ui.files.toolView() === 'terminal';
+  const visible = api.visible;
   const current = (generation: number,id?: string) => alive && generation === epoch && (!id || workspace?.id === id) && workspace?.id === api.workspace()?.id;
   const message = (error: unknown) => error instanceof Error ? error.message : String(error);
   function paint(): void {
     if (!alive) return;
-    api.ui.terminal.update({id: `${workspace?.id ?? ''}/${info?.id ?? ''}`,location,directory: workspace ? 'Initial directory: '+(info?.directory ?? workspace.path) : '',status: status || (info ? info.running ? 'Connecting…' : `Shell exited (${info.exitCode}). Close it to start a new terminal.` : 'Start an interactive shell for this workspace.'),
-      connected,exists: !!info,disabled: api.disabled() || !workspace,pending,notice,error});
+    api.changed?.({info,location,pending});
+    api.view.update({id: `${workspace?.id ?? ''}/${info?.id ?? ''}`,location,directory: workspace ? 'Initial directory: '+(info?.directory ?? workspace.path) : '',status: status || (info ? info.running ? 'Connecting…' : `Shell exited (${info.exitCode}). Close it to start a new terminal.` : pending ? 'Starting terminal…' : 'Terminal session ended. Close this tab and create a new terminal.'),
+      connected,exists: !!info,disabled: api.disabled() || !workspace,pending,restoring: opening,notice,error});
   }
   function detach(): void {
     connection++;connected = false;opening = false;clearTimeout(timer);timer = undefined;
@@ -54,22 +56,22 @@ export function createWorkspaceTerminal(api: {
         const data = JSON.parse(event.data) as TerminalEvent;
         if (data.type === 'ready') {
           if (ready || data.session?.id !== target.id || data.session?.workspaceId !== target.workspaceId) throw new Error('Terminal session changed');
-          ready = true;info = data.session;api.ui.terminal.reset({cols: info.cols,rows: info.rows});status = 'Restoring terminal output…';paint();
+          ready = true;info = data.session;api.view.reset({cols: info.cols,rows: info.rows});status = 'Restoring terminal output…';paint();
         } else if (data.type === 'output') {
           if (!ready || typeof data.data !== 'string' || !Number.isSafeInteger(data.start) || !Number.isSafeInteger(data.end) || data.start < cursor || data.end < data.start || data.end-data.start > 32*1024 || data.start !== cursor && !data.truncated) throw new Error('Invalid terminal output');
           const bytes = Uint8Array.from(atob(data.data),char => char.charCodeAt(0));
           if (bytes.length !== data.end-data.start) throw new Error('Invalid terminal byte count');
-          if (data.truncated) {api.ui.terminal.reset(api.ui.terminal.readSize());notice = 'Earlier terminal output was truncated (1 MiB replay limit). The display was reset; full-screen programs may need a redraw.';paint();}
+          if (data.truncated) {api.view.reset(api.view.readSize());notice = 'Earlier terminal output was truncated (1 MiB replay limit). The display was reset; full-screen programs may need a redraw.';paint();}
           // Suppress emulator-generated device replies during replay, so old
           // escape sequences cannot synthesize new input on reconnect.
-          api.ui.terminal.write(bytes,() => {
+          api.view.write(bytes,() => {
             if (!valid()) return;cursor = data.end;
             ws.send(JSON.stringify({type: 'ack',end: cursor} satisfies TerminalControl));
           });
         } else if (data.type === 'live') {
           if (!ready) throw new Error('Terminal was not initialized');
           live = true;connected = !!info?.running;opening = false;delay = 500;status = connected ? 'Connected · manual shell' : `Shell exited (${info?.exitCode ?? -1}). Close it to start another.`;error = '';
-          paint();api.ui.terminal.fit();resize(api.ui.terminal.readSize());if (focus && visible()) api.ui.terminal.focus();
+          paint();api.view.fit();resize(api.view.readSize());if (focus && visible()) api.view.focus();
         } else if (data.type === 'exit') {
           if (!ready || data.session?.id !== target.id || data.session?.workspaceId !== target.workspaceId) throw new Error('Invalid terminal exit');
           exited = true;info = data.session;connected = false;opening = false;status = `Shell exited (${info.exitCode}). Close it to start a new terminal.`;paint();
@@ -88,10 +90,11 @@ export function createWorkspaceTerminal(api: {
     if (!workspace || pending || read || !alive || api.disabled()) return;
     const generation = epoch,id = workspace.id,controller = new AbortController();read = controller;
     try {
-      const result = await api.request('/api/terminal',{query: {workspaceId: id},signal: controller.signal});
+      const result = await api.request('/api/terminal',{query: {workspaceId: id,id: api.id},signal: controller.signal});
       if (!current(generation,id) || read !== controller) return;
+      if (result.session && (result.session.id !== api.id || result.session.workspaceId !== id)) throw new Error('Terminal session changed');
       location = result.location;info = result.session ?? undefined;loaded = true;
-      if (info) connect();else {status = '';api.ui.terminal.reset();}
+      if (info) connect();else {status = 'Terminal session ended. Close this tab and create a new terminal.';api.view.reset();}
     } catch (failure) {
       if (!current(generation,id) || read !== controller) return;error = message(failure);
       if (reconnect) timer = setTimeout(() => {timer = undefined;void lookup(true);},delay);
@@ -101,31 +104,34 @@ export function createWorkspaceTerminal(api: {
     if (!alive) return;
     const next = api.workspace();
     if (workspace?.id !== next?.id) {
-      epoch++;detach();read?.abort();read = undefined;workspace = next;info = undefined;loaded = false;pending = false;
-      error = '';notice = '';status = '';location = '';delay = 500;api.ui.terminal.reset();
+      epoch++;detach();read?.abort();read = undefined;workspace = next;info = api.initialInfo;loaded = false;pending = false;
+      error = '';notice = '';status = '';location = api.initialLocation ?? '';delay = 500;api.view.reset();
     }
     if (workspace && visible() && !loaded && !read) void lookup();
-    if (visible()) api.ui.terminal.fit();paint();
+    if (visible() && info?.running && !socket && !opening && !timer && !read) connect();
+    if (visible()) api.view.fit();paint();
   }
   async function start(): Promise<void> {
     if (!workspace || pending || info || api.disabled()) return;
     read?.abort();read = undefined;
     const generation = epoch,id = workspace.id;pending = true;error = '';notice = '';paint();
     try {
-      const size = api.ui.terminal.readSize();
-      const result = await api.request('/api/terminal',{workspaceId: id,cols: Math.min(500,Math.max(2,size.cols)),rows: Math.min(300,Math.max(1,size.rows))});
-      if (!current(generation,id)) return;info = result.session ?? undefined;location = result.location;loaded = true;connect(true);
+      const size = api.view.readSize();
+      const result = await api.request('/api/terminal',{workspaceId: id,id: api.id,cols: Math.min(500,Math.max(2,size.cols)),rows: Math.min(300,Math.max(1,size.rows))});
+      if (!current(generation,id)) return;
+      if (result.session && (result.session.id !== api.id || result.session.workspaceId !== id)) throw new Error('Terminal session changed');
+      info = result.session ?? undefined;location = result.location;loaded = true;connect(true);
     } catch (failure) {if (current(generation,id)) {error = message(failure);loaded = false;}}
     finally {if (current(generation,id)) {pending = false;paint();}}
   }
-  async function close(): Promise<void> {
-    if (!info || pending || api.disabled()) return;
+  async function close(): Promise<boolean> {
+    if (!workspace || pending || api.disabled()) return false;
     read?.abort();read = undefined;
-    const generation = epoch,target = info;pending = true;detach();paint();
+    const generation = epoch,target = info ?? {id: api.id,workspaceId: workspace.id};pending = true;detach();paint();
     try {
       await api.request('/api/terminal/close',{workspaceId: target.workspaceId,id: target.id});
-      if (!current(generation,target.workspaceId)) return;info = undefined;status = '';notice = '';error = '';api.ui.terminal.reset();
-    } catch (failure) {if (current(generation,target.workspaceId)) {error = message(failure);loaded = false;}}
+      if (!current(generation,target.workspaceId)) return false;info = undefined;status = '';notice = '';error = '';api.view.reset();return true;
+    } catch (failure) {if (current(generation,target.workspaceId)) {error = message(failure);loaded = false;}return false;}
     finally {if (current(generation,target.workspaceId)) {pending = false;paint();}}
   }
   return {sync,start,close,input,resize,destroy() {if (!alive) return;connected = false;status = 'Terminal connection closed. The shell continues until explicitly closed or the service exits.';paint();alive = false;epoch++;detach();read?.abort();read = undefined;}};

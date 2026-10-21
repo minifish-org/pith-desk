@@ -346,6 +346,11 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			s.appearanceMu.Unlock()
 		}
+	case "/api/sidebar-widths":
+		var in desk.SidebarWidths
+		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
+			err = s.service.SetSidebarWidths(in)
+		}
 	case "/api/workspaces":
 		var in wire.PathInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
