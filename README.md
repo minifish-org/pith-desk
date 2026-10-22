@@ -808,6 +808,11 @@ compilation for ordinary local browser runs.
 CI uses Chromium's Headless Shell and WebKit; it does not download the unused
 full Chrome binary. Both browser projects remain in the suite. Install full
 Chromium separately when using Playwright's headed local tools.
+The macOS browser cache (`~/Library/Caches/ms-playwright`) is restored by
+Playwright version, macOS major version and runner architecture. The install
+step still checks the restored engines and downloads only missing engines. A new
+Playwright/platform combination or an evicted cache needs a fresh download;
+cache hits never skip browser tests.
 
 `npm run check` remains the local complete build/unit/ordinary-Go/vet shortcut;
 CI uses the race run in place of repeating those Go tests. npm caches downloads

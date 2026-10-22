@@ -75,8 +75,21 @@ jobs:
         run: |
           go vet ./...
           CGO_ENABLED=1 go test -count=1 -race -p 1 ./...
+      - name: Identify browser cache
+        if: steps.scope.outputs.browser == 'true'
+        id: browsers
+        run: |
+          echo "playwright=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "macos=$(sw_vers -productVersion | cut -d. -f1)" >> "$GITHUB_OUTPUT"
+      - name: Cache browser test engines
+        if: steps.scope.outputs.browser == 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-v1-${{ runner.os }}-${{ runner.arch }}-macos${{ steps.browsers.outputs.macos }}-${{ steps.browsers.outputs.playwright }}
       - name: Install browser test engines
         if: steps.scope.outputs.browser == 'true'
+        # Idempotent: keep cached engines and install anything missing.
         run: npx --no-install playwright install --only-shell chromium webkit
       - name: Build browser Host fixture once
         if: steps.scope.outputs.browser == 'true'
