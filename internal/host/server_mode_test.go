@@ -360,8 +360,8 @@ func TestServerCrossSiteDocumentNavigation(t *testing.T) {
 	desktop := testServer(t)
 	for _, tc := range []struct {
 		name, method, path, mode, destination, origin string
-		desktop                                     bool
-		want                                        int
+		desktop                                       bool
+		want                                          int
 	}{
 		{"SSO return", "GET", "/", "navigate", "document", "", false, 200},
 		{"cross-site fetch", "GET", "/", "cors", "empty", "", false, 403},

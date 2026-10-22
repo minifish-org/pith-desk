@@ -610,6 +610,11 @@ Server does not trust `X-Forwarded-Host` or `X-Forwarded-Proto`; the proxy must
 preserve the external Host header, browser Origin, cookies, and WebSocket
 subprotocols. Deploy at the origin root, with no URL prefix.
 
+Identity proxies can return to `/` through a cross-site top-level GET document
+navigation after sign-in. Server admits that public entry page while retaining
+cross-site rejection for APIs, writes, assets and Desktop. Forward the browser's
+Fetch Metadata headers unchanged.
+
 ```sh
 ./pith-desk-server --listen 127.0.0.1:7540 \
   --origin https://desk.example.com --data-dir /srv/pith-desk/data
