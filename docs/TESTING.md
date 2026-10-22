@@ -178,7 +178,10 @@ mutating tests. Local Server checks and native builds do not constitute a Desk r
 without login, without a lease and after takeover; Host/Origin/CSRF and HTTPS
 cookies; refresh/expiry/logout; immediate WS/SSE revocation; mutation deduplication
 and downloads; and actual SDK task completion without a connected page. The
-real-host browser fixture now runs Server with Vite, not Preview.
+Server entry regression accepts top-level GET document navigation to `/` after
+an identity proxy redirect while retaining cross-site rejection for APIs,
+login writes, assets, fetches, foreign Origins and the Desktop entry.
+The real-host browser fixture now runs Server with Vite, not Preview.
 `frontend/e2e/server.spec.ts` covers Token login, refresh, two-tab takeover,
 sign-out, authenticated Vite HMR, server workspace paths, background task completion
 and pending file approval across takeover.

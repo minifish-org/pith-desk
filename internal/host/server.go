@@ -194,8 +194,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
-		http.Error(w, "Cross-site access denied", http.StatusForbidden)
-		return
+		// Identity proxies return through a cross-site top-level navigation.
+		// Only the public Server entry document may cross this boundary.
+		serverNavigation := s.access != nil && r.Method == http.MethodGet && r.URL.Path == "/" &&
+			r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document"
+		if !serverNavigation {
+			http.Error(w, "Cross-site access denied", http.StatusForbidden)
+			return
+		}
 	}
 	if s.access != nil {
 		w.Header().Set("Cache-Control", "no-store")
