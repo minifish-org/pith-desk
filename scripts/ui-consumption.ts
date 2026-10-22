@@ -20,7 +20,7 @@ const recipesEntry = 'pith-ui/recipes';
 const canonicalDeskModule = 'frontend/src/ui-application';
 const cssEntry = 'pith-ui/styles.css';
 const nativeFiles = new Set(['frontend/src/ui-native.ts', 'frontend/src/native-menu.ts', 'frontend/src/app-lifecycle.ts']);
-const metaNames = new Set(['desk-token', 'desk-mode', 'desk-native-clipboard', 'desk-native-file-drop', 'desk-native-menus', 'desk-titlebar-overlay']);
+const metaNames = new Set(['desk-token', 'desk-mode', 'desk-native-browser', 'desk-native-clipboard', 'desk-native-file-drop', 'desk-native-menus', 'desk-titlebar-overlay']);
 const nativeEvents = new Set(['focus', 'blur', 'visibilitychange', 'pagehide', 'beforeunload', 'keydown', 'pith:flush-drafts', 'pith:file-drop', 'pith:native-menu']);
 const internalParts = new Set(['element', 'field', 'form', 'control', 'body', 'dialog', 'internals', 'style', 'className', 'classList', 'innerHTML', 'outerHTML', 'querySelector', 'querySelectorAll']);
 const visualOptions = new Set(['class', 'className', 'classList', 'style', 'css', 'html', 'innerHTML', 'outerHTML', 'header', 'element', 'node']);
@@ -223,6 +223,7 @@ export function checkUIConsumption(input: ConsumptionInput): ConsumptionIssue[] 
     if (nativeFiles.has(file)) walk(source, node => {
       const p = property(node);
       if (!p) return;
+      if (file === 'frontend/src/ui-native.ts' && identifier(p.object,'window') && p.key === 'open' && ts.isCallExpression(node.parent) && node.parent.expression === node && node.parent.arguments.length === 2 && stringValue(node.parent.arguments[0]) === 'about:blank' && stringValue(node.parent.arguments[1]) === '_blank') allowed.add(p.object);
       if (identifier(p.object, 'document') && p.key === 'visibilityState' && isRead(node)) allowed.add(p.object);
       if (identifier(p.object, 'document') && p.key === 'hasFocus' && ts.isCallExpression(node.parent) && node.parent.expression === node && !node.parent.arguments.length) allowed.add(p.object);
       if (['addEventListener', 'removeEventListener'].includes(p.key ?? '') && (identifier(p.object, 'document') || identifier(p.object, 'window')) && ts.isCallExpression(node.parent) && node.parent.expression === node && nativeEvents.has(stringValue(node.parent.arguments[0]) ?? '') && node.parent.arguments.length >= 2) allowed.add(p.object);

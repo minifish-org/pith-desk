@@ -19,11 +19,11 @@ func TestTitlebarNativeLinuxUsesSystemDecorations(t *testing.T) {
 	defer purego.Dlclose(lib)
 	var decorated func(uintptr) bool
 	purego.RegisterLibFunc(&decorated, lib, "gtk_window_get_decorated")
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
 		opts := desktopWindowOptions()
 		opts.StateKey = ""
-		win = mygo.NewWindow(opts)
+		win = newNativeTestWindow(t, opts)
 	})
 	defer win.Destroy()
 	var systemDecorated bool

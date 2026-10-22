@@ -7,8 +7,8 @@ Pith Desk's own code is covered by the root [LICENSE](../LICENSE), GNU Affero Ge
 | Component | Pinned version | License and retained notice |
 | --- | --- | --- |
 | [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261010121423-8eec8d5b88d3` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
-| [Pith UI](https://github.com/minifish-org/pith-ui/tree/v0.11.0) | `0.11.0` | AGPL-3.0-only: `PITH-UI-LICENSE`. TypeScript UI parts, shared region recipes and styles. |
-| [MyGo](https://github.com/egoist/mygo) | `v0.3.6` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
+| [Pith UI](https://github.com/minifish-org/pith-ui/tree/v0.12.0) | `0.12.0` | AGPL-3.0-only: `PITH-UI-LICENSE`. TypeScript UI parts, shared region recipes and styles. |
+| [MyGo](https://github.com/egoist/mygo) | `v0.6.2` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
 | [Ebitengine purego](https://github.com/ebitengine/purego) | `v0.11.1` | Apache-2.0: `PUREGO-LICENSE`. Native platform interop; its Go-derived source retains `GO-LICENSE`. |
 | [coder/websocket](https://github.com/coder/websocket) | `v1.8.15` | ISC: `WEBSOCKET-LICENSE`. |
 | [gofrs/flock](https://github.com/gofrs/flock) | `v0.13.1` | BSD-3-Clause: `FLOCK-LICENSE`. |
@@ -36,8 +36,10 @@ The following additional modules are selected by the `CGO_ENABLED=0` executable 
 | [goccy/go-yaml](https://github.com/goccy/go-yaml) | `v1.19.2` | MIT: `YAML-LICENSE`. |
 | [sabhiram/go-gitignore](https://github.com/sabhiram/go-gitignore) | `v0.0.0-20210923224102-525f6e181f06` | MIT: `GITIGNORE-LICENSE`. |
 | [wazero](https://github.com/tetratelabs/wazero) | `v1.9.0` | Apache-2.0: `WAZERO-LICENSE`, `WAZERO-NOTICE`. |
-| [golang.org/x/sys](https://go.googlesource.com/sys) | `v0.47.0` | BSD-3-Clause: `SYS-LICENSE`. |
-| [golang.org/x/text](https://go.googlesource.com/text) | `v0.39.0` | BSD-3-Clause: `TEXT-LICENSE`. |
+| [go-text/typesetting](https://github.com/go-text/typesetting/tree/v0.3.5) | `v0.3.5` | Unlicense OR BSD-3-Clause; the BSD option is used and both upstream texts are retained in `TYPESETTING-LICENSE`. MyGo native UI Unicode segmentation. |
+| [golang.org/x/image](https://go.googlesource.com/image) | `v0.46.0` | BSD-3-Clause: `IMAGE-LICENSE`. MyGo native UI image decoding. |
+| [golang.org/x/sys](https://go.googlesource.com/sys) | `v0.48.0` | BSD-3-Clause: `SYS-LICENSE`. |
+| [golang.org/x/text](https://go.googlesource.com/text) | `v0.43.0` | BSD-3-Clause: `TEXT-LICENSE`. |
 
 AWS SDK submodules:
 
@@ -60,7 +62,7 @@ The Go toolchain and standard library are provided by the Go project under its B
 
 ## Development tools and system components
 
-TypeScript, Vite, `mygo-cli 0.3.6`, and their development dependencies are used to build the application. Their exact versions and declared licenses are recorded in the two npm lockfiles. They are not installed on an end user's computer by Pith Desk. Type declarations, including `@types/trusted-types`, are erased from the frontend output.
+TypeScript, Vite, `mygo-cli 0.6.2`, and their development dependencies are used to build the application. Their exact versions and declared licenses are recorded in the two npm lockfiles. They are not installed on an end user's computer by Pith Desk. Type declarations, including `@types/trusted-types`, are erased from the frontend output.
 
 The application uses macOS's system WKWebView or Ubuntu's system GTK 3 and WebKitGTK 4.1; it does not bundle Node.js or an Electron browser. External MCP servers may need their own runtimes and retain their own licenses.
 

@@ -42,13 +42,13 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
 		opts := desktopWindowOptions()
 		opts.Title = "Pith Desk terminal smoke"
 		opts.StateKey = ""
 		opts.Hidden = true
-		win = mygo.NewWindow(opts)
+		win = newNativeTestWindow(t, opts)
 	})
 	defer win.Destroy()
 	if err = win.Page().LoadURL(server.URL); err != nil {

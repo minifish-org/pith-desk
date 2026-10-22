@@ -60,9 +60,10 @@ test('app owns authenticated HTTP and WS ingress and consumes bootstrap secrets'
   const bootstrap = readAppBootstrap();
   assert.equal(bootstrap.token, 'fixture-token');
   assert.equal(bootstrap.nativeMenus, true);
+  assert.equal(bootstrap.nativeBrowser,true);
   assert.equal(bootstrap.titlebar, 'overlay');
   assert.equal(bootstrap.appearance, 'dark');
-  assert.equal(removed.length, 6);
+  assert.equal(removed.length, 7);
 });
 
 test('browser bootstrap leaves titlebar fusion off unless the window host explicitly enables it', (t) => {

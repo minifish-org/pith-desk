@@ -46,7 +46,18 @@ type IDInput struct {
 type WorkspaceInput struct {
 	WorkspaceID string `json:"workspaceId"`
 }
+type BrowserBounds struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+type BrowserViewInput struct {
+	ID     string         `json:"id"`
+	Bounds *BrowserBounds `json:"bounds"`
+}
 type WebPreviewInput struct {
+	ID          string `json:"id,omitempty"`
 	WorkspaceID string `json:"workspaceId"`
 	Address     string `json:"address"`
 }
@@ -221,6 +232,7 @@ func get[Q, O any](path string) Endpoint {
 
 var Endpoints = []Endpoint{
 	post[WebPreviewInput, WebPreviewResponse]("/api/web-preview"),
+	post[BrowserViewInput, OKResponse]("/api/web-preview/view"),
 	post[IDInput, OKResponse]("/api/web-preview/close"),
 	get[TerminalReadInput, TerminalResponse]("/api/terminal"),
 	post[TerminalOpenInput, TerminalResponse]("/api/terminal"),

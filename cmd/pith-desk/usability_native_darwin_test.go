@@ -84,9 +84,9 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = server.Close() }()
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = mygo.NewWindow(mygo.WindowOptions{Title: "Pith Desk usability smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk usability smoke", Hidden: true, Width: 1320, Height: 860})
 	})
 	defer win.Destroy()
 	defer func() {
@@ -244,9 +244,9 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = mygo.NewWindow(mygo.WindowOptions{Title: "Pith Desk initial draft smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk initial draft smoke", Hidden: true, Width: 1320, Height: 860})
 	})
 	defer win.Destroy()
 	if err := flushDesktopDrafts(win); err != nil {
@@ -274,7 +274,7 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 	waitNativeDropCondition(t, win, `location.search === '?rejected-send' && document.querySelector('textarea[aria-label="Message Pith"]')?.value === 'Keep my first draft 中文' && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
 }
 
-func openNativePreview(t *testing.T, win *mygo.Window, name string) {
+func openNativePreview(t *testing.T, win *desktopWindow, name string) {
 	t.Helper()
 	encoded, _ := json.Marshal(name)
 	nativeDropEval(t, win, `document.querySelector('.pui-file-preview-modal button[aria-label^="Close "]')?.click();
@@ -282,7 +282,7 @@ const card = [...document.querySelectorAll('.pui-artifacts-panel .pui-file-card'
 [...card.querySelectorAll('button')].find(button => button.textContent === 'Preview').click(); return true;`)
 }
 
-func waitNativeApproval(t *testing.T, win *mygo.Window, service *desk.Service, previousID string) *desk.Approval {
+func waitNativeApproval(t *testing.T, win *desktopWindow, service *desk.Service, previousID string) *desk.Approval {
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
@@ -298,7 +298,7 @@ func waitNativeApproval(t *testing.T, win *mygo.Window, service *desk.Service, p
 	return nil
 }
 
-func saveUsabilityScreenshot(t *testing.T, win *mygo.Window, name string) {
+func saveUsabilityScreenshot(t *testing.T, win *desktopWindow, name string) {
 	t.Helper()
 	dir := os.Getenv("PITH_DESK_NATIVE_SCREENSHOTS")
 	if dir == "" {

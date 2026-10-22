@@ -62,7 +62,7 @@ func newDesktopNotifications() *desktopNotifications {
 	return c
 }
 
-func (c *desktopNotifications) Ready(service *desk.Service, window *mygo.Window, dialogMu *sync.Mutex) {
+func (c *desktopNotifications) Ready(service *desk.Service, window *desktopWindow, dialogMu *sync.Mutex) {
 	c.mu.Lock()
 	c.actions.activate = func() {
 		if window.IsDestroyed() {
@@ -82,7 +82,7 @@ func (c *desktopNotifications) Ready(service *desk.Service, window *mygo.Window,
 				return
 			}
 			_, err := mygo.Dialog.Message(mygo.MessageOptions{
-				Parent: window, Type: mygo.MessageInfo, Title: "Task notification",
+				Parent: window.Window, Type: mygo.MessageInfo, Title: "Task notification",
 				Message: message, Buttons: []string{"OK"}, DefaultButton: 0, CancelButton: 0,
 			})
 			if err != nil {

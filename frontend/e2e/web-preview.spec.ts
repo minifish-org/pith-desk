@@ -14,49 +14,66 @@ async function open(page:any,host:any) {
 async function navigate(page:any,address:string) {
   const input=tools(page).getByRole('textbox',{name:'Web address',exact:true});await input.fill(address);await input.press('Enter');
 }
-const script=(label:string)=>`export const label=${JSON.stringify(label)};document.querySelector('h1').textContent=label;document.querySelector('button').onclick=()=>document.querySelector('output').textContent='operated';try{parent.document.body;document.body.dataset.isolated='no'}catch{document.body.dataset.isolated='yes'}if(import.meta.hot)import.meta.hot.accept(m=>document.querySelector('h1').textContent=m.label);`;
+async function opened(page:any,action:()=>Promise<unknown>) {
+  const next=page.waitForEvent('popup');await action();const tab=await next;
+  await expect.poll(()=>tab.url()).not.toBe('about:blank');return tab;
+}
+const script=(label:string)=>`export const label=${JSON.stringify(label)};document.querySelector('h1').textContent=label;document.querySelector('button').onclick=()=>document.querySelector('output').textContent='operated';document.body.dataset.isolated=opener===null&&parent===window?'yes':'no';if(import.meta.hot)import.meta.hot.accept(m=>document.querySelector('h1').textContent=m.label);`;
 
-for(const mode of ['desktop','server'])test.describe(mode+' web preview',()=>{
+for(const mode of ['desktop','server'])test.describe(mode+' browser intent',()=>{
   test.use({hostMode:mode});
-  test('real server localhost project supports root assets, interaction and Vite HMR; permissions and drafts stay isolated',async({page,host,context})=>{
+  test('independent tabs preserve paths, resources and real Vite HMR through tool lifecycle; takeover revokes Server access',async({page,host,context})=>{
     const root=host.state.workspaces[0].path;
     await writeFile(root+'/index.html','<!doctype html><h1>Loading</h1><button>Project action</button><output></output><script type="module" src="/main.ts"></script>');await writeFile(root+'/main.ts',script('First render'));
-    // Match an ordinary `vite` launch: localhost may listen only on ::1.
     const project=await createVite({configFile:false,root,server:{port:0}});await project.listen();
-    const projectAddress=project.httpServer!.address() as {port:number};let previewOrigin='';
+    const port=(project.httpServer!.address() as {port:number}).port;
     try {
-      await open(page,host);await navigate(page,`http://localhost:${projectAddress.port}/nested?q=1`);
-      const frame=page.frameLocator('iframe[title="Web preview"]');await expect(frame.getByRole('heading',{name:'First render',exact:true})).toBeVisible();
-      previewOrigin=await page.locator('iframe').evaluate((node:HTMLIFrameElement)=>new URL(node.src).origin);expect(previewOrigin).not.toBe(host.url);
-      await expect(frame.locator('body')).toHaveAttribute('data-isolated','yes');await frame.getByRole('button',{name:'Project action'}).click();await expect(frame.locator('output')).toHaveText('operated');
-      // A real Vite module update travels through the separate Go WebSocket proxy.
-      await writeFile(root+'/main.ts',script('Hot updated 中文'));await expect(frame.getByRole('heading',{name:'Hot updated 中文',exact:true})).toBeVisible();
-      const targetFrame=page.frames().find((candidate:any)=>candidate.url().startsWith(previewOrigin));
-      expect(await targetFrame!.evaluate(async(desk:string)=>{try{await fetch(desk+'/api/state',{credentials:'include'});return false}catch{return true}},host.url)).toBe(true);
-      await tools(page).getByRole('button',{name:'Refresh',exact:true}).click();
-      await expect.poll(()=>page.locator('iframe').evaluate((node:HTMLIFrameElement)=>new URL(node.src).origin)).not.toBe(previewOrigin);
-      await expect(frame.getByRole('heading',{name:'Hot updated 中文',exact:true})).toBeVisible();
-      const nextOrigin=await page.locator('iframe').evaluate((node:HTMLIFrameElement)=>new URL(node.src).origin);expect(nextOrigin).not.toBe(previewOrigin);
+      await open(page,host);
+      const first=await opened(page,()=>navigate(page,`http://localhost:${port}/nested?q=1`));
+      await expect(first.getByRole('heading',{name:'First render',exact:true})).toBeVisible();
+      const origin=new URL(first.url()).origin;expect(origin).not.toBe(host.url);expect(new URL(first.url()).pathname).toBe('/nested');expect(new URL(first.url()).search).toBe('?q=1');
+      if(mode==='server')expect(origin).not.toBe(`http://localhost:${port}`);
+      await expect(first.locator('body')).toHaveAttribute('data-isolated','yes');expect(await first.evaluate(()=>window.opener)).toBeNull();
+      await first.getByRole('button',{name:'Project action'}).click();await expect(first.locator('output')).toHaveText('operated');
+      expect(await first.evaluate(async(desk:string)=>{try{await fetch(desk+'/api/state',{credentials:'include'});return false}catch{return true}},host.url)).toBe(true);
+      const second=await opened(page,()=>tools(page).getByRole('button',{name:'Refresh',exact:true}).click());await expect(second.getByRole('heading',{name:'First render',exact:true})).toBeVisible();
+      if(mode==='server')expect(new URL(second.url()).origin).not.toBe(origin);
+      await expect(first.locator('output')).toHaveText('operated');
+      await tools(page).getByRole('button',{name:'Close Web',exact:true}).click();await tools(page).getByRole('button',{name:'Close tools',exact:true}).click();
+      await writeFile(root+'/main.ts',script('Hot updated 中文'));
+      for(const tab of [first,second])await expect(tab.getByRole('heading',{name:'Hot updated 中文',exact:true})).toBeVisible();
+      await page.reload();await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toHaveValue('Keep my draft 中文');
+      // Reload resumes the same lease, independently of the removed tool view.
+      await expect(first.getByRole('heading',{name:'Hot updated 中文',exact:true})).toBeVisible();
       if(mode==='server') {
         const other=await context.newPage();await other.goto(host.url);await other.getByRole('button',{name:'Continue here',exact:true}).click();await expect(other.getByRole('textbox',{name:'Message Pith',exact:true})).toBeEditable();
-        await expect(page.getByRole('button',{name:'Continue here',exact:true})).toBeVisible();await expect(page.locator('iframe')).toHaveCount(0);
-        const expired=await context.request.get(nextOrigin+'/main.ts');expect(expired.status()).toBe(410);await other.close();
-      } else {
-        await tools(page).getByRole('button',{name:'Close tools',exact:true}).click();await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toHaveValue('Keep my draft 中文');
+        for(const tab of [first,second]) {
+          const failed=await context.request.get(new URL('/main.ts',tab.url()).href).then(r=>r.status()===410,()=>true);expect(failed).toBe(true);
+        }
+        await other.close();
       }
-    } finally {await project.close();}
+      await first.close();await second.close();await expect(page.locator('iframe')).toHaveCount(0);
+    }finally{await project.close();}
   });
-
-  test('external pages embed directly; denied embedding keeps external opening available and invalid URLs cannot replace the frame',async({page,host,context})=>{
-    const received:string[]=[];
-    await context.route('https://embed.example.test/**',route=>{received.push(route.request().url());return route.fulfill({contentType:'text/html',headers:route.request().url().endsWith('/denied')?{'X-Frame-Options':'DENY'}:{},body:'<h1>External content</h1><button onclick="this.textContent=\'Done\'">Try</button>'});});
-    await open(page,host);await navigate(page,'https://embed.example.test/allowed');
-    await expect(page.frameLocator('iframe').getByRole('heading',{name:'External content'})).toBeVisible();await page.frameLocator('iframe').getByRole('button',{name:'Try',exact:true}).click();await expect(page.frameLocator('iframe').getByRole('button',{name:'Done',exact:true})).toBeVisible();
-    await navigate(page,'https://embed.example.test/denied');await expect.poll(()=>received.includes('https://embed.example.test/denied')).toBe(true);
-    await tools(page).getByRole('button',{name:'Refresh',exact:true}).click({button:'right'});await expect(page.getByRole('menuitem',{name:'Open externally',exact:true})).toBeEnabled();
-    const popupPromise=page.waitForEvent('popup');await page.getByRole('menuitem',{name:'Open externally',exact:true}).click();const popup=await popupPromise;await expect(popup).toHaveURL('https://embed.example.test/denied');expect(await popup.evaluate(()=>window.opener)).toBeNull();await popup.close();
-    await navigate(page,host.url);await expect(tools(page)).toContainText('cannot preview itself');await expect(page.locator('iframe')).toHaveAttribute('src','https://embed.example.test/denied');
-    await tools(page).getByRole('button',{name:'New tool tab',exact:true}).click();await page.getByRole('menuitem',{name:'New Web',exact:true}).click();await expect(tools(page).getByRole('tab',{name:'Web',exact:true})).toHaveCount(1);
-    await tools(page).getByRole('button',{name:'Close tools',exact:true}).click();await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toHaveValue('Keep my draft 中文');
+  test('HTTP and HTTPS domain, public and private addresses open directly with no Desk credentials',async({page,host,context})=>{
+    const addresses=['https://web.example.test/path','http://8.8.8.8:8080/','http://192.168.1.20:3000/','https://10.0.0.2/','http://[fd00::1]:8080/'];
+    const received=new Map<string,Record<string,string>>();
+    for(const address of addresses)await context.route(address,async route=>{
+      received.set(route.request().url(),await route.request().allHeaders());await route.fulfill({contentType:'text/html',headers:{'X-Frame-Options':'DENY'},body:'<h1>Direct preview</h1>'});
+    });
+    await open(page,host);
+    for(const address of addresses){
+      const tab=await opened(page,()=>navigate(page,address));await expect(tab).toHaveURL(address);await expect(tab.getByRole('heading',{name:'Direct preview',exact:true})).toBeVisible();expect(await tab.evaluate(()=>window.opener)).toBeNull();
+      const headers=received.get(address)!;expect(headers).toBeDefined();for(const name of ['authorization','cookie','x-desk-lease','x-desk-request','referer'])expect(headers[name]).toBeUndefined();await tab.close();
+    }
+    await expect(page.locator('iframe')).toHaveCount(0);await expect(tools(page).getByRole('button',{name:'Refresh',exact:true})).toHaveCount(1);
+  });
+  test('rejected targets close their reserved tab, retain address drafts and allow multiple independent Web tools',async({page,host,context})=>{
+    await context.route('https://external.example.test/**',route=>route.fulfill({contentType:'text/html',body:'<h1>External content</h1>'}));
+    await open(page,host);const first=await opened(page,()=>navigate(page,'https://external.example.test/'));
+    await expect(first.getByRole('heading',{name:'External content'})).toBeVisible();
+    await navigate(page,host.url);await expect(tools(page)).toContainText('cannot preview itself');await expect(first.getByRole('heading',{name:'External content'})).toBeVisible();
+    await tools(page).getByRole('button',{name:'New tool tab',exact:true}).click();await page.getByRole('menuitem',{name:'New Web',exact:true}).click();await expect(tools(page).getByRole('tab',{name:'Web',exact:true})).toHaveCount(2);
+    await first.close();await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toHaveValue('Keep my draft 中文');
   });
 });

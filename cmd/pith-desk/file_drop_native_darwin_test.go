@@ -53,9 +53,9 @@ func TestWorkspaceFileDropNativeBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = server.Close() })
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = mygo.NewWindow(mygo.WindowOptions{Title: "Pith Desk file drop smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk file drop smoke", Hidden: true, Width: 1320, Height: 860})
 		installWorkspaceFileDrop(win, server)
 	})
 	t.Cleanup(win.Destroy)
@@ -135,7 +135,7 @@ return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rec
 	t.Log("outside file rejected; drop outside composer ignored; original file SHA-256 hashes unchanged")
 }
 
-func nativeDropEval(t *testing.T, win *mygo.Window, code string) any {
+func nativeDropEval(t *testing.T, win *desktopWindow, code string) any {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -146,7 +146,7 @@ func nativeDropEval(t *testing.T, win *mygo.Window, code string) any {
 	return value
 }
 
-func waitNativeDropCondition(t *testing.T, win *mygo.Window, condition string) {
+func waitNativeDropCondition(t *testing.T, win *desktopWindow, condition string) {
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {

@@ -58,12 +58,12 @@ func TestTitlebarNativeLinuxAndNarrowComposer(t *testing.T) {
 	}
 	defer server.Close()
 	server.SetTitlebarOverlay(desktopWindowOptions().TitleBarStyle == mygo.TitleBarHiddenInset)
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
 		opts := desktopWindowOptions()
 		opts.StateKey = ""
 		opts.Title = "Pith Desk UI verification"
-		win = mygo.NewWindow(opts)
+		win = newNativeTestWindow(t, opts)
 	})
 	defer win.Destroy()
 	if err := win.Page().LoadURL(server.URL); err != nil {
@@ -138,4 +138,13 @@ func TestTitlebarNativeLinuxAndNarrowComposer(t *testing.T) {
 			t.Error("native visual inspection timed out")
 		}
 	}
+}
+
+func newNativeTestWindow(t *testing.T, opts mygo.WindowOptions) *desktopWindow {
+	t.Helper()
+	win, err := newDesktopWindow(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return win
 }

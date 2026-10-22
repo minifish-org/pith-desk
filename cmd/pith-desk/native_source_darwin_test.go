@@ -2,6 +2,9 @@ package main
 
 import (
 	"flag"
+	"testing"
+
+	"github.com/egoist/mygo"
 
 	"github.com/minifish-org/pith-desk/internal/desk"
 	"github.com/minifish-org/pith-desk/internal/host"
@@ -17,4 +20,13 @@ func startNativeSmokeHost(service *desk.Service) (*host.Server, error) {
 		return host.StartDevelopment(service, nil, host.DevelopmentOptions{URL: *nativeUIURL, UIRoot: *nativeUIRoot})
 	}
 	return host.Start(service, nil)
+}
+
+func newNativeTestWindow(t *testing.T, opts mygo.WindowOptions) *desktopWindow {
+	t.Helper()
+	win, err := newDesktopWindow(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return win
 }

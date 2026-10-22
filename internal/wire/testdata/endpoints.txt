@@ -1,6 +1,7 @@
 GET json /api/update
 POST json /api/update
 POST json /api/web-preview
+POST json /api/web-preview/view
 POST json /api/web-preview/close
 GET json /api/state
 GET json /api/terminal

@@ -6,10 +6,10 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.3.6
+	github.com/egoist/mygo v0.6.2
 	github.com/gofrs/flock v0.13.1
 	github.com/minifish-org/pith v0.0.0-20261010121423-8eec8d5b88d3
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 )
 
 require (
@@ -29,8 +29,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
 	github.com/aws/smithy-go v1.28.1 // indirect
+	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect
-	golang.org/x/text v0.39.0 // indirect
+	golang.org/x/image v0.46.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )

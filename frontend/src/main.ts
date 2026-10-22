@@ -29,7 +29,7 @@ import type {MutationInput, MutationPath, MutationResponse} from './api';
 import type {AppearanceMode, RunSummary} from './contract.generated';
 export type {ProviderChoice} from './contract.generated';
 
-const {token, server, nativeClipboard, nativeFileDrop, nativeMenus, titlebar, appearance} = readAppBootstrap();
+const {token, server, nativeBrowser, nativeClipboard, nativeFileDrop, nativeMenus, titlebar, appearance} = readAppBootstrap();
 const recovery = server ? createDraftRecovery() : undefined;
 const recoveredText = recovery?.text();
 const session = server ? createServerSession({recoveryText: () => recovery?.text() || ''}) : undefined;
@@ -133,7 +133,7 @@ const conversations = createConversationsUI({ui, view: app, activity, request, d
 });
 const toolTabs = createWorkspaceToolsController({ui,request,workspace: () => conversations.selectedWorkspace(),workspaces: () => app.state.workspaces ?? [],
   disabled: () => suspended || !app.loaded,filesDisabled: () => suspended || activity.busy || !app.loaded,referenceDisabled: () => composer.draftLoading || composer.readingImages || composer.resolvingReferences || flushingDrafts,
-  server,native: nativeClipboard,clearPreview: files.clearFilePreview,fileAction: files.workspaceAction,
+  server,nativeBrowser,native: nativeClipboard,clearPreview: files.clearFilePreview,fileAction: files.workspaceAction,
   changedDraft() {composer.rememberDraft();render();},
   copy: files.copyText,
   protocols: () => session?.protocols() ?? ['pith-desk',`bearer.${token}`],checkAccess: () => session?.check() ?? Promise.resolve(),

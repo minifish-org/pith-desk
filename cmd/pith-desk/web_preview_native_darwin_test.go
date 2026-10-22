@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -45,7 +46,7 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 			}
 		default:
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<!doctype html><h1>Native project</h1><script>let isolated='no';try{parent.document.body}catch{isolated='yes'}fetch('/ready?isolated='+isolated);const url=new URL('/hmr',location.href);url.protocol='ws:';const ws=new WebSocket(url);ws.onopen=()=>ws.send('ready');ws.onmessage=()=>fetch('/socket-ready');</script>`)
+			fmt.Fprint(w, `<!doctype html><h1>Native project</h1><script>const isolated=opener===null&&parent===window?'yes':'no';fetch('/ready?isolated='+isolated);const url=new URL('/hmr',location.href);url.protocol='ws:';const ws=new WebSocket(url);ws.onopen=()=>ws.send('ready');ws.onmessage=()=>fetch('/socket-ready');</script>`)
 		}
 	}))
 	project.Listener.Close()
@@ -71,13 +72,14 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
 		opts := desktopWindowOptions()
 		opts.Title = "Pith Desk web preview smoke"
 		opts.StateKey = ""
 		opts.Hidden = true
-		win = mygo.NewWindow(opts)
+		win = newNativeTestWindow(t, opts)
+		win.installBrowser(server)
 	})
 	defer win.Destroy()
 	if err = win.Page().LoadURL(server.URL); err != nil {
@@ -97,14 +99,91 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 			t.Fatal("project read Desk document")
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("native iframe did not load project")
+		t.Fatal("native browser did not load project")
 	}
 	select {
 	case <-socketReady:
 	case <-time.After(10 * time.Second):
 		t.Fatal("native project WebSocket did not connect")
 	}
-	waitNativeDropCondition(t, win, `(()=>{const frame=document.querySelector('iframe[title="Web preview"]');return !!frame && frame.getBoundingClientRect().height>100 && new URL(frame.src).origin!==location.origin})()`)
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close tools"]').click();return true;`)
+
 	waitNativeDropCondition(t, win, `!document.querySelector('iframe')`)
+	waitBrowser := func(shown bool, excluded ...*mygo.WebView) *mygo.WebView {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			win.mu.Lock()
+			visible := win.shown != ""
+			var v *mygo.WebView
+			for _, page := range win.tabs {
+				v = page
+			}
+			if visible {
+				v = win.tabs[win.shown]
+			}
+			b := win.bounds
+			win.mu.Unlock()
+			matches := true
+			for _, old := range excluded {
+				if v == old {
+					matches = false
+				}
+			}
+			if visible == shown && v != nil && b.Height > 100 && matches {
+				return v
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatal("native browser visibility/bounds did not settle")
+		return nil
+	}
+	browser := waitBrowser(true)
+	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close tools"]').click();return true;`)
+	waitBrowser(false)
+	if browser.IsDestroyed() {
+		t.Fatal("hidden browser was destroyed")
+	}
+	nativeDropEval(t, win, `document.querySelector('button[aria-label="Toggle tools"]').click();return true;`)
+	if waitBrowser(true) != browser {
+		t.Fatal("tab switching replaced browser")
+	}
+	// Modal focus must stay in the existing Pith UI dialog.
+	nativeDropEval(t, win, `[...document.querySelectorAll('button')].find(b=>b.textContent==='Settings').click();return true;`)
+	waitNativeDropCondition(t, win, `!!document.querySelector('dialog[open]')`)
+	waitBrowser(false)
+	nativeDropEval(t, win, `document.querySelector('dialog[open]').close();return true;`)
+	waitBrowser(true)
+	// A second native page must retain the first page and its live state.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := browser.Page().EvalContext(ctx, `window.retainedNativeState='kept'`); err != nil {
+		t.Fatal(err)
+	}
+	nativeDropEval(t, win, `document.querySelector('button[aria-label="New tool tab"]').click();return true;`)
+	waitNativeDropCondition(t, win, `!!document.querySelector('[role="menu"]:popover-open')`)
+	nativeDropEval(t, win, `[...document.querySelectorAll('[role="menuitem"]')].find(b=>b.textContent==='New Web').click();return true;`)
+	nativeDropEval(t, win, `const input=document.querySelector('.pui-tool-panel:not([hidden]) input[aria-label="Web address"]');input.value=`+strconv.Quote(projectURL+"/second")+`;input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));return true;`)
+	second := waitBrowser(true, browser)
+	if second == browser || browser.IsDestroyed() {
+		t.Fatal("second native tab replaced the first page")
+	}
+	nativeDropEval(t, win, `[...document.querySelectorAll('.pui-tools [role="tab"]')].filter(b=>b.textContent==='Web')[0].click();return true;`)
+	if waitBrowser(true, second) != browser {
+		t.Fatal("switching native tabs did not restore the original page")
+	}
+	if value, err := browser.Page().EvalContext(ctx, `window.retainedNativeState`); err != nil || value != "kept" {
+		t.Fatalf("native page state was lost: %v %v", value, err)
+	}
+	nativeDropEval(t, win, `document.querySelector('.pui-tool-panel:not([hidden])').closest('.pui-workspace-tools').querySelector('button[aria-label="Close Web"]').click();return true;`)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !browser.IsDestroyed() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !browser.IsDestroyed() {
+		t.Fatal("closing native browser did not destroy it")
+	}
+	if second.IsDestroyed() {
+		t.Fatal("closing one native tab destroyed another")
+	}
 }

@@ -153,10 +153,10 @@ func TestTaskDockNativeUnreadLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = server.Close() })
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
 		installDockTaskStatus(server)
-		win = mygo.NewWindow(mygo.WindowOptions{Title: "Pith Desk Dock smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk Dock smoke", Hidden: true, Width: 1320, Height: 860})
 	})
 	t.Cleanup(win.Destroy)
 	if err := win.Page().LoadURL(server.URL); err != nil {

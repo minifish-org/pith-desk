@@ -201,30 +201,35 @@ transport. A successful Server check alone does not establish native behavior.
 ## Web preview acceptance
 
 `internal/host/web_preview_test.go` covers Desktop bearer admission and Server
-leases, loopback/Desk-port rejection, direct external URLs without server fetch,
+leases, Desk-port rejection, direct Desktop/domain/public/private IP URLs without server fetch,
 credential stripping, redirect confinement, preserved embedding headers, scoped
-close and HTTP/WebSocket/stream cancellation on takeover. The tests also exercise
+close, per-preview cookies across loopback ports, workspace removal, logout,
+expiry, and HTTP/WebSocket/stream cancellation on takeover. The tests also exercise
 HTTP and WebSocket against IPv4-only and IPv6-only localhost projects, without
-changing their bind settings. The registered routes
+changing their bind settings, default HTTP/HTTPS ports, project paths matching
+the bootstrap path and normal HTTPS certificate validation. The registered routes
 also participate in the all-endpoint anonymous/missing/revoked-lease regression.
 `frontend/tests/web-preview.test.ts` covers original workspace targets, late
-responses, suspension, explicit refresh and no automatic write replay.
-Workspace-tools tests retain old layouts and enforce one preview without saving
+responses, independent new-tab completion after teardown, suspension, native
+viewport placement, explicit close and no automatic write replay.
+Workspace-tools tests retain old layouts and retain independent preview tabs without saving
 addresses or grants.
 
 `frontend/e2e/web-preview.spec.ts` runs both Desktop and Server transports in
 Chromium/WebKit against a real temporary Vite project: nested paths/root assets,
-interactive content, module HMR through Go's WebSocket proxy, separate origins,
-blocked Desk API access, grant rotation, lease takeover, direct external pages,
-X-Frame-Options refusal and external opening from the refresh context menu
-without an opener. Address submission uses Return. The opt-in
+interactive content, direct Desktop HMR and Server HMR through Go's WebSocket
+proxy, separate origins, blocked Desk API access, independent Server grants surviving tool close and Desk refresh, lease
+takeover, direct domain/public/private IP pages without Desk credentials,
+top-level X-Frame-Options pages and opening without an opener. Address submission uses Return. The opt-in
 `TestWebPreviewNativeIsolationAndSocket` covers the actual macOS WKWebView.
-Its project binds only to IPv6 while the UI receives a localhost URL; the Vite
+It verifies a distinct native child page, retained hide/show, modal yielding and
+explicit destruction with no iframe. Its project binds only to IPv6 while the UI receives a localhost URL; the Vite
 browser scenario uses Vite's default bind settings to retain that real-world gap.
 Include `WebPreviewNative` in the native test filter; remote wildcard DNS/TLS and
 physical mobile browsers need deployment-specific acceptance.
 
-The preview controls are currently a local Pith UI source integration. Start
+The preview controls normally use the pinned registry package. To validate
+companion Pith UI source changes before publication, start
 `npm run dev:server -- --ui-source ../pith-ui --preview-listen 127.0.0.1:0` and use
 its printed frontend origin for `hostFrontend` plus the absolute checkout for
 `hostUISource` in a temporary local Playwright config. The same existing native

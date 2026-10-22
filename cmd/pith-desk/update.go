@@ -56,7 +56,7 @@ type desktopUpdater struct {
 	relaunch func()
 }
 
-func newDesktopUpdater(service *desk.Service, window *mygo.Window, dialogMu *sync.Mutex, exit *quitConfirmation, releaseVersion string, development bool) *desktopUpdater {
+func newDesktopUpdater(service *desk.Service, window *desktopWindow, dialogMu *sync.Mutex, exit *quitConfirmation, releaseVersion string, development bool) *desktopUpdater {
 	ctx, cancel := context.WithCancel(context.Background())
 	enabled := releaseVersion != "" && !development && mygo.Updater.Enabled()
 	u := &desktopUpdater{
@@ -84,7 +84,7 @@ func newDesktopUpdater(service *desk.Service, window *mygo.Window, dialogMu *syn
 			return true, nil
 		}
 		result, err := mygo.Dialog.Message(mygo.MessageOptions{
-			Parent: window, Type: mygo.MessageWarning, Title: "Update Pith Desk?",
+			Parent: window.Window, Type: mygo.MessageWarning, Title: "Update Pith Desk?",
 			Message: "Tasks are still running.",
 			Detail:  "Updating will interrupt tasks in all workspaces, including tasks waiting for approval, and restart Pith Desk. Completed changes will remain in place.",
 			Buttons: []string{"Cancel", "Update and restart"}, DefaultButton: 0, CancelButton: 0,

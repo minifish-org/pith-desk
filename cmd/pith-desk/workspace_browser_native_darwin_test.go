@@ -71,13 +71,13 @@ func TestWorkspaceBrowserNativeSidebarPreviewReferenceAndSave(t *testing.T) {
 		saved.Add(1)
 		return err
 	})
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
 		opts := desktopWindowOptions()
 		opts.Title = "Pith Desk workspace smoke"
 		opts.StateKey = ""
 		opts.Hidden = true
-		win = mygo.NewWindow(opts)
+		win = newNativeTestWindow(t, opts)
 		win.Page().OnWillDownload(func(event *mygo.DownloadEvent) { automatic.Add(1); event.PreventDefault() })
 	})
 	defer win.Destroy()

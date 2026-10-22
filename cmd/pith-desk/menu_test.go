@@ -140,3 +140,23 @@ func invokeMenuUpdate(t *testing.T, scheduled <-chan func()) {
 		t.Fatal("native menu update was not scheduled")
 	}
 }
+
+func TestDesktopViewMenuRoutesPageCommandsInContentWindow(t *testing.T) {
+	var got []mygo.MenuRole
+	items := desktopViewMenu(func(role mygo.MenuRole) { got = append(got, role) })
+	for _, item := range items {
+		if item.Click != nil {
+			item.Click(item, nil)
+		}
+	}
+	want := []mygo.MenuRole{mygo.RoleReload, mygo.RoleForceReload, mygo.RoleToggleDevTools, mygo.RoleResetZoom, mygo.RoleZoomIn, mygo.RoleZoomOut}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("page menu commands: %v", got)
+	}
+	if items[2].Role != "" || items[2].Accelerator == "" {
+		t.Fatal("page inspector also invokes the native UI inspector")
+	}
+	if items[len(items)-1].Role != mygo.RoleToggleFullScreen {
+		t.Fatal("standard fullscreen command was removed")
+	}
+}

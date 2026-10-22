@@ -45,9 +45,9 @@ test('stored layouts are bounded, normalized and workspace-specific; empty layou
   saved.setItem('pith-desk.tools.v1.one',JSON.stringify({...restored,tabs:[restored.tabs[0],restored.tabs[0]]}));assert.equal(readToolLayout(saved,'one',()=> 'safe').activeId,'safe');
 });
 
-test('there is one web preview per workspace and no address or grant enters the saved layout',async()=>{
+test('web previews are independent per workspace and no address or grant enters the saved layout',async()=>{
   const h=harness();try {
-    await tick();h.controller.create('preview');const id=h.state().activeId;h.controller.create('preview');assert.equal(h.state().activeId,id);assert.equal(h.state().tabs.filter((tab:any)=>tab.kind==='preview').length,1);
+    await tick();h.controller.create('preview');const id=h.state().activeId;h.controller.create('preview');assert.notEqual(h.state().activeId,id);assert.equal(h.state().tabs.filter((tab:any)=>tab.kind==='preview').length,2);h.controller.select(id);
     assert.equal(h.calls.filter(call=>call.path==='/api/web-preview').length,0);
     const restored=readToolLayout(h.saved,'one');assert.equal(restored.tabs.at(-1)?.kind,'preview');assert.equal(restored.tabs.at(-1)?.label,'Web');assert.deepEqual(Object.keys(restored.tabs.at(-1)!).sort(),['id','kind','label']);
     restored.tabs.at(-1)!.label='Web preview';h.saved.setItem('pith-desk.tools.v1.one',JSON.stringify(restored));assert.equal(readToolLayout(h.saved,'one').tabs.at(-1)?.label,'Web');

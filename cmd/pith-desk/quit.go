@@ -13,7 +13,7 @@ import (
 
 // installQuitConfirmation keeps a close or quit from interrupting work without
 // an explicit decision. Closing an idle window still quits the application.
-func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogMu *sync.Mutex) *quitConfirmation {
+func installQuitConfirmation(service *desk.Service, window *desktopWindow, dialogMu *sync.Mutex) *quitConfirmation {
 	active := func() bool { return len(service.Snapshot().Runs) != 0 }
 	controller := &quitConfirmation{
 		active: active,
@@ -25,7 +25,7 @@ func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogM
 				return true, nil
 			}
 			result, err := mygo.Dialog.Message(mygo.MessageOptions{
-				Parent: window, Type: mygo.MessageWarning, Title: "Quit Pith Desk?",
+				Parent: window.Window, Type: mygo.MessageWarning, Title: "Quit Pith Desk?",
 				Message:       "Tasks are still running.",
 				Detail:        "Quitting will interrupt tasks in all workspaces, including tasks waiting for approval. Completed changes will remain in place.",
 				Buttons:       []string{"Keep working", "Stop tasks and quit"},
@@ -55,7 +55,7 @@ func installQuitConfirmation(service *desk.Service, window *mygo.Window, dialogM
 	return controller
 }
 
-func flushDesktopDrafts(window *mygo.Window) error {
+func flushDesktopDrafts(window *desktopWindow) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	value, err := window.Page().EvalContext(ctx, `new Promise(resolve => {

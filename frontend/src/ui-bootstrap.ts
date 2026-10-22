@@ -10,6 +10,7 @@ export function readAppBootstrap() {
   return {
     token: token === '__DESK_TOKEN__' ? '' : token,
     server: consume('desk-mode') === 'server',
+    nativeBrowser: consume('desk-native-browser') === 'true',
     nativeClipboard: consume('desk-native-clipboard') === 'true',
     nativeFileDrop: consume('desk-native-file-drop') === 'true',
     nativeMenus: consume('desk-native-menus') === 'true',

@@ -57,7 +57,7 @@ func (a nativeMenuAvailability) permits(action string) bool {
 	return false
 }
 
-func installNativeMenu(server *host.Server, window *mygo.Window) *nativeMenuController {
+func installNativeMenu(server *host.Server, window *desktopWindow) *nativeMenuController {
 	controller := &nativeMenuController{schedule: mygo.RunOnMain}
 	dispatch := func(action string) {
 		if !controller.permits(action) {
@@ -73,7 +73,30 @@ func installNativeMenu(server *host.Server, window *mygo.Window) *nativeMenuCont
 			}
 		}()
 	}
-	menu := mygo.NewMenu(nativeMenuTemplate(dispatch))
+	template := nativeMenuTemplate(dispatch)
+	for _, item := range template {
+		if item.Role == mygo.RoleViewMenu {
+			item.Submenu = desktopViewMenu(func(role mygo.MenuRole) {
+				page := window.Page()
+				switch role {
+				case mygo.RoleReload:
+					page.Reload()
+				case mygo.RoleForceReload:
+					page.ReloadIgnoringCache()
+				case mygo.RoleToggleDevTools:
+					page.ToggleDevTools()
+				case mygo.RoleResetZoom:
+					page.SetZoomFactor(1)
+				case mygo.RoleZoomIn:
+					page.SetZoomFactor(min(5, page.ZoomFactor()*1.1))
+				case mygo.RoleZoomOut:
+					page.SetZoomFactor(max(0.25, page.ZoomFactor()/1.1))
+				}
+				window.Invalidate()
+			})
+		}
+	}
+	menu := mygo.NewMenu(template)
 	controller.applyNative = func(available nativeMenuAvailability) {
 		menu.ItemByID("desk-new").SetEnabled(available.NewConversation)
 		menu.ItemByID("desk-workspace").SetEnabled(available.ChooseWorkspace)
@@ -91,6 +114,23 @@ func installNativeMenu(server *host.Server, window *mygo.Window) *nativeMenuCont
 		controller.close()
 	})
 	return controller
+}
+
+// Content windows have no top-level page for MyGo's reload/zoom roles. Retain
+// the existing commands and route them to Desk's main WebView explicitly.
+func desktopViewMenu(action func(mygo.MenuRole)) []*mygo.MenuItem {
+	items := []*mygo.MenuItem{}
+	for _, role := range []mygo.MenuRole{mygo.RoleReload, mygo.RoleForceReload, mygo.RoleToggleDevTools, mygo.RoleResetZoom, mygo.RoleZoomIn, mygo.RoleZoomOut} {
+		item := &mygo.MenuItem{Role: role, Click: func(*mygo.MenuItem, *mygo.Window) { action(role) }}
+		if role == mygo.RoleToggleDevTools {
+			defaults := mygo.NewMenu([]*mygo.MenuItem{{Role: role}}).Items()[0]
+			item.Role = ""
+			item.Label = defaults.Label
+			item.Accelerator = defaults.Accelerator
+		}
+		items = append(items, item)
+	}
+	return append(items, mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleToggleFullScreen})
 }
 
 func nativeMenuTemplate(dispatch func(string)) []*mygo.MenuItem {

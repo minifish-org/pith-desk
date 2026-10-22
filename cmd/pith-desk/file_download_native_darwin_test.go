@@ -70,9 +70,9 @@ func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
 			return errors.New("Fixture native save failed")
 		}
 	})
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = mygo.NewWindow(mygo.WindowOptions{Title: "Pith Desk download smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk download smoke", Hidden: true, Width: 1320, Height: 860})
 		win.Page().OnWillDownload(func(e *mygo.DownloadEvent) { automaticDownloads.Add(1); e.PreventDefault() })
 	})
 	defer win.Destroy()

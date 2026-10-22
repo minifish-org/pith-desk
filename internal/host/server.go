@@ -59,6 +59,9 @@ type Server struct {
 	development       *developmentFrontend
 	access            *serverAccess
 	preview           *webPreview
+	browserOpen       func(string, string, string) error
+	browserView       func(wire.BrowserViewInput) error
+	browserClose      func(string)
 	taskStatusAction  func(TaskStatus)
 	taskStatus        TaskStatus
 	nativeFileDrop    bool
@@ -103,13 +106,6 @@ func startListener(service *desk.Service, picker func() (string, error), develop
 		go access.expire(ctx)
 	}
 	s.development = development
-	if access == nil {
-		if err := s.startWebPreview("", ""); err != nil {
-			cancel()
-			ln.Close()
-			return nil, err
-		}
-	}
 	if len(appearanceChanged) > 0 {
 		s.appearanceChanged = appearanceChanged[0]
 	}
@@ -151,6 +147,7 @@ func (s *Server) broadcast() {
 			data, _ := json.Marshal(state)
 			completions := s.newCompletionsLocked(state)
 			action := s.completionAction
+			preview := s.preview
 			for ch := range s.clients {
 				select {
 				case ch <- data:
@@ -163,6 +160,9 @@ func (s *Server) broadcast() {
 				}
 			}
 			s.mu.Unlock()
+			if preview != nil {
+				preview.pruneWorkspaces(s.service)
+			}
 			if action != nil {
 				for _, entry := range completions {
 					for _, workspace := range state.Workspaces {
@@ -183,7 +183,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	socketOrigin := strings.Replace(strings.Replace(s.URL, "https://", "wss://", 1), "http://", "ws://", 1)
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+socketOrigin+"; img-src 'self' data: blob:; object-src 'none'; frame-src http: https:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+socketOrigin+"; img-src 'self' data: blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 	expectedHost := strings.TrimPrefix(strings.TrimPrefix(s.URL, "https://"), "http://")
 	if r.Host != expectedHost {
 		http.Error(w, "Invalid host", http.StatusForbidden)
@@ -253,6 +253,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			nativeMenus := s.nativeMenuAction != nil
 			titlebarOverlay := s.titlebarOverlay
 			s.mu.Unlock()
+			index = strings.ReplaceAll(index, "__DESK_NATIVE_BROWSER__", fmt.Sprint(s.browserOpen != nil))
 			index = strings.ReplaceAll(index, "__DESK_NATIVE_CLIPBOARD__", fmt.Sprint(nativeClipboard))
 			index = strings.ReplaceAll(index, "__DESK_NATIVE_FILE_DROP__", fmt.Sprint(nativeFileDrop))
 			index = strings.ReplaceAll(index, "__DESK_NATIVE_MENUS__", fmt.Sprint(nativeMenus))
@@ -308,6 +309,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/api/web-preview/view" && r.Method == http.MethodPost {
+		s.setBrowserView(w, r)
+		return
+	}
 	if r.URL.Path == "/api/web-preview" && r.Method == http.MethodPost {
 		s.openWebPreview(w, r)
 		return

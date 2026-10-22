@@ -24,7 +24,7 @@ export function readToolLayout(storage: StorageLike|undefined,workspace: string,
       const value = JSON.parse(raw) as Layout;
       if (Array.isArray(value.tabs) && value.tabs.length <= 32 && new Set(value.tabs.map(tab => tab.id)).size === value.tabs.length &&
         value.tabs.every(tab => typeof tab.id === 'string' && tab.id.length > 0 && tab.id.length <= 128 && ['files','terminal','preview'].includes(tab.kind) && typeof tab.label === 'string' && tab.label.length <= 80 &&
-          (!tab.files || Array.isArray(tab.files.expanded) && tab.files.expanded.length <= 256 && tab.files.expanded.every(path => typeof path === 'string' && path.length <= 4096) && (tab.files.scrollTop === undefined || Number.isFinite(tab.files.scrollTop) && tab.files.scrollTop >= 0 && tab.files.scrollTop <= 10_000_000))) && value.tabs.filter(tab=>tab.kind==='preview').length<=1 &&
+          (!tab.files || Array.isArray(tab.files.expanded) && tab.files.expanded.length <= 256 && tab.files.expanded.every(path => typeof path === 'string' && path.length <= 4096) && (tab.files.scrollTop === undefined || Number.isFinite(tab.files.scrollTop) && tab.files.scrollTop >= 0 && tab.files.scrollTop <= 10_000_000))) &&
         typeof value.activeId === 'string' && value.next && (['files','terminal'] as const).every(key => Number.isSafeInteger(value.next[key]) && value.next[key] > 0)) {
         if (!value.tabs.some(tab => tab.id === value.activeId)) value.activeId = value.tabs[0]?.id ?? '';
         return {tabs: value.tabs.map(tab => ({id: tab.id,kind: tab.kind,label: tab.kind === 'preview' ? 'Web' : tab.label,...(tab.kind === 'files' ? {files: {expanded: tab.files?.expanded ?? [],scrollTop: tab.files?.scrollTop}} : {})})),activeId: value.activeId,next: {files: value.next.files,terminal: value.next.terminal}};
@@ -36,7 +36,7 @@ export function readToolLayout(storage: StorageLike|undefined,workspace: string,
 
 export function createWorkspaceToolsController(api: {
   ui: Application;request: ApiRequest;workspace(): Workspace|undefined;workspaces(): readonly Workspace[];
-  disabled(): boolean;filesDisabled(): boolean;referenceDisabled(): boolean;server: boolean;native: boolean;
+  disabled(): boolean;filesDisabled(): boolean;referenceDisabled(): boolean;server: boolean;native: boolean;nativeBrowser?:boolean;
   changedDraft(): void;clearPreview(): void;
   fileAction: Parameters<typeof createWorkspaceBrowser>[0]['fileAction'];copy(text: string): unknown;
   protocols(): string[];checkAccess?(): Promise<void>;
@@ -81,8 +81,8 @@ export function createWorkspaceToolsController(api: {
       entry = {tab,pending: false,detail: `${group.location}\nInitial directory: ${group.workspace.path}`,sync: controller.sync,close: controller.close,start: controller.start,destroy() {controller.destroy();view.destroy();}};
     } else {
       let controller:ReturnType<typeof createWebPreview>;
-      const view=api.ui.tools.createPreview(tab.id,{onNavigate:address=>{void controller.navigate(address);},onRefresh:()=>{void controller.refresh();}});
-      controller=createWebPreview({view,request:api.request,workspaceId:group.workspace.id,active:()=>visible(group,tab.id),disabled:api.disabled});
+      const view=api.ui.tools.createPreview(tab.id,{onNavigate:address=>{void controller.navigate(address);},onRefresh:()=>{void controller.refresh();},onViewport:bounds=>controller.viewport(bounds)});
+      controller=createWebPreview({view,request:api.request,id:tab.id,workspaceId:group.workspace.id,native:!!api.nativeBrowser,active:()=>visible(group,tab.id),disabled:api.disabled});
       entry={tab,pending:false,detail:group.workspace.path,sync:controller.sync,destroy() {controller.destroy();view.destroy();}};
     }
     group.entries.set(tab.id,entry);return entry;
@@ -122,7 +122,6 @@ export function createWorkspaceToolsController(api: {
   function create(kind: Kind): void {
     const group = groups.get(current);if (!alive || api.disabled() || !group || group.layout.tabs.length >= 32) return;
     if(kind==='preview') {
-      const existing=group.layout.tabs.find(tab=>tab.kind==='preview');if(existing){select(existing.id);return;}
       const tab:Tab={id:newID(),kind,label:'Web'};group.layout.tabs.push(tab);make(group,tab);select(tab.id);return;
     }
     const number = group.layout.next[kind]++,tab: Tab = {id: newID(),kind,label: (kind === 'files' ? 'Files' : 'Terminal')+(number === 1 ? '' : ' '+number),...(kind === 'files' ? {files: emptyFiles()} : {})};

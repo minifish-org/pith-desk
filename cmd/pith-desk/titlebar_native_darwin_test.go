@@ -31,12 +31,12 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 	}
 	defer server.Close()
 	server.SetTitlebarOverlay(true)
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
 		opts := desktopWindowOptions()
 		opts.Title = "Pith Desk titlebar smoke"
 		opts.StateKey = ""
-		win = mygo.NewWindow(opts)
+		win = newNativeTestWindow(t, opts)
 	})
 	defer win.Destroy()
 	if err := win.Page().LoadURL(server.URL); err != nil {

@@ -10,7 +10,7 @@ import (
 	"github.com/minifish-org/pith-desk/internal/host"
 )
 
-func installWorkspaceFileDrop(win *mygo.Window, server *host.Server) {
+func installWorkspaceFileDrop(win *desktopWindow, server *host.Server) {
 	server.SetNativeFileDrop(true)
 	win.OnFileDrop(func(event *mygo.FileDropEvent) {
 		copy := *event
@@ -23,7 +23,7 @@ func installWorkspaceFileDrop(win *mygo.Window, server *host.Server) {
 	})
 }
 
-func forwardNativeFileDrop(win *mygo.Window, event *mygo.FileDropEvent) error {
+func forwardNativeFileDrop(win *desktopWindow, event *mygo.FileDropEvent) error {
 	script, err := nativeFileDropScript(event)
 	if err != nil {
 		return err

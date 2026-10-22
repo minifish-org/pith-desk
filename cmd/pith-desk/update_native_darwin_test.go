@@ -34,9 +34,9 @@ func TestUpdatesNativeSettingsProgressFailureAndDraftSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	var win *mygo.Window
+	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = mygo.NewWindow(mygo.WindowOptions{Title: "Pith Desk update smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk update smoke", Hidden: true, Width: 1320, Height: 860})
 	})
 	defer win.Destroy()
 	ctx, cancel := context.WithCancel(context.Background())

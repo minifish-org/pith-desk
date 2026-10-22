@@ -150,8 +150,14 @@ func runDesktop(dataDir string, development host.DevelopmentOptions) error {
 			return os.WriteFile(path, []byte(data), 0o600)
 		})
 		opts := desktopWindowOptions()
-		win := mygo.NewWindow(opts)
-		window.Store(win)
+		win, err := newDesktopWindow(opts)
+		if err != nil {
+			startupErr = err
+			mygo.App.Quit()
+			return
+		}
+		win.installBrowser(server)
+		window.Store(win.Window)
 		server.SetTitlebarOverlay(opts.TitleBarStyle == mygo.TitleBarHiddenInset)
 		installWorkspaceFileDrop(win, server)
 		exit := installQuitConfirmation(service, win, &dialogMu)
@@ -170,7 +176,8 @@ func runDesktop(dataDir string, development host.DevelopmentOptions) error {
 			}
 			notifications.Show(entry, workspace)
 		})
-		win.OnReadyToShow(win.Show)
+		var readyOnce sync.Once
+		win.Page().OnDidFinishLoad(func() { readyOnce.Do(win.Show) })
 		appURL, _ := url.Parse(server.URL)
 		// Exports use the native save dialog. Download navigation bypasses MyGo's
 		// navigation listener, so reject that separate path as well.
