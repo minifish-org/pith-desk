@@ -46,6 +46,15 @@ type IDInput struct {
 type WorkspaceInput struct {
 	WorkspaceID string `json:"workspaceId"`
 }
+type WebPreviewInput struct {
+	WorkspaceID string `json:"workspaceId"`
+	Address     string `json:"address"`
+}
+type WebPreviewResponse struct {
+	ID          string `json:"id,omitempty"`
+	URL         string `json:"url"`
+	ExternalURL string `json:"externalUrl"`
+}
 type PathInput struct {
 	Path string `json:"path"`
 }
@@ -211,6 +220,8 @@ func get[Q, O any](path string) Endpoint {
 }
 
 var Endpoints = []Endpoint{
+	post[WebPreviewInput, WebPreviewResponse]("/api/web-preview"),
+	post[IDInput, OKResponse]("/api/web-preview/close"),
 	get[TerminalReadInput, TerminalResponse]("/api/terminal"),
 	post[TerminalOpenInput, TerminalResponse]("/api/terminal"),
 	post[TerminalTarget, OKResponse]("/api/terminal/close"),

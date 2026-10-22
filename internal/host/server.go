@@ -58,6 +58,7 @@ type Server struct {
 	completedRuns     map[string]string
 	development       *developmentFrontend
 	access            *serverAccess
+	preview           *webPreview
 	taskStatusAction  func(TaskStatus)
 	taskStatus        TaskStatus
 	nativeFileDrop    bool
@@ -102,6 +103,13 @@ func startListener(service *desk.Service, picker func() (string, error), develop
 		go access.expire(ctx)
 	}
 	s.development = development
+	if access == nil {
+		if err := s.startWebPreview("", ""); err != nil {
+			cancel()
+			ln.Close()
+			return nil, err
+		}
+	}
 	if len(appearanceChanged) > 0 {
 		s.appearanceChanged = appearanceChanged[0]
 	}
@@ -117,6 +125,9 @@ func startListener(service *desk.Service, picker func() (string, error), develop
 
 func (s *Server) Close() error {
 	s.cancel()
+	if s.preview != nil {
+		s.preview.close()
+	}
 	s.terminals.Close()
 	s.clearTaskStatusAction()
 	s.clearNativeMenuAction()
@@ -172,7 +183,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	socketOrigin := strings.Replace(strings.Replace(s.URL, "https://", "wss://", 1), "http://", "ws://", 1)
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+socketOrigin+"; img-src 'self' data: blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+socketOrigin+"; img-src 'self' data: blob:; object-src 'none'; frame-src http: https:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 	expectedHost := strings.TrimPrefix(strings.TrimPrefix(s.URL, "https://"), "http://")
 	if r.Host != expectedHost {
 		http.Error(w, "Invalid host", http.StatusForbidden)
@@ -297,6 +308,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/api/web-preview" && r.Method == http.MethodPost {
+		s.openWebPreview(w, r)
+		return
+	}
+	if r.URL.Path == "/api/web-preview/close" && r.Method == http.MethodPost {
+		s.closeWebPreview(w, r)
+		return
+	}
 	if r.URL.Path == "/api/terminal" && r.Method == http.MethodGet {
 		s.readTerminal(w, r)
 		return

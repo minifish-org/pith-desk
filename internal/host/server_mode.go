@@ -17,6 +17,8 @@ type ServerOptions struct {
 	Token          string
 	FrontendURL    string // loopback Vite, development only
 	FrontendUIRoot string // local UI source, only with FrontendURL
+	PreviewListen  string // optional separate preview listener, defaults to loopback
+	PreviewOrigin  string // exact external origin of that listener
 }
 
 func StartServer(service *desk.Service, options ServerOptions) (*Server, error) {
@@ -56,7 +58,15 @@ func StartServer(service *desk.Service, options ServerOptions) (*Server, error) 
 		ln.Close()
 		return nil, fmt.Errorf("frontend hot reload is available only on a loopback server")
 	}
-	return startListener(service, nil, development, ln, origin, newServerAccess(options.Token, u.Scheme == "https"), nil)
+	s, err := startListener(service, nil, development, ln, origin, newServerAccess(options.Token, u.Scheme == "https"), nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.startWebPreview(options.PreviewListen, options.PreviewOrigin); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 func loopbackHost(host string) bool {

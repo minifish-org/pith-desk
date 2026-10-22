@@ -1,9 +1,9 @@
-New in rc.39:
+New in rc.40:
 
-- Browse workspace files and switch to a manual terminal in the retained right tool rail, with independent sidebars and a narrow-screen overlay.
-- Start one real interactive shell per workspace on the local computer in Desktop or on the server in Server mode. Terminal commands and Agent execution keep separate working directories, environments and processes.
-- Keep shells running across page refresh, disconnect and tool switches, with bounded output replay, explicit close, lease takeover protection and touch controls for interrupt and terminal keys.
-- Use Pith UI 0.10.0 with pinned xterm.js. The terminal runs with the host account's permissions; the workspace is its initial directory, not a sandbox. Service restart does not restore shells. Full-screen redraw and physical-phone limitations are documented in the README.
+- Open **+ → New Web** in the existing tool rail. Enter an address and press Return; use the refresh icon to reload, or right-click it to open externally.
+- Preview local development projects in Desktop and Server, including IPv4/IPv6 localhost, root-relative assets, WebSockets and Vite hot updates. Server localhost refers to the server; remote HTTPS deployments need a separate preview hostname as documented in the README.
+- Keep preview pages on a separate sandboxed origin with scoped credentials and Server lease revocation. External sites retain their embedding restrictions. No Agent browser tools or additional browser services are introduced.
+- Retain per-workspace file and terminal tabs, resize the sidebars independently, and restore the layout and widths after refresh. This release uses Pith UI 0.11.0; Web addresses and preview credentials are not saved in the layout.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
 

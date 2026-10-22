@@ -21,10 +21,10 @@ function harness(saved = storage(),initialSessions: any[] = []) {
     close() {this.readyState=3;this.onclose?.();}
   }});
   function view(id:string,kind:string,callbacks:any) {
-    const value:any={kind,callbacks,state:undefined,removed:false,restored:0,update(next:any) {this.state=next;},reset() {},fit() {},focus() {},readSize:()=>({cols:80,rows:24}),write(_bytes:Uint8Array,done:()=>void) {done();},restorePosition(top:number) {this.restored=top;},closeMenu() {},destroy() {this.removed=true;}};
+    const value:any={kind,callbacks,state:undefined,removed:false,restored:0,update(next:any) {this.state=next;},resetAddress() {},reset() {},fit() {},focus() {},readSize:()=>({cols:80,rows:24}),write(_bytes:Uint8Array,done:()=>void) {done();},restorePosition(top:number) {this.restored=top;},closeMenu() {},destroy() {this.removed=true;}};
     views.set(id,value);return value;
   }
-  const controller = createWorkspaceToolsController({ui:{files:{areToolsOpen:()=>true,closeToolsOverlay() {}},tools:{update(next:any) {state=next;},closeMenu() {},createFiles:(id:string,callbacks:any)=>view(id,'files',callbacks),createTerminal:(id:string,callbacks:any)=>view(id,'terminal',callbacks)}} as any,
+  const controller = createWorkspaceToolsController({ui:{files:{areToolsOpen:()=>true,closeToolsOverlay() {}},tools:{update(next:any) {state=next;},closeMenu() {},createFiles:(id:string,callbacks:any)=>view(id,'files',callbacks),createTerminal:(id:string,callbacks:any)=>view(id,'terminal',callbacks),createPreview:(id:string,callbacks:any)=>view(id,'preview',callbacks)}} as any,
     request: (async (path:string,input:any) => {
       calls.push({path,input});const override=respond?.(path,input);if(override) return override;
       if(path==='/api/workspace-files') return {entries:[{name:'docs',path:'docs',directory:true}],truncated:false};
@@ -43,6 +43,17 @@ test('stored layouts are bounded, normalized and workspace-specific; empty layou
   assert.equal(readToolLayout(saved,'two',()=> 'other').activeId,'other');
   saved.setItem('pith-desk.tools.v1.one',JSON.stringify({...restored,tabs:[],activeId:''}));assert.deepEqual(readToolLayout(saved,'one').tabs,[]);
   saved.setItem('pith-desk.tools.v1.one',JSON.stringify({...restored,tabs:[restored.tabs[0],restored.tabs[0]]}));assert.equal(readToolLayout(saved,'one',()=> 'safe').activeId,'safe');
+});
+
+test('there is one web preview per workspace and no address or grant enters the saved layout',async()=>{
+  const h=harness();try {
+    await tick();h.controller.create('preview');const id=h.state().activeId;h.controller.create('preview');assert.equal(h.state().activeId,id);assert.equal(h.state().tabs.filter((tab:any)=>tab.kind==='preview').length,1);
+    assert.equal(h.calls.filter(call=>call.path==='/api/web-preview').length,0);
+    const restored=readToolLayout(h.saved,'one');assert.equal(restored.tabs.at(-1)?.kind,'preview');assert.equal(restored.tabs.at(-1)?.label,'Web');assert.deepEqual(Object.keys(restored.tabs.at(-1)!).sort(),['id','kind','label']);
+    restored.tabs.at(-1)!.label='Web preview';h.saved.setItem('pith-desk.tools.v1.one',JSON.stringify(restored));assert.equal(readToolLayout(h.saved,'one').tabs.at(-1)?.label,'Web');
+    h.switchWorkspace(1);h.switchWorkspace(0);assert.equal(h.state().activeId,id);assert.equal(h.calls.filter(call=>call.path==='/api/web-preview').length,0);
+    await h.controller.close(id);assert.equal(h.views.get(id).removed,true);
+  } finally {h.destroy();}
 });
 
 test('each Files view keeps expanded paths and scroll position through tabs, workspaces and refresh',async () => {

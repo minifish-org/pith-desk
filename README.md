@@ -139,7 +139,7 @@ page in both Desktop and Server. A viewport constraint is never saved as a
 new preference. These widths are shared by workspaces in that Desk profile.
 
 The right tool rail opens with one **Files** tab. Use the adjacent **+** menu for
-**New files** or **New terminal**. Tabs retain their content when switched or
+**New files**, **New terminal** or **New Web**. Files and terminal tabs retain their content when switched or
 hidden. Each workspace restores its own tabs and selection after refresh;
 each Files tab keeps its expanded directories and reading position.
 These preferences are local to the browser/profile. Closing Files destroys only
@@ -171,6 +171,55 @@ unchanged draft; a rejected request keeps it. Drafts are not sent to the model
 or added to the transcript until submitted. Removing a conversation or
 workspace also removes its drafts. Text drafts have an 8 MiB limit; image
 attachments use the upload limits described below.
+
+### Web preview
+
+Choose **+ → New Web** in the existing right tool rail. The tab is named **Web**.
+Enter an HTTP/HTTPS address and press Return. The refresh icon reloads that
+address; right-click it (or use Shift+F10) for **Open externally**. There is one preview per workspace,
+with no history, bookmarks or nested browser tabs. Addresses, page contents and
+preview credentials are not saved in conversations or browser layout storage.
+Hiding the preview, switching tools/workspaces or losing control unloads it;
+use Refresh to resume. This never submits a conversation or stops an Agent task.
+
+For a development project, start its ordinary dev server in a manual terminal,
+then enter, for example, `http://localhost:5173`. In **Server**, localhost means
+the **server**, even when Desk is opened on a phone or another computer. Go
+proxies only the explicitly selected HTTP loopback port (1024–65535), including
+root-relative assets, streaming and WebSocket upgrades used by Vite HMR. It does
+not resolve arbitrary proxy hosts, follow redirects to other ports/hosts, expose
+Desk's own ports or start a browser service. `localhost` tries both `::1` and
+`127.0.0.1` without DNS, including Vite's ordinary IPv6-only localhost listener.
+An explicit `127.0.0.1` or `[::1]` address uses only that interface.
+
+Local project content runs in a sandboxed iframe on a fresh separate origin.
+The proxy strips all incoming cookies, Authorization and Desk/forwarding headers,
+and strips project Set-Cookie/Clear-Site-Data responses. Its own short-lived
+HttpOnly preview cookie grants access only to that selected port and current
+Server lease. Takeover, logout, expiry or closing the preview revokes its HTTP,
+streaming and WebSocket access. Project scripts cannot read Desk's document,
+storage or credentials. Forms and scripts work; popup/top navigation, downloads,
+native permissions and workers/service workers are unavailable in the iframe.
+Projects requiring cookie login, multiple backend ports, hard-coded HMR origins
+or local HTTPS may need to be opened directly in a browser. HMR should use the
+page's origin; separately configured socket origins/ports are not rewritten.
+
+External websites are embedded **directly**, with no Go fetch or proxy. Their
+X-Frame-Options, CSP and browser mixed-content/cookie restrictions remain in
+force. If embedding is refused or the page stays blank, right-click the refresh
+icon and choose **Open externally**. Browsers do not reliably report iframe
+refusal to the owner; the toolbar has no permanent notice. There is no Agent
+browser tool, page inspection or automation.
+
+Loopback Desktop/Server use requires no preview configuration. Remote HTTPS
+Server use needs the [separate preview hostname setup](#https-reverse-proxy).
+In Server, Open externally uses the granted preview origin so the server project
+is reachable; in Desktop it opens the original local project address.
+
+The shared preview controls use the pinned Pith UI package. For local component
+development, explicitly select a companion checkout with
+`npm run dev:server -- --ui-source ../pith-ui` (or `npm run dev -- --ui-source ../pith-ui`
+for Desktop). Normal builds and releases use the registry dependency and lockfile.
 
 ### Manual terminal
 
@@ -571,6 +620,30 @@ opening its backend HTTP address directly is intentionally rejected. Token login
 is for one trusted self-hosting user, with full access to the configured server
 account's Agent capabilities. It is not multi-user isolation.
 
+For **server-local web previews**, also route `*.preview.example.com` to a
+separate listener in the same Go process. Configure wildcard DNS and a matching
+TLS certificate on your existing proxy; use a sibling domain under the same site
+as Desk so HttpOnly preview cookies work in iframe-enabled browsers. Do not use
+Desk's own hostname or strip the random preview subdomain from Host.
+
+```sh
+./pith-desk-server --listen 127.0.0.1:7540 \
+  --origin https://desk.example.com --data-dir /srv/pith-desk/data \
+  --preview-listen 127.0.0.1:7541 --preview-origin https://preview.example.com
+```
+
+In the wildcard HTTPS block, use `server_name *.preview.example.com;` and the
+same location settings above, changing only `proxy_pass` to
+`http://127.0.0.1:7541`. Preserve Host, Origin, WebSocket Upgrade and subprotocols;
+disable response buffering for streams. Each preview gets a fresh random
+subdomain, so a retired page cannot inherit a subsequent lease's credentials.
+Only the current grant is admitted. The server never starts or publishes a
+project automatically; projects can remain bound to loopback.
+Without this setup, external websites still embed directly, while server-local
+preview requests explain the missing configuration. Strict browser privacy
+settings may still block iframe cookies; allow them for this trusted site or
+open the project through your own secure development access.
+
 ## Develop
 
 Long-term ownership, local development and validation conventions are in
@@ -662,7 +735,7 @@ host route drift. `build:ui` and the CI check run this check automatically.
 Desktop retains the authenticated loopback transport; Server uses its cookie and page lease for HTTP/WebSocket access.
 Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
-Desk pins the published `pith-ui@0.8.6` package in
+Desk pins the published `pith-ui@0.11.0` package in
 `frontend/package-lock.json`. Parts come from `pith-ui`, complete regions from
 `pith-ui/recipes`, and styles from `pith-ui/styles.css`. UI owns region layout,
 controls, drafts, focus, selection, scrolling and dialog lifetime.

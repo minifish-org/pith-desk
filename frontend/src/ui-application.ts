@@ -13,6 +13,7 @@ import {
   composeArtifacts,type ArtifactsState,type ArtifactsCallbacks,composeFilePreview,
   composeFileBrowser,type FileBrowserState,type FileBrowserCallbacks,
   composeTerminal,composeWorkspaceTools,type TerminalCallbacks,type WorkspaceToolsCallbacks,
+  composeWebPreview,type WebPreviewCallbacks,
   type PreviewInput,type PreviewCallbacks,composeSettings,composeMCPConnections,
   composeModelPicker,composeCustomConnection,composeCustomConnectionLoading,composeProviderLogin,
   composeResourcesInventory,composeResourceEditor,composeResourceLoading,composeWorkspacePicker,
@@ -206,6 +207,10 @@ export function mountDesk(mount: HTMLElement,options: DeskOptions = {}) {
     createTerminal(id: string,callbacks: TerminalCallbacks) {
       const terminal = composeTerminal({id,location: '',directory: '',status: 'Connecting…',connected: false,exists: false},callbacks);tools.attach(id,terminal.part);
       return {update: terminal.update,write: terminal.write,reset: terminal.reset,fit: terminal.fit,focus: terminal.focus,readSize: terminal.readSize,destroy() {tools.remove(id);}};
+    },
+    createPreview(id: string,callbacks: WebPreviewCallbacks) {
+      const preview=composeWebPreview({url:''},callbacks);tools.attach(id,preview.part);
+      return {update:preview.update,resetAddress:preview.resetAddress,destroy() {tools.remove(id);}};
     },
   };
   return {workspace,settings,resources,files,layout,tools: toolViews,read,openServerAccess,openRecoveredDrafts,downloadFile: downloads.download,setAppearance(next: typeof appearance) {if (!disposed) {appearance = next;mounted.setAppearance(next);notify(() => options.onUIStateChange?.(read()));}},

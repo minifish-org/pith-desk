@@ -198,6 +198,44 @@ GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/pith-desk-ser
 Native smoke checks continue to launch Desktop and retain its local bearer-token
 transport. A successful Server check alone does not establish native behavior.
 
+## Web preview acceptance
+
+`internal/host/web_preview_test.go` covers Desktop bearer admission and Server
+leases, loopback/Desk-port rejection, direct external URLs without server fetch,
+credential stripping, redirect confinement, preserved embedding headers, scoped
+close and HTTP/WebSocket/stream cancellation on takeover. The tests also exercise
+HTTP and WebSocket against IPv4-only and IPv6-only localhost projects, without
+changing their bind settings. The registered routes
+also participate in the all-endpoint anonymous/missing/revoked-lease regression.
+`frontend/tests/web-preview.test.ts` covers original workspace targets, late
+responses, suspension, explicit refresh and no automatic write replay.
+Workspace-tools tests retain old layouts and enforce one preview without saving
+addresses or grants.
+
+`frontend/e2e/web-preview.spec.ts` runs both Desktop and Server transports in
+Chromium/WebKit against a real temporary Vite project: nested paths/root assets,
+interactive content, module HMR through Go's WebSocket proxy, separate origins,
+blocked Desk API access, grant rotation, lease takeover, direct external pages,
+X-Frame-Options refusal and external opening from the refresh context menu
+without an opener. Address submission uses Return. The opt-in
+`TestWebPreviewNativeIsolationAndSocket` covers the actual macOS WKWebView.
+Its project binds only to IPv6 while the UI receives a localhost URL; the Vite
+browser scenario uses Vite's default bind settings to retain that real-world gap.
+Include `WebPreviewNative` in the native test filter; remote wildcard DNS/TLS and
+physical mobile browsers need deployment-specific acceptance.
+
+The preview controls are currently a local Pith UI source integration. Start
+`npm run dev:server -- --ui-source ../pith-ui --preview-listen 127.0.0.1:0` and use
+its printed frontend origin for `hostFrontend` plus the absolute checkout for
+`hostUISource` in a temporary local Playwright config. The same existing native
+`-native-ui-url` / `-native-ui-root` flags select it for native tests. Keep
+temporary configuration, binaries and disposable workspaces outside commits.
+Run `npm run check:ui -- --ui-source ../pith-ui` for contract/boundary/types,
+frontend units, the full Go race suite/vet and affected browser/native suites.
+Library acceptance also includes its full validation and packed consumer checks.
+After publishing and pinning the library, repeat formal consumer builds without
+source resolution; no npm version or lockfile is changed for local acceptance.
+
 ## Terminal acceptance
 
 Start with `go test ./internal/terminal ./internal/host -run 'TestTerminal|TestRealShell|TestCloseCleans|TestBoundedByte'`

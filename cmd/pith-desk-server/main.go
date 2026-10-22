@@ -30,6 +30,8 @@ func main() {
 func run() error {
 	listen := flag.String("listen", "127.0.0.1:7540", "HTTP listen address")
 	origin := flag.String("origin", "", "exact browser origin, required for an HTTPS reverse proxy")
+	previewListen := flag.String("preview-listen", "127.0.0.1:7541", "separate local project preview listener")
+	previewOrigin := flag.String("preview-origin", "", "separate HTTPS hostname for server project previews")
 	dataDir := flag.String("data-dir", "", "settings and conversation data directory")
 	tokenFile := flag.String("token-file", "", "private server token file (default: DATA_DIR/server-token)")
 	devURL := flag.String("dev-url", "", "loopback Vite origin for isolated frontend development")
@@ -68,7 +70,7 @@ func run() error {
 		}
 		fmt.Printf("Server token file: %s\n", *tokenFile)
 	}
-	server, err := host.StartServer(service, host.ServerOptions{Listen: *listen, Origin: *origin, Token: token, FrontendURL: *devURL, FrontendUIRoot: *devUIRoot})
+	server, err := host.StartServer(service, host.ServerOptions{Listen: *listen, Origin: *origin, Token: token, FrontendURL: *devURL, FrontendUIRoot: *devUIRoot, PreviewListen: *previewListen, PreviewOrigin: *previewOrigin})
 	if err != nil {
 		return err
 	}
