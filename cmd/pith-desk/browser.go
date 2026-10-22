@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/egoist/mygo"
@@ -10,6 +11,11 @@ import (
 	"github.com/minifish-org/pith-desk/internal/host"
 	"github.com/minifish-org/pith-desk/internal/wire"
 )
+
+// Desk uses its authenticated HTTP host even during Vite development. MyGo's
+// default development policy trusts every loopback page, including a project
+// preview. Keep the documented production trust policy in all Desk runs.
+func init() { _ = os.Setenv("MYGO_ENV", "production") }
 
 // The native container only places pages. All Desk controls and layout still
 // belong to the existing Pith UI interface in the main page.
@@ -49,7 +55,7 @@ func newDesktopWindow(opts mygo.WindowOptions) (*desktopWindow, error) {
 		})
 	})
 	w.Window = mygo.NewWindow(opts)
-	page, err := w.NewWebView(mygo.WebViewOptions{BackgroundColor: opts.BackgroundColor})
+	page, err := w.NewWebView(mygo.WebViewOptions{BackgroundColor: opts.BackgroundColor, Page: opts.Page})
 	if err != nil {
 		w.Window.Destroy()
 		return nil, err

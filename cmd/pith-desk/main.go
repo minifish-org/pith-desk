@@ -150,6 +150,9 @@ func runDesktop(dataDir string, development host.DevelopmentOptions) error {
 			return os.WriteFile(path, []byte(data), 0o600)
 		})
 		opts := desktopWindowOptions()
+		if development.URL != "" {
+			opts.Page.DevTools = mygo.DevToolsEnabled
+		}
 		win, err := newDesktopWindow(opts)
 		if err != nil {
 			startupErr = err

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,15 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
 )
+
+type nativePreviewProbe struct{}
+
+func (*nativePreviewProbe) Probe() bool { return true }
+func init() {
+	if os.Getenv("PITH_DESK_NATIVE_SMOKE") == "1" {
+		mygo.BindAs("previewSecurity", &nativePreviewProbe{})
+	}
+}
 
 func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	if os.Getenv("PITH_DESK_NATIVE_SMOKE") != "1" {
@@ -156,6 +166,13 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	// A second native page must retain the first page and its live state.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// A real Go binding must remain unreachable from localhost preview content,
+	// including a plain go run/go test development build.
+	denied, err := browser.Page().EvalContext(ctx, `mygo.call('previewSecurity.Probe').then(()=> 'allowed',error=>String(error))`)
+	if err != nil || !strings.Contains(fmt.Sprint(denied), "not allowed to call Go") {
+		t.Fatalf("localhost preview got native IPC authority: %v %v", denied, err)
+	}
+
 	if _, err := browser.Page().EvalContext(ctx, `window.retainedNativeState='kept'`); err != nil {
 		t.Fatal(err)
 	}

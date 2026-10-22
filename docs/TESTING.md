@@ -223,7 +223,8 @@ takeover, direct domain/public/private IP pages without Desk credentials,
 top-level X-Frame-Options pages and opening without an opener. Address submission uses Return. The opt-in
 `TestWebPreviewNativeIsolationAndSocket` covers the actual macOS WKWebView.
 It verifies a distinct native child page, retained hide/show, modal yielding and
-explicit destruction with no iframe. Its project binds only to IPv6 while the UI receives a localhost URL; the Vite
+explicit destruction with no iframe. A bound native probe verifies localhost
+project pages cannot call Go even in development builds. Its project binds only to IPv6 while the UI receives a localhost URL; the Vite
 browser scenario uses Vite's default bind settings to retain that real-world gap.
 Include `WebPreviewNative` in the native test filter; remote wildcard DNS/TLS and
 physical mobile browsers need deployment-specific acceptance.
