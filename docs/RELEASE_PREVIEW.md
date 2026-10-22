@@ -1,10 +1,13 @@
-New in rc.40:
+New in this preview:
 
 - Open **+ → New Web** in the existing tool rail. Enter an address and press Return; use the refresh icon to reload, or right-click it to open externally.
-- Preview local development projects in Desktop and Server, including IPv4/IPv6 localhost, root-relative assets, WebSockets and Vite hot updates. Server localhost refers to the server; remote HTTPS deployments need a separate preview hostname as documented in the README.
-- Keep preview pages on a separate sandboxed origin with scoped credentials and Server lease revocation. External sites retain their embedding restrictions. No Agent browser tools or additional browser services are introduced.
-- Retain per-workspace file and terminal tabs, resize the sidebars independently, and restore the layout and widths after refresh. This release uses Pith UI 0.11.0; Web addresses and preview credentials are not saved in the layout.
+- Desktop uses MyGo 0.6.2's native WebView inside the existing tool rail. Server opens addresses in new browser tabs, with independent proxy authorization for server-local projects, root-relative assets, WebSockets and Vite hot updates. Remote HTTPS deployments need a separate preview hostname as documented in the README.
+- Preview tabs keep their existing Origin and permission isolation. Server authorization survives closing the tool panel and is revoked on takeover, logout or lease expiry. No Agent browser tools or additional browser services are introduced.
+- Retain per-workspace file and terminal tabs, resize the sidebars independently, and restore the layout and widths after refresh. This release uses Pith UI 0.12.0; Web addresses and preview credentials are not saved in the layout.
+- Download headless Server archives for Linux amd64 and arm64, each with a SHA-256 checksum. They embed the frontend and need no GUI libraries or Node runtime.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
 
 Ubuntu x86-64: extract `linux-amd64.tar.gz` into its own user-writable directory and run `./pith-desk`. GTK 3 and WebKitGTK 4.1 are required. Linux releases older than rc.36 need one manual replacement with this archive to enable future in-app updates.
+
+Linux Server: choose `pith-desk-server-<version>-linux-amd64.tar.gz` or `linux-arm64.tar.gz`, verify its `.sha256`, extract it and run `./pith-desk-server`. See [Server installation and token login](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#linux-server-packages).

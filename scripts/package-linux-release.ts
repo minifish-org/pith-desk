@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {copyFileSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {loadUpdateKey,releaseVersion,signUpdateArchive} from './update-release.ts';
+import {packageServerRelease} from './package-server-release.ts';
 
 if (process.argv.length > 2) throw new Error('Usage: node scripts/package-linux-release.ts');
 const root = resolve(import.meta.dirname,'..');
@@ -36,3 +37,4 @@ signUpdateArchive(join(output,archive),'linux-amd64',version,updateKey,readFileS
 const sha256 = createHash('sha256').update(readFileSync(join(output,archive))).digest('hex');
 writeFileSync(join(output,archive+'.json'),JSON.stringify({version,file: archive,sha256,sourceCommit,sourceDirty,sourceURL: `https://github.com/minifish-org/pith-desk/tree/${sourceCommit}`,architectures: ['amd64'],os: 'linux',cgo: false},null,2)+'\n');
 console.log(`Created ${join(output,archive)}`);
+packageServerRelease(root,output,{version,sourceCommit,sourceDirty});

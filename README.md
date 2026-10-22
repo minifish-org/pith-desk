@@ -448,6 +448,14 @@ Server uses the same Go service, Pith Agent core, persisted data format and Pith
 as Desktop. It runs without MyGo, a display server, GTK or WebKit. The production
 executable embeds the frontend; Go, Node and npm are only needed to build it.
 
+Download `pith-desk-server-<version>-linux-amd64.tar.gz` or
+`pith-desk-server-<version>-linux-arm64.tar.gz` and its `.sha256` file from
+[Releases](https://github.com/minifish-org/pith-desk/releases). Verify the checksum,
+extract into its own directory, and run `./pith-desk-server --data-dir /path/to/private/desk-data`.
+See [Server installation](docs/RELEASING.md#linux-server-packages).
+
+To build from source:
+
 ```sh
 npm ci
 npm --prefix frontend ci
@@ -590,6 +598,9 @@ GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o pith-desk
 Only the executable and a writable data directory are required. No GUI libraries,
 Node runtime, separate web server assets, database service or container platform
 are required. Keep backups of the data directory and workspace files.
+`RELEASE_TAG=v<version> npm run release:server` builds the embedded frontend once
+and packages both Linux Server architectures with notices, source/version
+metadata and SHA-256 checksums under `build/releases/`.
 
 ### HTTPS reverse proxy
 
@@ -784,7 +795,8 @@ npm run check:frontend
 The complete CI sequence installs the root and frontend dependencies once,
 builds UI assets and the browser Host fixture once, runs frontend/tool tests, vet, all Go packages once with
 race detection, both browser engines and Linux amd64/arm64 compilation of
-Desktop and Server. To reproduce the check commands after installation:
+Desktop and Server. The Server compilation also produces and validates the two
+release archives. To reproduce the check commands after installation:
 
 ```sh
 npm run check:frontend
@@ -864,7 +876,7 @@ Desktop and Server are experimental single-user products. It has no built-in com
 
 Workspace checks are an application tool policy, **not an operating-system sandbox**. File tools reject paths outside the workspace. An approved command can access the computer with your account's permissions; examine it before allowing it. Model requests send the conversation and tool results to your configured provider. See [security and data handling](docs/SECURITY.md).
 
-Pith Desk publishes previews for macOS on Apple Silicon (ARM64) and Ubuntu x86-64. The Ubuntu desktop is validated on Ubuntu 26.04 with XFCE; GTK 3 and WebKitGTK 4.1 are runtime dependencies. Linux ARM64 remains compile-only. Intel Mac and Windows are outside the supported scope. For end users, downloadable application packages are the intended delivery path; building from source is a development option. Mac and Linux portable releases offer **Settings → Updates → Update and restart**, with confirmation when tasks are running and a writable app location required. Linux releases use the portable archive; Debian packages are no longer published. See [release packaging and signing](docs/RELEASING.md).
+Pith Desk publishes Desktop previews for macOS on Apple Silicon (ARM64) and Ubuntu x86-64, and headless Server packages for Linux amd64/arm64. The Ubuntu desktop is validated on Ubuntu 26.04 with XFCE; GTK 3 and WebKitGTK 4.1 are Desktop runtime dependencies. Linux ARM64 Desktop remains compile-only. Intel Mac and Windows are outside the supported scope. For end users, downloadable packages are the intended delivery path; building from source is a development option. Mac and Linux Desktop portable releases offer **Settings → Updates → Update and restart**, with confirmation when tasks are running and a writable app location required. Server upgrades replace the stopped executable manually. Linux releases use portable archives; Debian packages are no longer published. See [release packaging and signing](docs/RELEASING.md).
 
 The interface draws on the workspace-and-conversation layout of DeepSeek Harness, but uses its own host and Pith SDK integration. It does not load Harness plugins or copy its application runtime.
 

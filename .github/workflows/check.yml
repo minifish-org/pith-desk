@@ -106,12 +106,11 @@ jobs:
           name: browser-regression-traces
           path: test-results/
           if-no-files-found: ignore
-      - name: Check Linux compilation
+      - name: Check Linux compilation and Server packaging
         if: steps.scope.outputs.runtime == 'true'
         # Ubuntu amd64 also has release packaging and desktop acceptance.
-        # Linux arm64 remains compile-only.
+        # Desktop arm64 remains compile-only; package both headless Server targets.
         run: |
           GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-linux-amd64" ./cmd/pith-desk
           GOOS=linux GOARCH=arm64 go build -o "$RUNNER_TEMP/pith-desk-linux-arm64" ./cmd/pith-desk
-          GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/pith-desk-server-linux-amd64" ./cmd/pith-desk-server
-          GOOS=linux GOARCH=arm64 go build -o "$RUNNER_TEMP/pith-desk-server-linux-arm64" ./cmd/pith-desk-server
+          node --experimental-strip-types scripts/package-server-release.ts

@@ -1,4 +1,4 @@
-name: Desktop release
+name: Release
 
 on:
   push:
@@ -52,11 +52,24 @@ jobs:
           (cd build/releases && sha256sum --check "pith-desk-${version}-linux-amd64.tar.gz.sha256")
           test -s build/releases/update-linux-amd64.json
           build/release/linux-amd64/pith-desk --help
+      - name: Verify Linux Server archives
+        run: |
+          version="${RELEASE_TAG#v}"
+          for arch in amd64 arm64; do
+            archive="pith-desk-server-${version}-linux-${arch}.tar.gz"
+            (cd build/releases && sha256sum --check "$archive.sha256")
+            mkdir -p "$RUNNER_TEMP/server-$arch"
+            tar -xzf "build/releases/$archive" -C "$RUNNER_TEMP/server-$arch"
+            test -x "$RUNNER_TEMP/server-$arch/pith-desk-server"
+            test -s "$RUNNER_TEMP/server-$arch/pith-desk-release.json"
+          done
+          "$RUNNER_TEMP/server-amd64/pith-desk-server" --help
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release
           path: |
             build/releases/*-linux-amd64.tar.gz*
+            build/releases/pith-desk-server-*-linux-arm64.tar.gz*
             build/releases/update-linux-amd64.json
           if-no-files-found: error
   mac:
@@ -150,10 +163,18 @@ jobs:
           version="${RELEASE_TAG#v}"
           archive="build/releases/pith-desk-${RELEASE_TAG#v}-darwin-arm64.tar.gz"
           linux_archive="build/releases/pith-desk-${version}-linux-amd64.tar.gz"
+          assets=("$archive" "$archive.sha256" "$linux_archive" "$linux_archive.sha256")
+          for arch in amd64 arm64; do
+            server_archive="build/releases/pith-desk-server-${version}-linux-${arch}.tar.gz"
+            assets+=("$server_archive" "$server_archive.sha256")
+          done
+          for asset in "${assets[@]}"; do
+            test -s "$asset"
+          done
           if [ "$PREVIEW" = true ]; then
-            gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" "$linux_archive" "$linux_archive.sha256" --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Apple Silicon and Ubuntu preview)" --notes-file docs/RELEASE_PREVIEW.md
+            gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --prerelease --title "Pith Desk $RELEASE_TAG (Desktop and Server preview)" --notes-file docs/RELEASE_PREVIEW.md
           else
-            gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" "$linux_archive" "$linux_archive.sha256" --verify-tag --generate-notes
+            gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --generate-notes
           fi
       - name: Publish update feed after release assets
         env:

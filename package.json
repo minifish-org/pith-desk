@@ -17,6 +17,7 @@
     "release:preview": "node --experimental-strip-types scripts/package-release.ts",
     "release:signed": "node --experimental-strip-types scripts/package-release.ts --signed",
     "release:linux": "node --experimental-strip-types scripts/package-linux-release.ts",
+    "release:server": "npm run build:ui && node --experimental-strip-types scripts/package-server-release.ts",
     "generate:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen",
     "check:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen -check",
     "test:ui": "playwright test",

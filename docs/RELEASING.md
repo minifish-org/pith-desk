@@ -5,6 +5,8 @@ Apple Silicon (ARM64) and contain the embedded UI, dependency notices and the
 Pith library. Go, Node.js and npm are development requirements only.
 Ubuntu x86-64 packages use the same backend, embedded UI and MyGo native shell,
 with GTK 3 and WebKitGTK 4.1 supplied by the operating system.
+Headless Server packages target Linux amd64 and arm64, embed the same frontend,
+and require no GUI libraries or Node runtime.
 
 ## SDK dependency validation
 
@@ -21,19 +23,21 @@ See [the SDK dependency](SDK_FEATURES.md#versioned-sdk-dependency).
    Go/race/Linux suite locally just to repeat CI.
 2. Commit only product code, necessary tests and release notes, then push to
    `main`. **Check** owns the complete regular tests and browser regressions.
-   Go, dependency, build/release script or workflow changes also run race and
-   Linux compile checks. UI-only changes skip those two unrelated checks.
-   The comparison uses the last successful main Check, so an unvalidated Go
-   change cannot be hidden by a later UI-only push. An unavailable or unrelated
-   baseline runs the runtime checks conservatively.
-3. After Check succeeds for that exact commit, push the version tag. **Desktop
-   release** requires that successful result and builds/packages each platform once;
+   Every main push runs the full suite, including race and Linux compilation
+   and Server packaging. PRs select checks from their actual base diff;
+   dependency, build/release script, workflow or unknown changes run the full suite.
+3. After Check succeeds for that exact commit, push the version tag. **Release**
+   requires that successful result and builds/packages each platform once;
    it does not rerun the test suite. A tag without a successful Check fails
    before packaging or publication.
-4. Download both platform archives and their checksums once. Verify
+4. Download the two Desktop and two Server archives and their checksums once. Verify
    checksums, version, source commit, architecture/CGO, pinned SDK, signatures and contents; the
    provenance manifests are in the release job's `release-metadata` CI artifact.
-   Confirm the update feed version. Keep screenshots and process records local.
+   Confirm the Desktop update feed version. Keep screenshots and process records local.
+
+A tag marks the exact source commit. Pushing a `v*` tag starts the workflow,
+which then creates the GitHub Release for that tag and uploads the packages.
+Pushing a tag alone does not mean the downloadable Release has been published.
 
 Repeat downloaded-app cold launch and relevant native behavior only when host,
 SDK, startup, native integration or packaging changes affect them, or when
@@ -67,7 +71,7 @@ the app directory and its parent must be writable by the user. No administrator
 permission is needed for an installation in the user's directory. Settings and
 conversations are stored separately from the application and retained.
 
-Only the portable archive is published for Linux. Existing releases with a
+Only portable archives are published for Linux. Existing Desktop releases with a
 disabled updater require one manual replacement with an updater-enabled archive.
 For an older Debian installation, remove the package and install the portable
 archive in a user-writable directory; user data remains in the same location.
@@ -76,9 +80,46 @@ command link you registered. Removing user configuration and conversations is a
 separate action.
 
 For an independent local package, run `RELEASE_TAG=v<version> npm run release:linux`.
-The packager cross-compiles with `CGO_ENABLED=0` and `GOWORK=off`, verifies ELF
-architecture and Go build metadata, signs the final portable archive using the
-same update key as Mac, and records checksums and source provenance.
+The packager builds the shared UI once, packages the Desktop and both Server
+architectures with `CGO_ENABLED=0` and `GOWORK=off`, and verifies ELF architecture
+and Go build metadata. The Desktop archive is signed using the same update key
+as Mac. All archives have checksums and source provenance.
+
+## Linux Server packages
+
+Each tagged Release includes these files alongside the Desktop downloads:
+
+- `pith-desk-server-<version>-linux-amd64.tar.gz` and its `.sha256` file.
+- `pith-desk-server-<version>-linux-arm64.tar.gz` and its `.sha256` file.
+
+Download the architecture for the Server machine and its checksum file into
+the same directory. Replace the version placeholder, then verify and extract:
+
+```sh
+version='<release-version>'
+arch=amd64 # Use arm64 for an ARM64 Linux server.
+archive="pith-desk-server-${version}-linux-${arch}.tar.gz"
+sha256sum -c "$archive.sha256"
+mkdir -p pith-desk-server
+tar -xzf "$archive" -C pith-desk-server
+cd pith-desk-server
+./pith-desk-server --data-dir /path/to/private/desk-data
+```
+
+The archive contains the executable with its embedded frontend, a
+`pith-desk-release.json` identifying the version, source commit and architecture,
+the root license and dependency notices. The executable's diagnostic version
+matches the tag. See [Server mode](../README.md#server-mode) for token login,
+permissions, persistent data and HTTPS deployment.
+
+Stop Server before replacing its executable and keep the data directory and
+workspace files separate from the installation. Server uses manual upgrades;
+the Desktop update feeds remain unchanged. Server packages do not need the
+Desktop update-signing key. For a Server-only local package, run
+`RELEASE_TAG=v<version> npm run release:server`; it builds the frontend once and
+writes both architectures to `build/releases/`. CI validates packaging for
+both targets and starts the amd64 executable on Ubuntu during tagged releases;
+ARM64 runtime acceptance remains separate.
 
 ## Optional local Mac package
 
@@ -120,10 +161,10 @@ verified release process; it cannot be tested on a host without a certificate.
 
 ## GitHub releases
 
-The Desktop release workflow runs for pushed `v*` tags and reuses the successful
+The Release workflow runs for pushed `v*` tags and reuses the successful
 Check for the exact tagged source. Ubuntu packaging must finish before the Mac
-job publishes the Mac and Linux portable archives and their checksums
-together. Build provenance and both platform update manifests stay
+job publishes both Desktop archives, both Linux Server archives and all four
+checksums together. Build provenance and both Desktop update manifests stay
 in the job's `release-metadata` CI artifact; the update manifest is also
 published to the existing update feed. Each release note contains only the
 current changes and brief download/preview guidance; previous releases retain
@@ -147,10 +188,11 @@ RELEASE_TAG, or PITH_DESK_RELEASE_VERSION locally. It must match that numeric
 version. The signed bundle carries pith-desk-release.json; the desktop uses
 its identity for updater comparisons and diagnostics. Local builds without a
 release tag receive a dev suffix. Follow the normal release flow above rather
-than repeating the same checks locally, in Check and in Desktop release. Changes to
+than repeating the same checks locally, in Check and in Release. Changes to
 the host, SDK, providers or runtime still require their affected native behavior
-checks. Release packages target Apple Silicon Mac and Ubuntu x86-64. Linux
-ARM64 remains compile-only; Intel Mac and Windows are outside the supported scope.
+checks. Desktop packages target Apple Silicon Mac and Ubuntu x86-64; Server
+packages target Linux amd64/arm64. Linux ARM64 Desktop remains compile-only;
+Intel Mac and Windows are outside the supported scope.
 
 ## Click to update
 
@@ -162,7 +204,7 @@ installation failure keeps the app running. New task admission is paused during
 installation; existing tasks continue until shutdown. Data and workspace files
 are outside the bundle. There are no unattended installs or scheduled restarts.
 
-The updater reuses MyGo 0.3.6. It needs a writable app location; development and
+The updater reuses MyGo 0.6.2. It needs a writable app location; development and
 browser previews do not install updates. Users of releases without the updater
 must manually replace their app once. Native shutdown releases Desk's data lock
 before starting the new process. Interrupted tasks require review after restart.

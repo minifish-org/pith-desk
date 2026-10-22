@@ -54,6 +54,23 @@ PR scope and cache commands are documented in the README. Scope regression
 tests cover dependency/public-contract expansion and missing-history fallback;
 the `mac` job itself is never conditionally removed.
 
+`scripts/package-server-release.test.ts` builds disposable Go fixtures for both
+Linux architectures, extracts the archives and checks executable permissions,
+ELF/CGO metadata, release identity, license notices and SHA-256 files. It also
+executes the actual tag-publication shell with a recording `gh` fixture to
+verify all four Desktop/Server packages and checksums in both release branches.
+The full Check replaces the two plain Server cross-builds with the real Server
+packager after the shared frontend build, retaining both architecture checks.
+For focused packaging checks, run:
+
+```sh
+node --experimental-strip-types --test scripts/package-server-release.test.ts scripts/release-linux.test.mjs scripts/update-release.test.mjs scripts/publish-update.test.mjs
+```
+
+The tag workflow extracts and verifies both Server archives and runs the
+packaged amd64 executable's `--help` on Ubuntu. ARM64 is built, packaged and
+inspected; this workflow does not establish ARM64 runtime acceptance.
+
 `npm run check:ui-consumption` verifies the actual registry dependency/lock and
 installed parts/recipes exports, unique native mount adapter, CSS/private-entry
 boundaries and source aliases. It does not require local copies of recipes.
