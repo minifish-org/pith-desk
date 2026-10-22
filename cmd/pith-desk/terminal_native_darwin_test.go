@@ -58,7 +58,9 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 	win.Focus()
 	show := func() {
 		waitNativeDropCondition(t, win, `!!document.querySelector('textarea[aria-label="Message Pith"]') && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
-		nativeDropEval(t, win, `const toggle=document.querySelector('button[aria-label="Toggle tools"]');if(toggle.getAttribute('aria-expanded')!=='true') toggle.click();[...document.querySelectorAll('.pui-tools [role="tab"]')].find(b=>b.textContent==='Terminal').click();return true;`)
+		nativeDropEval(t, win, `const toggle=document.querySelector('button[aria-label="Toggle tools"]');if(toggle.getAttribute('aria-expanded')!=='true') toggle.click();return true;`)
+		waitNativeDropCondition(t, win, `[...document.querySelectorAll('.pui-tools [role="tab"]')].some(b=>b.textContent==='Terminal')`)
+		nativeDropEval(t, win, `[...document.querySelectorAll('.pui-tools [role="tab"]')].find(b=>b.textContent==='Terminal').click();return true;`)
 	}
 	waitNativeDropCondition(t, win, `!!document.querySelector('textarea[aria-label="Message Pith"]') && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
 	nativeDropEval(t, win, `document.querySelector('button[aria-label="Toggle tools"]').click();return true;`)
