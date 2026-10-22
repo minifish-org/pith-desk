@@ -355,6 +355,42 @@ func TestServerLeaseRefreshTakeoverExpiryAndStreams(t *testing.T) {
 	}
 }
 
+func TestServerCrossSiteDocumentNavigation(t *testing.T) {
+	server := testServerMode(t, "https://desk.example.test")
+	desktop := testServer(t)
+	for _, tc := range []struct {
+		name, method, path, mode, destination, origin string
+		desktop                                     bool
+		want                                        int
+	}{
+		{"SSO return", "GET", "/", "navigate", "document", "", false, 200},
+		{"cross-site fetch", "GET", "/", "cors", "empty", "", false, 403},
+		{"missing destination", "GET", "/", "navigate", "", "", false, 403},
+		{"foreign Origin", "GET", "/", "navigate", "document", "https://foreign.test", false, 403},
+		{"state navigation", "GET", "/api/state", "navigate", "document", "", false, 403},
+		{"login navigation", "POST", "/api/server/login", "navigate", "document", "", false, 403},
+		{"asset navigation", "GET", "/icon.png", "navigate", "document", "", false, 403},
+		{"Desktop navigation", "GET", "/", "navigate", "document", "", true, 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := server
+			if tc.desktop {
+				s = desktop
+			}
+			r := httptest.NewRequest(tc.method, s.URL+tc.path, nil)
+			r.Header.Set("Sec-Fetch-Site", "cross-site")
+			r.Header.Set("Sec-Fetch-Mode", tc.mode)
+			r.Header.Set("Sec-Fetch-Dest", tc.destination)
+			r.Header.Set("Origin", tc.origin)
+			w := httptest.NewRecorder()
+			s.serve(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("navigation status: got %d, want %d: %s", w.Code, tc.want, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestServerProxyOriginCSRFAndCookiePolicy(t *testing.T) {
 	s := testServerMode(t, "https://desk.example.test")
 	b := &serverBrowser{s: s}
