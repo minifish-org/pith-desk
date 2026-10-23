@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 )
 
-// SidebarWidths are UI preferences in CSS pixels. Pith UI owns the actual
+// SidebarWidths are UI preferences in CSS pixels. The web UI owns the actual
 // layout limits; this boundary accepts only bounded positive integer values.
 type SidebarWidths struct {
 	Navigation int `json:"navigation"`

@@ -190,7 +190,7 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	if waitBrowser(true) != browser {
 		t.Fatal("tab switching replaced browser")
 	}
-	// Modal focus must stay in the existing Pith UI dialog.
+	// Modal focus must stay in the existing application dialog.
 	clickUntil(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Settings')?.click();return true;`, `!!document.querySelector('[role="dialog"]')`)
 	waitBrowser(false)
 	clickUntil(`document.querySelector('[data-slot="dialog-close"]')?.click();return true;`, `!document.querySelector('[role="dialog"]')`)

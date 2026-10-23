@@ -4,6 +4,7 @@ New in this preview:
 - Navigation, conversations, streaming messages, the composer, queued messages, approvals and diffs, runtime and cost details, files, artifacts, file previews, terminal tabs, Settings, providers, models, MCP connections, OAuth, resources and Server sign-in keep their existing behavior with a unified neutral design and a responsive phone layout.
 - Sidebars resize and persist their widths, workspace tool layouts survive refresh, attachments can be reordered by drag, and large text previews are paginated. Desktop keeps the native titlebar, file drops and the native Web preview; closing a preview tab releases it without ending the conversation or its lease.
 - Existing Desktop settings, conversations, drafts, workspaces, server tokens and update feeds are preserved. The macOS and Linux packages include the embedded UI and the same automatic updates as the previous preview.
+- Release archives now match the shipped dependencies: the retired Pith UI license is no longer bundled, and every retained third-party notice is listed in `THIRD_PARTY.md`.
 - Download headless Server archives for Linux amd64 and arm64, each with a SHA-256 checksum. They embed the frontend and need no GUI libraries or Node runtime.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).

@@ -19,7 +19,7 @@ import (
 // DevelopmentOptions configure the loopback-only frontend and optional source root.
 type DevelopmentOptions struct {
 	URL    string
-	UIRoot string // explicit local Pith UI checkout; never inferred from an environment variable
+	UIRoot string // explicit local frontend checkout; never inferred from an environment variable
 }
 
 // StartDevelopment keeps UI, API and HMR on the authenticated host's origin.

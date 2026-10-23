@@ -18,7 +18,7 @@ import (
 func init() { _ = os.Setenv("MYGO_ENV", "production") }
 
 // The native container only places pages. All Desk controls and layout still
-// belong to the existing Pith UI interface in the main page.
+// belong to the existing web interface in the main page.
 type desktopWindow struct {
 	*mygo.Window
 	main     *mygo.WebView
@@ -158,7 +158,7 @@ func (w *desktopWindow) closeBrowsers() {
 
 // MyGo exposes container titlebar metrics through ui.Context. Its child pages
 // have no titlebar of their own; project the public metrics into the existing
-// Pith UI titlebar contract, including fullscreen and page zoom.
+// web titlebar contract, including fullscreen and page zoom.
 func (w *desktopWindow) applyTitlebar() {
 	b := w.titlebar
 	zoom := w.Page().ZoomFactor()
