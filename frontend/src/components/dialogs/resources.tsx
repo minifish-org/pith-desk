@@ -254,4 +254,3 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
     </Dialog>
   );
 }
-

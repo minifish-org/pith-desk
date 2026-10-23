@@ -422,4 +422,3 @@ export function ProviderLoginDialog({modal}: {modal: ModalOf<'provider-login'>})
     </Dialog>
   );
 }
-
