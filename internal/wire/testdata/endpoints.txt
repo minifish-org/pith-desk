@@ -12,6 +12,7 @@ GET json /api/custom-connection
 GET json /api/models
 GET json /api/resources
 GET json /api/artifacts
+GET json /api/artifact-diff
 GET json /api/artifact-preview
 GET json /api/workspace-files
 GET json /api/workspace-preview

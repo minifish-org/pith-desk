@@ -7,6 +7,7 @@ import {request} from '@/actions/core.ts';
 import {compactNumber, duration, formatCost, thinkingLabel} from '@/lib/format';
 import {taskElapsed, workspaceRun} from '@/lib/derive.ts';
 import {Button} from '@/components/ui/button';
+import {DiffView} from '@/components/diff';
 import type {Approval, CostReport, RuntimeStatus} from '@/contract.generated.ts';
 
 export function ComposerPanels() {
@@ -62,7 +63,7 @@ function ApprovalCard({approval, disabled}: {approval: Approval; disabled: boole
       {preview ? (
         <div className="border-b px-3 py-2">
           <p data-approval-file="" className="truncate font-mono text-[11px] text-muted-foreground"><code>{preview.path}</code></p>
-          {preview.diff ? <DiffView diff={preview.diff} truncated={preview.truncated} /> : preview.error ? <p className="mt-1 text-[12px] text-destructive">{preview.error}</p> : <p className="mt-1 text-[12px] text-muted-foreground">This change is too large or not text; review the tool arguments before allowing it.</p>}
+          {preview.diff ? <DiffView diff={preview.diff} truncated={preview.truncated} truncatedMessage="The diff was truncated. Approving refreshes the complete change." /> : preview.error ? <p className="mt-1 text-[12px] text-destructive">{preview.error}</p> : <p className="mt-1 text-[12px] text-muted-foreground">This change is too large or not text; review the tool arguments before allowing it.</p>}
         </div>
       ) : null}
       <button type="button" className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[11px] text-muted-foreground hover:text-foreground" onClick={() => setShowArguments(value => !value)} aria-expanded={showArguments}>
@@ -75,35 +76,6 @@ function ApprovalCard({approval, disabled}: {approval: Approval; disabled: boole
         <Button size="sm" disabled={disabled} onClick={() => {void approve(approval.id, 'allow');}}>Allow this action</Button>
       </footer>
     </section>
-  );
-}
-
-function DiffView({diff, truncated}: {diff: string; truncated?: boolean}) {
-  const lines = diff.split('\n');
-  return (
-    <div className="mt-1.5 max-h-64 overflow-auto rounded-md border bg-[var(--code-surface)]">
-      <pre className="font-mono text-[11.5px] leading-[1.55]">
-        {lines.map((line, index) => {
-          const kind = line.startsWith('@@') ? 'hunk' : line.startsWith('+++') || line.startsWith('---') ? 'meta' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'remove' : 'context';
-          return (
-            <div
-              key={index}
-              data-diff={kind}
-              className={cn(
-                'px-2 whitespace-pre-wrap break-words',
-                kind === 'add' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-                kind === 'remove' && 'bg-red-500/10 text-red-700 dark:text-red-300',
-                kind === 'hunk' && 'bg-muted text-muted-foreground',
-                kind === 'context' && 'text-muted-foreground',
-              )}
-            >
-              {line || ' '}
-            </div>
-          );
-        })}
-      </pre>
-      {truncated ? <p className="border-t px-2 py-1 text-[11px] text-muted-foreground">The diff was truncated. Approving refreshes the complete change.</p> : null}
-    </div>
   );
 }
 

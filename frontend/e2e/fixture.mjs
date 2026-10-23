@@ -53,7 +53,9 @@ export function installFixture() {
       }
       if (path === '/api/resources') return Response.json(window.review.resources || { instructions: [], skills: [], templates: [], diagnostics: [] });
       if (path === '/api/update') return Response.json({ version: 'review', enabled: false, phase: 'disabled', availableVersion: '', progress: 0, message: 'Local review fixture' });
-      if (path === '/api/artifacts') return Response.json([]);
+      if (path === '/api/artifacts') return Response.json(window.review.artifacts || []);
+      if (path === '/api/artifact-diff') return Response.json(window.review.artifactDiff || {changes: []});
+      if (path === '/api/artifact-preview') return Response.json(window.review.artifactPreview || {kind: 'text', text: 'Fixture file'});
       return Response.json(path === '/api/state' ? window.reviewState : {});
     };
     window.WebSocket = class { constructor() { window.reviewSocket = this; setTimeout(() => this.onopen?.(), 0); } close() {} };

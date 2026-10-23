@@ -155,8 +155,8 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 		approved[path], previousID = true, approval.ID
 		nativeDropEval(t, win, `[...document.querySelectorAll('[data-approval-card] button')].find(button => button.textContent === 'Allow this action').click(); return true;`)
 	}
-	nativeDropEval(t, win, `document.querySelector('[data-artifacts-control]').click(); document.querySelector('[data-artifacts-panel]')?.scrollIntoView({block:'end'}); return true;`)
-	waitNativeDropCondition(t, win, `document.querySelectorAll('[data-artifacts-panel] [data-artifact-file]').length === 4`)
+	nativeDropEval(t, win, `document.querySelector('[data-edited-files]')?.scrollIntoView({block:'end'}); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelectorAll('[data-edited-files] [data-edited-file]').length === 4`)
 	saveUsabilityScreenshot(t, win, "generated-file-actions.png")
 	openNativePreview(t, win, "note.md")
 	waitNativeDropCondition(t, win, `document.querySelector('[data-file-preview-modal] h1')?.textContent === 'Native preview'`)
@@ -212,8 +212,8 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	waitNativeDropCondition(t, win, `document.querySelector('[data-diff="remove"]')?.textContent.includes('Saved Markdown') && document.querySelector('[data-diff="add"]')?.textContent.includes('Edited Markdown')`)
 	nativeDropEval(t, win, `[...document.querySelectorAll('[data-approval-card] button')].find(button => button.textContent === 'Allow this action').click(); return true;`)
 	waitNativeDropCondition(t, win, `document.querySelector('[data-approval-card]') === null`)
-	nativeDropEval(t, win, `document.querySelector('[data-artifacts-control]').click();return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('[data-artifacts-panel] [data-artifact-file]') !== null`)
+	nativeDropEval(t, win, `document.querySelector('[data-edited-files]')?.scrollIntoView({block:'end'}); return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('[data-edited-files] [data-edited-file]') !== null`)
 	content, err := os.ReadFile(filepath.Join(workspacePath, "note.md"))
 	if err != nil || !strings.Contains(string(content), "Edited Markdown") {
 		t.Fatalf("approved edit not applied: %s %v", content, err)

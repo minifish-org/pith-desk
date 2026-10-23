@@ -51,3 +51,14 @@ export function bytes(size: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/** Display a workspace file the way the workspace lists it. Paths arrive from
+ * the host in native separators; the browser view is always slash separated. */
+export function workspaceRelativePath(root: string, path: string): string {
+  const base = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalized = path.replace(/\\/g, '/');
+  if (!base) return normalized;
+  if (normalized === base) return normalized.split('/').pop() || normalized;
+  if (normalized.startsWith(`${base}/`)) return normalized.slice(base.length + 1);
+  return normalized;
+}

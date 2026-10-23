@@ -71,7 +71,7 @@ func TestSendAndAbortRequireConversationIdentity(t *testing.T) {
 
 func TestFeatureEndpointsKeepCommonAuthentication(t *testing.T) {
 	s := testServer(t)
-	for _, path := range []string{"/api/resources", "/api/artifacts", "/api/artifact-preview", "/api/draft", "/api/mcp", "/api/export", "/api/diagnostics"} {
+	for _, path := range []string{"/api/resources", "/api/artifacts", "/api/artifact-preview", "/api/artifact-diff", "/api/draft", "/api/mcp", "/api/export", "/api/diagnostics"} {
 		if status, _, _ := featureRequest(t, s, "GET", path, nil, false); status != 401 {
 			t.Errorf("unauthenticated %s: %d", path, status)
 		}
@@ -120,6 +120,9 @@ func TestDraftHTTPKeepsPrivateProfileStateOutOfStreamingSnapshots(t *testing.T) 
 	}
 	if status, _, _ := featureRequest(t, s, "GET", "/api/artifact-preview?id="+conversation.ID+"&path="+url.QueryEscape(filepath.Join(workspace.Path, "unrecorded.txt")), nil, true); status != 400 {
 		t.Fatal("preview accepted an unrecorded file")
+	}
+	if status, _, _ := featureRequest(t, s, "GET", "/api/artifact-diff?id="+conversation.ID+"&path="+url.QueryEscape(filepath.Join(workspace.Path, "unrecorded.txt")), nil, true); status != 400 {
+		t.Fatal("diff accepted an unrecorded file")
 	}
 }
 

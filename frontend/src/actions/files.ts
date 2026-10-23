@@ -88,15 +88,6 @@ export async function loadArtifacts(id: string): Promise<void> {
   }
 }
 
-export function openArtifacts(): void {
-  desk().setArtifacts({open: true});
-  if (desk().state.activeId) void loadArtifacts(desk().state.activeId);
-}
-
-export function closeArtifacts(): void {
-  desk().setArtifacts({open: false});
-}
-
 export function clearFilePreview(): void {
   for (const modal of desk().modals) if (modal.kind === 'preview') closeModalId(modal.id);
 }

@@ -108,7 +108,7 @@ function snapshotChanged(next: State, previous: State, initialized: boolean): vo
   if (activeChanged) {
     store.setError('');
     clearFilePreview();
-    store.setArtifacts({open: false, files: [], error: '', loading: false});
+    store.setArtifacts({files: [], error: '', loading: false});
   }
   void loadComposerDraft();
   observeNotices(initialized);

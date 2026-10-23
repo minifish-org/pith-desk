@@ -160,8 +160,8 @@ the browser in Server. Insert reference adds the quoted workspace-relative path
 at the message selection, keeping the rest of the draft and its images; it does
 not submit a message. Switching workspaces closes the preview and shows that
 workspace's retained tool views.
-The conversation **Files** button and its count still represent successful
-Agent file writes/edits, independently of this directory browser.
+The conversation's edited-files card still represents successful Agent file
+writes/edits, independently of this directory browser.
 
 Text and image drafts are saved automatically in the private application data profile,
 separately for each conversation. Switching conversations or restarting the
@@ -349,7 +349,7 @@ expanded tool results for the current app session. New output follows the bottom
 when you are already there; when reading earlier content, **Back to latest**
 returns to the end.
 
-After a task finishes, successful file writes and edits appear in the conversation's **Files** panel. The file button in the top-right title bar shows a count and is hidden when there are no files. Click it to open the file list; click it again, click outside, or press Escape to close. Switching conversations closes the panel. **Open** uses the default application; **Reveal** shows the file in Finder. **Copy file** places the file on the system clipboard so you can paste it into Finder; the original stays in place. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected. Browser preview offers **Copy path**; native file actions require the desktop app.
+After a task finishes, successful file writes and edits appear in an edited-files card at the end of the conversation. The card shows the number of changed files, their total added and removed lines, and up to four files with each file's own line changes; **Show all N files** expands the list and **Show fewer files** collapses it again. Selecting a file opens its recorded changes as a diff; the **Diff**/**File** switch shows the complete current file, and files changed before diffs were recorded fall back to the file. In the desktop app the preview also opens the file in its default application, reveals it in Finder, downloads it and copies its path; in Server the preview offers Download and Copy path. Missing files, failed changes, and files outside the workspace are excluded. Files created by arbitrary shell commands are not automatically detected.
 
 Local file links in replies open **Save file** in the desktop app, or download in
 Server. They can save Word, PDF and other regular workspace files,

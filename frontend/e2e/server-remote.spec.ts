@@ -143,8 +143,11 @@ test.describe('phone browser',() => {
     await page.getByRole('button',{name: 'Allow this action',exact: true}).click();
     await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
     await expect(input).toHaveValue('Unsent text with the keyboard open');
-    await page.getByRole('button',{name: 'Conversation files (1 file)',exact: true}).click();
-    const download = page.waitForEvent('download');await page.locator('[data-artifacts-panel]').getByRole('button',{name: 'Download',exact: true}).click();
+    const edited = page.locator('[data-edited-files]');
+    await expect(edited.locator('[data-edited-file]')).toHaveCount(1);
+    await edited.locator('[data-edited-file]').click();
+    const download = page.waitForEvent('download');
+    await page.getByRole('dialog',{name: 'approved.txt',exact: true}).getByRole('button',{name: 'Download',exact: true}).click();
     expect(await readFile((await (await download).path())!,'utf8')).toBe('Approved on Server');
   });
 });

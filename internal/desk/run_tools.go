@@ -11,7 +11,7 @@ import (
 func (r *RunExecution) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, error) {
 	s := r.dependencies
 	read := codingagent.CreateReadToolDefinition(policy.path, &codingagent.ReadToolOptions{Operations: policy})
-	write := codingagent.CreateWriteToolDefinition(policy.path, &codingagent.WriteToolOptions{Operations: policy})
+	write := withWriteChangeStats(policy, codingagent.CreateWriteToolDefinition(policy.path, &codingagent.WriteToolOptions{Operations: policy}))
 	edit := codingagent.CreateEditToolDefinition(policy.path, &codingagent.EditToolOptions{Operations: editOperations{policy}})
 	grep := codingagent.CreateGrepToolDefinition(policy.path, &codingagent.GrepToolOptions{Operations: grepOperations{policy}})
 	find := codingagent.CreateFindToolDefinition(policy.path, &codingagent.FindToolOptions{Operations: findOperations{policy}})

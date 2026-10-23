@@ -74,7 +74,7 @@ Native ingress is validated in `native-protocol.ts` and forwarded as data.
 | Task recovery | selected workspace availability, approval, recovery and completion/read state |
 | Configuration/resources | original workspace/provider/MCP targets, failed writes keep drafts, async reads retire on close |
 | Application lifetime | shared dialog replacement, callback reentry, session switching, root teardown and native menus |
-| Files | authenticated paths, preview/read limits, clipboard/export/download and recorded generated files |
+| Files | authenticated paths, preview/read limits, clipboard/export/download, recorded generated files, the conversation edited-files summary and its recorded diff preview |
 | Workspace browser | lazy directories and view restoration, retired legacy filters, private/symlink boundaries, lease revocation, late workspace/preview responses, reference insertion and draft/image preservation |
 | Sidebars | rail-owned expanded controls/topbar openers, independent drag/keyboard widths, viewport limits and persisted restore across refresh/restart, live PTY columns and pending input, phone overlay exclusion, scrim/close/Escape and focus restoration, native titlebar insets |
 | Workspace tool tabs | create/select/close, independent file expansion/reading positions, workspace layout/selection restore, drafts and narrow overlays |

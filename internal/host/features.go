@@ -160,6 +160,13 @@ func (s *Server) serveFeatureRead(w http.ResponseWriter, r *http.Request) bool {
 			break
 		}
 		value, err = s.service.PreviewArtifact(query.ID, query.Path)
+	case "/api/artifact-diff":
+		query, queryErr := wire.ReadQuery[wire.ArtifactQuery](r)
+		if queryErr != nil {
+			err = queryErr
+			break
+		}
+		value, err = s.service.DiffArtifact(query.ID, query.Path)
 	case "/api/workspace-files":
 		query, queryErr := wire.ReadQuery[wire.WorkspaceFilesQuery](r)
 		if queryErr != nil {

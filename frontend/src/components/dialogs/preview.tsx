@@ -1,6 +1,5 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {Download, FolderOpen, LoaderCircle, Pencil, GitBranch} from 'lucide-react';
-import {useMemo} from 'react';
 import {cn} from '@/lib/utils';
 import {closeModalId, useDesk, type ModalOf} from '@/stores/desk.ts';
 import {request} from '@/actions/core.ts';
@@ -12,11 +11,12 @@ import {Markdown} from '@/lib/markdown';
 import {relativeDay} from '@/lib/format';
 import {Button} from '@/components/ui/button';
 import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
-import type {HistoryNode} from '@/contract.generated.ts';
+import {DiffView} from '@/components/diff';
+import type {ArtifactChange, ArtifactDiff, HistoryNode} from '@/contract.generated.ts';
 
 export function PreviewDialog({modal}: {modal: ModalOf<'preview'>}) {
   const activeId = useDesk(store => store.state.activeId);
-  const selectedWorkspaceId = useDesk(store => store.selectedWorkspaceId);
+  const workspacePreview = modal.owner.kind === 'workspace';
   const [page, setPage] = useState(0);
   const [state, setState] = useState<
     | {kind: 'loading'}
@@ -25,10 +25,34 @@ export function PreviewDialog({modal}: {modal: ModalOf<'preview'>}) {
     | {kind: 'image'; src: string; truncated?: boolean}
     | {kind: 'error'; error: string}
   >({kind: 'loading'});
+  const [diff, setDiff] = useState<ArtifactDiff | null>(null);
+  const [diffLoading, setDiffLoading] = useState(!workspacePreview);
+  const [diffError, setDiffError] = useState('');
+  const [mode, setMode] = useState<'diff' | 'file'>('diff');
+  const body = useRef<HTMLDivElement>(null);
   const name = modal.path.split('/').pop() || modal.path;
-  const workspacePreview = modal.owner.kind === 'workspace';
+  const changes: ArtifactChange[] = diff?.changes || [];
+  const showDiff = !workspacePreview && mode === 'diff' && changes.length > 0;
+  const waitingForDiff = !workspacePreview && diffLoading;
 
   useEffect(() => {setPage(0);}, [modal.path]);
+  useEffect(() => {body.current?.scrollTo({top: 0});}, [mode, modal.path]);
+  useEffect(() => {
+    setDiff(null);
+    setDiffError('');
+    setMode('diff');
+    if (workspacePreview) {
+      setDiffLoading(false);
+      return;
+    }
+    let active = true;
+    setDiffLoading(true);
+    void request('/api/artifact-diff', {query: {id: modal.owner.id, path: modal.path}})
+      .then(result => {if (active) setDiff(result);})
+      .catch(failure => {if (active) setDiffError(failure instanceof Error ? failure.message : String(failure));})
+      .finally(() => {if (active) setDiffLoading(false);});
+    return () => {active = false;};
+  }, [modal.owner.id, modal.owner.kind, modal.path, workspacePreview]);
   useEffect(() => {
     let active = true;
     let objectUrl = '';
@@ -52,7 +76,7 @@ export function PreviewDialog({modal}: {modal: ModalOf<'preview'>}) {
     };
     void load();
     return () => {active = false; if (objectUrl) URL.revokeObjectURL(objectUrl);};
-  }, [modal.owner.id, modal.owner.kind, modal.path]);
+  }, [modal.owner.id, modal.owner.kind, modal.path, workspacePreview]);
 
   const pages = useMemo(() => state.kind === 'text' ? paginate(state.text) : [], [state]);
   const pageText = state.kind === 'text' ? pages[Math.min(page, pages.length - 1)] || '' : '';
@@ -63,20 +87,58 @@ export function PreviewDialog({modal}: {modal: ModalOf<'preview'>}) {
           <DialogTitle className="truncate text-[14px]">{name}</DialogTitle>
           <DialogDescription className="truncate font-mono text-[11px]">{modal.path}</DialogDescription>
         </DialogHeader>
-        <div data-file-preview-body="" className="scrollbar-quiet min-h-0 flex-1 overflow-auto bg-card px-5 py-4">
-          {state.kind === 'loading' ? <p className="flex items-center gap-2 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading preview…</p> : null}
-          {state.kind === 'error' ? <p className="text-[12px] text-destructive" role="alert">{state.error}</p> : null}
-{state.kind === 'image' ? <div className="grid place-items-center"><img data-file-preview-image="" src={state.src} alt={name} className="max-h-[68dvh] max-w-full object-contain" /></div> : null}
-          {state.kind === 'markdown' ? <Markdown text={state.text} onCopyCode={text => {void copyText(text);}} resolveLocalFile={() => null} onLocalFile={() => {}} /> : null}
-          {state.kind === 'text' ? <pre data-file-preview-text="" className="font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words">{pageText}</pre> : null}
-          {state.kind === 'text' && pages.length > 1 ? (
-            <div data-preview-pagination="" className="mt-3 flex items-center justify-end gap-2 border-t pt-2 text-[11px] text-muted-foreground">
-              <Button size="xs" variant="ghost" disabled={page <= 0} onClick={() => setPage(value => Math.max(0, value - 1))}>Previous</Button>
-              <span>Page {Math.min(page + 1, pages.length)} of {pages.length}</span>
-              <Button size="xs" variant="ghost" disabled={page >= pages.length - 1} onClick={() => setPage(value => Math.min(pages.length - 1, value + 1))}>Next</Button>
+        {changes.length > 0 ? (
+          <div data-preview-mode="" className="flex shrink-0 items-center gap-2 border-b bg-muted/30 px-5 py-1.5">
+            <div role="group" aria-label="Preview mode" className="flex items-center gap-0.5 rounded-md border p-0.5">
+              <Button size="xs" variant={showDiff ? 'secondary' : 'ghost'} aria-pressed={showDiff} onClick={() => setMode('diff')}>Diff</Button>
+              <Button size="xs" variant={showDiff ? 'ghost' : 'secondary'} aria-pressed={!showDiff} onClick={() => {setMode('file'); setPage(0);}}>File</Button>
             </div>
-          ) : null}
-          {state.kind !== 'loading' && state.kind !== 'error' && state.truncated ? <p className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">The preview was truncated because the file is large.</p> : null}
+            <span data-preview-change-count="" className="ml-auto text-[11px] text-muted-foreground">{changes.length === 1 ? '1 change' : `${changes.length} changes`}</span>
+          </div>
+        ) : null}
+        <div ref={body} data-file-preview-body="" className="scrollbar-quiet min-h-0 flex-1 overflow-auto bg-card px-5 py-4">
+          {waitingForDiff ? (
+            <p className="flex items-center gap-2 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading changes…</p>
+          ) : showDiff ? (
+            <div data-preview-diff="" className="flex flex-col gap-4">
+              {changes.map((change, index) => (
+                <section key={index} data-preview-change="" className="min-w-0">
+                  {changes.length > 1 ? (
+                    <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                      <span>Change {index + 1} of {changes.length}</span>
+                      <span className="flex items-center gap-1.5 tabular-nums">
+                        {change.additions ? <span className="text-emerald-700 dark:text-emerald-300">+{change.additions}</span> : null}
+                        {change.deletions ? <span className="text-red-700 dark:text-red-300">-{change.deletions}</span> : null}
+                      </span>
+                    </div>
+                  ) : null}
+                  <DiffView diff={change.patch} truncated={change.truncated} className="rounded-md border bg-[var(--code-surface)]" />
+                </section>
+              ))}
+              {diff?.truncated ? <p className="text-[11px] text-muted-foreground">Some changes were omitted because this diff is large.</p> : null}
+            </div>
+          ) : (
+            <>
+              {!workspacePreview ? (
+                diffError ? <p data-preview-diff-error="" className="mb-3 text-[11px] text-destructive" role="alert">{diffError}</p>
+                  : !changes.length ? <p data-preview-no-diff="" className="mb-3 text-[11px] text-muted-foreground">No diff was recorded for this change. Showing the complete file.</p>
+                    : null
+              ) : null}
+              {state.kind === 'loading' ? <p className="flex items-center gap-2 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading preview…</p> : null}
+              {state.kind === 'error' ? <p className="text-[12px] text-destructive" role="alert">{state.error}</p> : null}
+              {state.kind === 'image' ? <div className="grid place-items-center"><img data-file-preview-image="" src={state.src} alt={name} className="max-h-[68dvh] max-w-full object-contain" /></div> : null}
+              {state.kind === 'markdown' ? <Markdown text={state.text} onCopyCode={text => {void copyText(text);}} resolveLocalFile={() => null} onLocalFile={() => {}} /> : null}
+              {state.kind === 'text' ? <pre data-file-preview-text="" className="font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words">{pageText}</pre> : null}
+              {state.kind === 'text' && pages.length > 1 ? (
+                <div data-preview-pagination="" className="mt-3 flex items-center justify-end gap-2 border-t pt-2 text-[11px] text-muted-foreground">
+                  <Button size="xs" variant="ghost" disabled={page <= 0} onClick={() => setPage(value => Math.max(0, value - 1))}>Previous</Button>
+                  <span>Page {Math.min(page + 1, pages.length)} of {pages.length}</span>
+                  <Button size="xs" variant="ghost" disabled={page >= pages.length - 1} onClick={() => setPage(value => Math.min(pages.length - 1, value + 1))}>Next</Button>
+                </div>
+              ) : null}
+              {state.kind !== 'loading' && state.kind !== 'error' && state.truncated ? <p className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">The preview was truncated because the file is large.</p> : null}
+            </>
+          )}
         </div>
         <DialogFooter className="mx-0 mb-0 items-center justify-end border-t px-5 pt-3 pb-5">
           <div className="flex flex-wrap gap-1.5">
@@ -91,10 +153,13 @@ export function PreviewDialog({modal}: {modal: ModalOf<'preview'>}) {
             >
               <Download className="size-3.5" />Download
             </Button>
-            {!runtime.server && workspacePreview ? (
+            {!runtime.server ? (
               <Button
                 size="sm" variant="secondary"
-                onClick={() => {void workspaceFileAction('open', {workspaceId: modal.owner.id, path: modal.path});}}
+                onClick={() => {
+                  if (workspacePreview) void workspaceFileAction('open', {workspaceId: modal.owner.id, path: modal.path});
+                  else void artifactAction('open', {ownerId: activeId, path: modal.path});
+                }}
               >
                 <FolderOpen className="size-3.5" />Open
               </Button>

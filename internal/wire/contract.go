@@ -254,6 +254,7 @@ var Endpoints = []Endpoint{
 	get[WorkspaceInput, desk.ResourceInventory]("/api/resources"),
 	get[IDInput, []desk.Artifact]("/api/artifacts"),
 	get[ArtifactQuery, desk.ArtifactPreview]("/api/artifact-preview"),
+	get[ArtifactQuery, desk.ArtifactDiff]("/api/artifact-diff"),
 	get[WorkspaceFilesQuery, desk.WorkspaceListing]("/api/workspace-files"),
 	get[ResourceQuery, desk.ArtifactPreview]("/api/workspace-preview"),
 	get[desk.DraftScope, desk.Draft]("/api/draft"),

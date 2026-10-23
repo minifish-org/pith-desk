@@ -89,7 +89,7 @@ interface DeskStore {
     generation: number;
   };
   tools: {tabs: ToolTab[]; activeId: string; location: string; detail: string};
-  artifacts: {open: boolean; files: Artifact[]; loading: boolean; error: string};
+  artifacts: {files: Artifact[]; loading: boolean; error: string};
   notices: Notice[];
 
   setSnapshot(next: State, connection: ConnectionStatus, receivedAt: number): void;
@@ -128,7 +128,7 @@ export const useDesk = create<DeskStore>((set) => ({
   modals: [],
   composer: {text: '', images: [], loading: false, reading: false, resolving: false, dropPending: false, generation: 0},
   tools: {tabs: [], activeId: '', location: '', detail: ''},
-  artifacts: {open: false, files: [], loading: false, error: ''},
+  artifacts: {files: [], loading: false, error: ''},
   notices: [],
   setSnapshot: (state, connection, receivedAt) => set({state, connection, receivedAt, loaded: true}),
   setConnection: connection => set({connection}),

@@ -12,6 +12,7 @@ import {copyText, request} from '@/actions/core';
 import {messageAction, openConversationFile, openWorkspace} from '@/actions/conversations.ts';
 import {localFilePath} from '@/local-file-links';
 import {BrandMark} from '@/components/brand';
+import {EditedFiles} from '@/components/edited-files';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
@@ -19,7 +20,13 @@ import {relativeDay} from '@/lib/format';
 
 function ConversationView() {
   const state = useDesk(store => store.state);
-  const scroller = useStickToBottom(JSON.stringify([state.messages.length, state.messages.at(-1)?.text?.length, state.running]), state.activeId);
+  const artifacts = useDesk(store => store.artifacts.files);
+  const artifactsError = useDesk(store => store.artifacts.error);
+  const workspacePath = useDesk(store => {
+    const conversation = store.state.conversations.find(entry => entry.id === store.state.activeId);
+    return store.state.workspaces.find(entry => entry.id === (conversation?.workspaceId || store.selectedWorkspaceId))?.path || '';
+  });
+  const scroller = useStickToBottom(JSON.stringify([state.messages.length, state.messages.at(-1)?.text?.length, state.running, artifacts.length]), state.activeId);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [matches, setMatches] = useState(0);
@@ -97,6 +104,12 @@ function ConversationView() {
       <div ref={scroller.ref} data-conversation-scroll="" onScroll={scroller.onScroll} className="scrollbar-quiet min-h-0 flex-1 overflow-y-auto">
         <div className="conversation-column pt-6 pb-5">
           {state.messages.length ? <MessageList messages={state.messages} working={state.running} /> : <Welcome />}
+          {state.messages.length && artifacts.length ? (
+            <EditedFiles key={state.activeId} files={artifacts} workspacePath={workspacePath} conversationId={state.activeId} />
+          ) : null}
+          {state.messages.length && !artifacts.length && !state.running && artifactsError ? (
+            <p data-artifacts-error="" className="mt-4 text-[12px] text-destructive">{artifactsError}</p>
+          ) : null}
           {state.running ? <Working /> : null}
         </div>
       </div>

@@ -10,8 +10,21 @@ import (
 )
 
 type Artifact struct {
-	Path string `json:"path"`
-	Name string `json:"name"`
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Additions int    `json:"additions,omitempty"`
+	Deletions int    `json:"deletions,omitempty"`
+}
+
+// artifactRecord is one original successful write/edit on the active branch.
+// The artifact list aggregates records by path; the diff view keeps each record
+// so a file can show its changes in order.
+type artifactRecord struct {
+	path           string
+	additions      int
+	deletions      int
+	patch          string
+	patchTruncated bool
 }
 
 func (s *Service) Artifacts(id string) ([]Artifact, error) {
@@ -24,6 +37,33 @@ func (s *Service) Artifacts(id string) ([]Artifact, error) {
 }
 
 func (s *Service) artifactsLocked(id string) ([]Artifact, error) {
+	records, err := s.artifactRecordsLocked(id)
+	if err != nil {
+		return nil, err
+	}
+	artifacts := []Artifact{}
+	seen := map[string]bool{}
+	totals := map[string]fileChangeDetails{}
+	for _, record := range records {
+		total := totals[record.path]
+		total.Additions += record.additions
+		total.Deletions += record.deletions
+		totals[record.path] = total
+		if seen[record.path] {
+			continue
+		}
+		seen[record.path] = true
+		artifacts = append(artifacts, Artifact{Path: record.path, Name: filepath.Base(record.path)})
+	}
+	for i := range artifacts {
+		if total := totals[artifacts[i].Path]; total.Additions != 0 || total.Deletions != 0 {
+			artifacts[i].Additions, artifacts[i].Deletions = total.Additions, total.Deletions
+		}
+	}
+	return artifacts, nil
+}
+
+func (s *Service) artifactRecordsLocked(id string) ([]artifactRecord, error) {
 	index := s.conversationIndexLocked(id)
 	if index < 0 {
 		return nil, errors.New("Conversation not found")
@@ -36,9 +76,9 @@ func (s *Service) artifactsLocked(id string) ([]Artifact, error) {
 	if err != nil {
 		return nil, err
 	}
-	artifacts := []Artifact{}
+	records := []artifactRecord{}
 	if manager == nil {
-		return artifacts, nil
+		return records, nil
 	}
 	defer manager.Close()
 	policy, err := newFilePolicy(workspace.Path, s.dataDir)
@@ -48,6 +88,7 @@ func (s *Service) artifactsLocked(id string) ([]Artifact, error) {
 	defer policy.root.Close()
 	type candidate struct{ path, name string }
 	calls := map[string]candidate{}
+	changes := map[string]fileChangeDetails{}
 	callCounts, resultCounts := map[string]int{}, map[string]int{}
 	successes := []string{}
 	for _, entry := range manager.Context() {
@@ -84,10 +125,10 @@ func (s *Service) artifactsLocked(id string) ([]Artifact, error) {
 			call, found := calls[result.ToolCallId]
 			if found && !result.IsError && call.name == result.ToolName {
 				successes = append(successes, result.ToolCallId)
+				changes[result.ToolCallId] = artifactSummary(call.name, result.Details)
 			}
 		}
 	}
-	seen := map[string]bool{}
 	for _, id := range successes {
 		// Reused/replayed IDs cannot identify one original successful operation.
 		if callCounts[id] != 1 || resultCounts[id] != 1 {
@@ -98,13 +139,16 @@ func (s *Service) artifactsLocked(id string) ([]Artifact, error) {
 			continue
 		}
 		info, err := policy.stat(path)
-		if err != nil || !info.Mode().IsRegular() || seen[path] {
+		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		seen[path] = true
-		artifacts = append(artifacts, Artifact{Path: path, Name: filepath.Base(path)})
+		change := changes[id]
+		records = append(records, artifactRecord{
+			path: path, additions: change.Additions, deletions: change.Deletions,
+			patch: change.Patch, patchTruncated: change.PatchTruncated,
+		})
 	}
-	return artifacts, nil
+	return records, nil
 }
 
 func (s *Service) ResolveArtifactFile(id, path string) (string, error) {

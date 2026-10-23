@@ -84,7 +84,7 @@ func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitNativeDropCondition(t, win, `document.querySelector('a[data-download-path]')?.dataset.downloadPath === 'output/报告 v1.docx' && document.querySelector('a[data-download-path]').getAttribute('aria-disabled') === 'false'`)
-	if nativeDropEval(t, win, `document.querySelector('[data-artifacts-control]').hidden`) != true {
+	if nativeDropEval(t, win, `document.querySelector('[data-edited-files]') === null`) != true {
 		t.Fatal("unrecorded shell file entered the artifact list")
 	}
 	for attempt := range 3 {

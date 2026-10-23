@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 test('local Word links download binary files with their Unicode names without entering the artifact list', async ({ page }, testInfo) => {
   const link = page.getByRole('link', { name: '下载 Word 文档' });
   await expect(link).toHaveAttribute('data-download-path', 'output/报告 v1.docx');
-  await expect(page.locator('[data-artifacts-control]')).toBeHidden();
+  await expect(page.locator('[data-edited-files]')).toHaveCount(0);
   const received = page.waitForEvent('download');
   await link.click();
   const download = await received;
