@@ -65,7 +65,7 @@ test('Server configuration explains execution location, hides unavailable integr
   await settings.getByRole('combobox',{name: 'Provider'}).click();
   await page.getByRole('option',{name: /OpenAI Codex/i}).click();
   await expect(settings.getByRole('button',{name: 'Sign in with provider',exact: true})).toBeVisible();
-  await settings.getByRole('button',{name: 'Cancel',exact: true}).click();
+  await page.keyboard.press('Escape');
   await page.getByRole('button',{name: 'Connections',exact: true}).click();
   const connections = page.getByRole('dialog',{name: 'Connections',exact: true});
   await expect(connections).toContainText('environment variables and runtime dependencies all refer to that server');

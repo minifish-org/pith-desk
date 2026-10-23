@@ -14,13 +14,14 @@ for (const appearance of ['light', 'dark'] as const) {
     const mark = brand.locator('[data-brand-mark]');
     await expect(brand).toBeVisible();
     await expect(mark).toBeVisible();
-    await expect(mark.locator('g > *')).toHaveCount(4);
+    await expect(mark.locator('i')).toHaveCount(4);
     await expect(brand.locator('img')).toHaveCount(0);
     await expect(brand).toContainText('Pith');
     await expect(brand).toContainText('Desk');
-    expect(await mark.getAttribute('fill')).toBe('currentColor');
-    const color = await mark.evaluate(element => getComputedStyle(element).color);
-    expect(color).not.toBe('');
+    const markStyle = await mark.evaluate(element => ({display: getComputedStyle(element).display, transform: getComputedStyle(element).transform, color: getComputedStyle(element).color}));
+    expect(markStyle.display).toBe('grid');
+    expect(markStyle.transform).not.toBe('none');
+    expect(markStyle.color).not.toBe('');
     expect(await page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(appearance === 'dark');
   });
 }

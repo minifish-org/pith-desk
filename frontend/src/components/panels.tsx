@@ -22,7 +22,7 @@ export function ComposerPanels() {
     return () => window.removeEventListener('pith:artifact-added', add);
   }, []);
   return (
-    <div className="mx-auto w-full max-w-[54rem] px-6">
+    <div className="conversation-column">
       {approval ? <ApprovalCard approval={approval} disabled={busy} /> : null}
       {failure && !running ? <FailureCard failure={failure} disabled={busy} /> : null}
       {queue.length ? <PendingMessages items={queue} running={running} busy={busy} /> : null}
@@ -174,7 +174,7 @@ export function RuntimeBar() {
   const phases: Record<string, string> = {starting: 'Starting', working: 'Working', tool: 'Using a tool', retrying: 'Retrying model request', compacting: 'Summarizing context', complete: 'Finished', stopped: 'Stopped', interrupted: 'Interrupted', error: 'Needs attention'};
   const summary = `${approval ? 'Waiting for approval' : phases[runtime.phase] || 'Ready'}${runtime.timing?.startedAt ? ` · ${time} · ${speed}` : ''} · ${compactNumber(runtime.usage.total)} tok · ${formatCost(runtime.cost)}`;
   return (
-    <div className="mx-auto w-full max-w-[54rem] px-6">
+    <div className="conversation-column">
       <div className="mb-1">
         <button
           type="button"

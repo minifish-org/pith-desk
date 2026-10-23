@@ -42,3 +42,19 @@ test('interrupted and unrecorded timing never invent a speed or duration', async
   });
   await expect(summary).toHaveText('Ready · 74M tok · Not recorded');
 });
+
+test('expanded runtime details share the composer column when the panel scrolls', async ({page}) => {
+  await page.setViewportSize({width: 900, height: 500});
+  await page.locator('[data-runtime-summary]').click();
+  const boxes = await page.evaluate(() => {
+    const box = (element: Element) => {
+      const rect = element.getBoundingClientRect();
+      return {x: Math.round(rect.x), width: Math.round(rect.width)};
+    };
+    return {
+      details: box(document.querySelector('[data-runtime-details]')!),
+      composer: box(document.querySelector('[data-composer]')!),
+    };
+  });
+  expect(boxes.details).toEqual(boxes.composer);
+});

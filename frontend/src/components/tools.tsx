@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ChevronRight, File, FileText, Folder, FolderOpen, LoaderCircle, MoreHorizontal, PanelRightClose,
   Plus, RefreshCw, TerminalSquare, Globe, X,
@@ -52,7 +52,7 @@ function saveLayout(workspaceId: string, layout: Layout): void {
   try {localStorage.setItem(prefix + workspaceId, JSON.stringify(layout));} catch { /* Layout is a preference. */ }
 }
 
-export function ToolsRail({onClose, visible = true}: {onClose: () => void; visible?: boolean}) {
+function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?: boolean}) {
   const workspaceId = useDesk(store => {
     const conversation = store.state.conversations.find(entry => entry.id === store.state.activeId);
     return conversation?.workspaceId || store.selectedWorkspaceId || store.state.workspaces[0]?.id || '';
@@ -184,6 +184,8 @@ export function ToolsRail({onClose, visible = true}: {onClose: () => void; visib
 
 
 interface Directory {path: string; expanded: boolean; entries: WorkspaceEntry[]; loading?: boolean; error?: string}
+
+export const ToolsRail = memo(ToolsRailView);
 
 function FileBrowser({workspaceId, active, initialExpanded, initialScrollTop, onExpanded, onScrollTop}: {workspaceId: string; active: boolean; initialExpanded: string[]; initialScrollTop: number; onExpanded: (paths: string[]) => void; onScrollTop: (top: number) => void}) {
   const [directories, setDirectories] = useState<Map<string, Directory>>(new Map([['', {path: '', expanded: true, entries: [], loading: true}]]));

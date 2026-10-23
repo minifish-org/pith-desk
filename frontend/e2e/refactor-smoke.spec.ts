@@ -31,6 +31,6 @@ test('workspace tools open with the file browser and settings lists providers', 
   const settings = page.getByRole('dialog', {name: 'Settings'});
   await expect(settings).toBeVisible();
   await expect(settings.getByRole('combobox', {name: 'Provider'})).toBeVisible();
-  await settings.getByRole('button', {name: 'Done'}).click();
+  await page.keyboard.press('Escape');
   await expect(settings).toBeHidden();
 });

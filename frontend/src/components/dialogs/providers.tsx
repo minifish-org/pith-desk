@@ -52,7 +52,7 @@ export function ConnectionsDialog({modal}: {modal: ModalOf<'connections'>}) {
 
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden p-0">
+      <DialogContent className="flex max-h-[86dvh] w-full sm:max-w-[500px] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle>Connections</DialogTitle>
           <DialogDescription>
@@ -61,7 +61,7 @@ export function ConnectionsDialog({modal}: {modal: ModalOf<'connections'>}) {
           </DialogDescription>
         </DialogHeader>
         <div className="scrollbar-quiet min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="mb-2 flex items-center gap-1.5">
+          <div className="mb-2 flex items-center justify-between gap-1.5">
             <Button size="sm" variant="secondary" onClick={refresh} disabled={busy}>Refresh</Button>
             <Button size="sm" onClick={() => setEditing('new')} disabled={disabled}>New connection</Button>
           </div>
@@ -115,9 +115,6 @@ export function ConnectionsDialog({modal}: {modal: ModalOf<'connections'>}) {
           ))}
           {editing ? <ConnectionEditor key={editing === 'new' ? 'new' : editing.name} entry={editing === 'new' ? undefined : editing} onCancel={() => setEditing(null)} onSaved={() => {setEditing(null); refresh();}} /> : null}
         </div>
-        <DialogFooter className="border-t px-5 py-3">
-          <Button variant="secondary" onClick={() => closeModalId(modal.id)}>Done</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -295,7 +292,7 @@ export function CustomConnectionDialog({modal}: {modal: ModalOf<'custom-connecti
       });
       if (ok) {
         closeModalId(modal.id);
-        if (desk().state.settings.hasConnections) desk().openModal({kind: 'settings', id: 'settings'});
+        window.dispatchEvent(new Event('pith:model-connections-changed'));
       } else setError(desk().activity.error);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -304,7 +301,7 @@ export function CustomConnectionDialog({modal}: {modal: ModalOf<'custom-connecti
 
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="flex max-h-[88dvh] w-full max-w-2xl flex-col overflow-hidden p-0">
+      <DialogContent className="flex max-h-[88dvh] w-full sm:max-w-[500px] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle>{editing ? 'Edit model connection' : 'Add independent model connection'}</DialogTitle>
           <DialogDescription>An endpoint with its own name, protocol, models and credentials. It can coexist with other providers.</DialogDescription>
@@ -353,7 +350,7 @@ export function CustomConnectionDialog({modal}: {modal: ModalOf<'custom-connecti
             </div>
             {error ? <p className="text-[12px] text-destructive" role="alert">{error}</p> : null}
           </div>
-          <DialogFooter className="border-t px-5 py-3">
+          <DialogFooter className="mx-0 mb-0 border-t px-5 pt-3 pb-5">
             <Button type="button" variant="ghost" onClick={() => closeModalId(modal.id)}>Cancel</Button>
             <Button type="submit" disabled={busy || loading || !name.trim() || !baseUrl.trim()}>{busy ? <LoaderCircle className="size-3.5 animate-spin" /> : null}Save connection</Button>
           </DialogFooter>
@@ -374,7 +371,7 @@ export function ProviderLoginDialog({modal}: {modal: ModalOf<'provider-login'>})
   };
   return (
     <Dialog open onOpenChange={open => {if (!open) close();}}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Sign in with {login?.provider || modal.provider}</DialogTitle>
           <DialogDescription className="leading-relaxed">{login?.message || 'Waiting for the provider sign-in to start…'}</DialogDescription>
@@ -415,7 +412,7 @@ export function ProviderLoginDialog({modal}: {modal: ModalOf<'provider-login'>})
             <Button type="submit" size="sm" disabled={busy || !answer}>{busy ? <LoaderCircle className="size-3.5 animate-spin" /> : null}Continue</Button>
           </form>
         ) : null}
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 border-t px-5 pt-3 pb-5">
           <Button variant="ghost" onClick={close}>Cancel</Button>
         </DialogFooter>
       </DialogContent>

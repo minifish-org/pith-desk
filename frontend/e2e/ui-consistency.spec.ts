@@ -53,14 +53,20 @@ test('long approval, runtime and queue panels keep the composer reachable in sho
 test('model catalog displays multiple choices and applies the chosen model', async ({ page }) => {
   await page.evaluate(() => {
     const fixture = (window as any), model = fixture.review.models.models[0];
-    fixture.review.models.models.push(...Array.from({ length: 8 }, (_, i) => ({ ...model, id: `model-${i}`, name: `Model ${i}` })));
+    model.thinkingLevels = ['off', 'low', 'high'];
+    fixture.reviewState.settings.thinkingLevels = ['off', 'low', 'high'];
+    fixture.review.models.models.push(...Array.from({ length: 8 }, (_, i) => ({ ...model, id: `model-${i}`, name: `Model ${i}`, thinkingLevels: ['off', 'low', 'high'] })));
   });
   await page.getByRole('button', {name: 'Choose model'}).click();
-  const dialog = page.getByRole('dialog', {name: 'Choose model'});
-  await expect(dialog.getByRole('button', {name: /Model 7/})).toBeVisible();
-  await dialog.getByRole('button', {name: /Model 7/}).click();
-  await dialog.getByRole('button', {name: 'Use this model'}).click();
+  await page.getByRole('menuitem', {name: /^Model/}).click();
+  const chosen = page.getByRole('menuitem', {name: /Model 7/, exact: false});
+  await expect(chosen).toBeVisible();
+  await chosen.click();
   await expect.poll(() => page.evaluate(() => (window as any).review.requests.find((r: any) => r.path === '/api/model-selection')?.body.model)).toBe('model-7');
+  await expect(page.getByRole('menuitem', {name: /^Thinking/})).toBeVisible();
+  await page.getByRole('menuitem', {name: /^Thinking/}).click();
+  await page.getByRole('menuitem', {name: 'High', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => (window as any).review.requests.filter((r: any) => r.path === '/api/model-selection').at(-1)?.body)).toMatchObject({provider: 'custom-test', model: 'model-7', thinkingLevel: 'high'});
 });
 
 test('image viewer keeps its source focus and ignores internal clicks', async ({ page }) => {

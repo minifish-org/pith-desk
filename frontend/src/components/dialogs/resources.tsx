@@ -69,31 +69,33 @@ export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
 
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden p-0">
+      <DialogContent className="flex max-h-[86dvh] w-full sm:max-w-[500px] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle>Workspace resources</DialogTitle>
           <DialogDescription>{workspace ? `${workspace.name} · ${workspace.path}` : 'Choose a workspace first.'}</DialogDescription>
         </DialogHeader>
         <div className="scrollbar-quiet min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            <Button size="sm" variant="secondary" onClick={() => {void refresh();}}>{loading ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}Refresh</Button>
-            <Button size="sm" variant="secondary" disabled={unavailable} onClick={() => openEditor('skill')}><FilePlus2 className="size-3.5" />Add skill</Button>
-            <Button size="sm" variant="secondary" disabled={unavailable} onClick={() => openEditor('template')}><FilePlus2 className="size-3.5" />Add template</Button>
-            {!hasInstructions ? (
-              <Button
-                size="sm" variant="secondary" disabled={unavailable}
-                aria-label="Create AGENTS.md in this workspace"
-                onClick={async () => {
-                  if (!workspace || unavailable) return;
-                  const created = await createInstructions(workspace.id);
-                  if (!mounted.current) return;
-                  if (created) await refresh();
-                  else setError(desk().activity.error);
-                }}
-              >
-                <FilePlus2 className="size-3.5" />Create instructions
-              </Button>
-            ) : null}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" variant="secondary" disabled={unavailable} onClick={() => openEditor('skill')}><FilePlus2 className="size-3.5" />Add skill</Button>
+              <Button size="sm" variant="secondary" disabled={unavailable} onClick={() => openEditor('template')}><FilePlus2 className="size-3.5" />Add template</Button>
+              {!hasInstructions ? (
+                <Button
+                  size="sm" variant="secondary" disabled={unavailable}
+                  aria-label="Create AGENTS.md in this workspace"
+                  onClick={async () => {
+                    if (!workspace || unavailable) return;
+                    const created = await createInstructions(workspace.id);
+                    if (!mounted.current) return;
+                    if (created) await refresh();
+                    else setError(desk().activity.error);
+                  }}
+                >
+                  <FilePlus2 className="size-3.5" />Create instructions
+                </Button>
+              ) : null}
+            </div>
+            <Button size="sm" variant="ghost" aria-label="Refresh" title="Refresh" onClick={() => {void refresh();}}>{loading ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}</Button>
           </div>
           {error ? <p className="mb-2 text-[12px] text-destructive" role="alert">{error}</p> : null}
           {!inventory ? <p className="flex items-center gap-2 py-3 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading resources…</p> : null}
@@ -137,14 +139,13 @@ export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
               </ResourceSection>
               {(inventory.diagnostics || []).length ? (
                 <ResourceSection title="Diagnostics" empty="">
-                  <ul className="space-y-1">{(inventory.diagnostics || []).map((line, index) => <li key={index} className="text-[11.5px] leading-relaxed break-words text-[var(--warning)]">{line}</li>)}</ul>
+                  <ul className="space-y-1">{(inventory.diagnostics || []).map((line, index) => <li key={index} className="text-[11.5px] leading-relaxed break-words text-[var(--warning-text)]">{line}</li>)}</ul>
                 </ResourceSection>
               ) : null}
             </div>
           ) : null}
         </div>
-        <DialogFooter className="border-t px-5 py-3"><Button variant="secondary" onClick={() => closeModalId(modal.id)}>Close</Button></DialogFooter>
-      </DialogContent>
+              </DialogContent>
     </Dialog>
   );
 }
@@ -207,7 +208,7 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
 
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="flex max-h-[88dvh] w-full max-w-2xl flex-col overflow-hidden p-0">
+      <DialogContent className="flex max-h-[88dvh] w-full sm:max-w-[500px] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle>{modal.path ? 'Edit resource' : modal.resourceKind === 'skill' ? 'Create skill' : modal.resourceKind === 'template' ? 'Create template' : 'Project instructions'}</DialogTitle>
           <DialogDescription>{modal.path ? <span data-resource-path="">{modal.path}</span> : 'Saved as Markdown in this workspace.'}</DialogDescription>
@@ -221,7 +222,7 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
           <label className="block space-y-1 text-[12px]"><span className="font-medium">Markdown</span><Textarea aria-label="Markdown" value={content} onChange={event => setContent(event.target.value)} className="min-h-72 font-mono text-[12px]" /></label>
           {error ? <p className="text-[12px] text-destructive" role="alert">{error}</p> : null}
         </div>
-        <DialogFooter className="border-t px-5 py-3">
+        <DialogFooter className="mx-0 mb-0 border-t px-5 pt-3 pb-5">
           {modal.path ? (
             <Button
               variant="ghost" className="mr-auto text-destructive" disabled={busy}

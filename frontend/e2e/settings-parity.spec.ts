@@ -58,7 +58,8 @@ test('OAuth hides an earlier API key from connection tests and provider saves', 
   await expect(settings.getByRole('status')).toHaveText('Fixture connected');
   expect(await page.evaluate(() => (window as any).review.requests.find((request: any) => request.path === '/api/test-provider-connection').body.apiKey)).toBeUndefined();
   await settings.getByRole('button', {name: 'Save settings', exact: true}).click();
-  await expect(settings).toHaveCount(0);
+  await expect(settings).toBeVisible();
+  await expect(settings.getByText('Provider saved.', {exact: true})).toBeVisible();
   expect(await page.evaluate(() => (window as any).review.requests.find((request: any) => request.path === '/api/provider-config').body)).toEqual({provider: 'custom-test', baseUrl: 'http://localhost/v1'});
 });
 
@@ -140,4 +141,40 @@ for (const success of [false, true]) test(`an earlier provider ${success ? 'save
   await expect(settings.getByRole('combobox', {name: 'Provider'})).toContainText('Second provider');
   await expect(settings.getByLabel('API key')).toHaveValue('second-key-draft');
   await expect(settings.getByRole('alert')).toHaveCount(0);
+});
+test('custom model connection editor returns to Settings', async ({page}) => {
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
+  await expect(settings).toBeVisible();
+
+  await settings.getByRole('button', {name: 'Add independent model connection', exact: true}).click();
+  const add = page.getByRole('dialog', {name: 'Add independent model connection', exact: true});
+  await expect(add).toBeVisible();
+  expect(await page.locator('[data-slot="dialog-content"]').count()).toBe(2);
+  await add.getByRole('button', {name: 'Cancel', exact: true}).click();
+  await expect(add).toHaveCount(0);
+  await expect(settings).toBeVisible();
+
+  await settings.getByRole('button', {name: 'Add independent model connection', exact: true}).click();
+  await add.getByLabel('Connection name').fill('Local fixture');
+  await add.getByLabel('API base URL').fill('http://localhost:8080/v1');
+  await add.getByLabel('Model 1 ID').fill('fixture-model');
+  await add.getByRole('button', {name: 'Save connection', exact: true}).click();
+  await expect(add).toHaveCount(0);
+  await expect(settings).toBeVisible();
+
+  await settings.getByRole('button', {name: 'Edit connection', exact: true}).click();
+  const edit = page.getByRole('dialog', {name: 'Edit model connection', exact: true});
+  await expect(edit).toBeVisible();
+  await edit.getByRole('button', {name: 'Cancel', exact: true}).click();
+  await expect(edit).toHaveCount(0);
+  await expect(settings).toBeVisible();
+});
+test('removing a saved API key keeps Settings open', async ({page}) => {
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
+  await expect(settings.getByRole('button', {name: 'Remove saved key', exact: true})).toBeVisible();
+  await settings.getByRole('button', {name: 'Remove saved key', exact: true}).click();
+  await expect(settings).toBeVisible();
+  await expect(settings.getByText('API key removed.', {exact: true})).toBeVisible();
 });

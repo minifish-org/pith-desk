@@ -58,10 +58,28 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
       send({type: 'input', data});
     });
     const onResize = term.onResize(({cols, rows}) => send({type: 'resize', cols, rows}));
-    const observer = new ResizeObserver(() => {
+    let fitFrame = 0, fitTimer: ReturnType<typeof setTimeout> | undefined, lastFit = 0;
+    const fitNow = () => {
       if (!active) return;
       try {fitAddon.fit();} catch { /* Hidden panels have no measurable size. */ }
-    });
+    };
+    // Resizing the rail fires one observer callback per pointer frame. Coalesce
+    // xterm's expensive fit pass to at most one per frame and at most ~12/s.
+    const scheduleFit = () => {
+      if (fitFrame) cancelAnimationFrame(fitFrame);
+      fitFrame = requestAnimationFrame(() => {
+        fitFrame = 0;
+        const now = performance.now();
+        if (now - lastFit >= 80) {
+          lastFit = now;
+          fitNow();
+          return;
+        }
+        if (fitTimer) clearTimeout(fitTimer);
+        fitTimer = setTimeout(() => {lastFit = performance.now(); fitNow();}, 80);
+      });
+    };
+    const observer = new ResizeObserver(scheduleFit);
     observer.observe(container);
     const themeObserver = new MutationObserver(() => {
       const next = document.documentElement.classList.contains('dark');
@@ -99,6 +117,8 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
       onData.dispose();
       onResize.dispose();
       observer.disconnect();
+      if (fitFrame) cancelAnimationFrame(fitFrame);
+      if (fitTimer) clearTimeout(fitTimer);
       themeObserver.disconnect();
       term.dispose();
       terminal.current = undefined;

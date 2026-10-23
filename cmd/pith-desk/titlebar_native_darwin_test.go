@@ -50,20 +50,23 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 	if nativeDropEval(t, win, `(() => {
 		const root = document.querySelector('.app-root.titlebar-overlay'),header = root.querySelector('header'),
 			nav = root.querySelector('[data-navigation-rail]'),brand = root.querySelector('[data-brand]'),
-			navRow = nav.querySelector('[data-rail-heading]');
+			navRow = nav.querySelector('[data-rail-heading]'),spacer = root.querySelector('[data-titlebar-spacer]'),
+			close = nav.querySelector('button[aria-label="Close navigation"]');
 		const native = getComputedStyle(document.documentElement),height = parseFloat(native.getPropertyValue('--mygo-titlebar-height')),
 			left = parseFloat(native.getPropertyValue('--mygo-titlebar-inset-left'));
-		const h = header.getBoundingClientRect(),r = navRow.getBoundingClientRect(),b = brand.getBoundingClientRect();
+		const h = header.getBoundingClientRect(),n = nav.getBoundingClientRect(),t = spacer.getBoundingClientRect(),r = navRow.getBoundingClientRect(),b = brand.getBoundingClientRect(),c = close.getBoundingClientRect();
 		return height === 52 && left > 0 && Math.abs(h.y) <= 1 && Math.abs(h.height - 52) <= 1
-			&& Math.abs(r.y) <= 1 && Math.abs(r.height - 52) <= 1 && b.x >= left && b.y >= 0 && b.y + b.height <= 52
+			&& Math.abs(t.y) <= 1 && Math.abs(t.height - 52) <= 1 && Math.abs(t.width - n.width) <= 1
+			&& c.y >= 0 && c.y + c.height <= 52 && t.y <= c.y
+			&& b.y >= 52 && r.y >= 52 && Math.abs(r.height - 44) <= 1
 			&& getComputedStyle(header).getPropertyValue('--app-region').trim() === 'drag'
 			&& root.querySelectorAll('[data-brand]').length === 1
 			&& root.querySelectorAll('[data-tools-rail]').length === 1;
 	})()`) != true {
-		t.Fatal("native window controls and the shared titlebar row diverged")
+		t.Fatal("native window controls and the brand row diverged")
 	}
 	if nativeDropEval(t, win, `(() => {
-		const action = [...document.querySelectorAll('header button')].find(button => button.textContent.trim() === 'Compact'),event = new MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0});
+		const action = [...document.querySelectorAll('header button')].find(button => button.getAttribute('aria-label') === 'Compact'),event = new MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0});
 		action.dispatchEvent(event);
 		return getComputedStyle(action).getPropertyValue('--app-region').trim() === 'no-drag' && !event.defaultPrevented;
 	})()`) != true {
@@ -77,11 +80,13 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 	waitNativeDropCondition(t, win, `!!document.querySelector('[data-tools-rail] button[aria-label="Close tools"]') && document.querySelector('[data-tools-rail]').getBoundingClientRect().width > 200`)
 	if nativeDropEval(t, win, `(() => {
 		const root=document.querySelector('.app-root'),native=getComputedStyle(document.documentElement),left=parseFloat(native.getPropertyValue('--mygo-titlebar-inset-left'));
-		const header=root.querySelector('header').getBoundingClientRect(),tools=root.querySelector('[data-tools-rail]').getBoundingClientRect();
-		return Math.abs(header.height-52)<=1 && Math.abs(tools.y)<=1 && [['Close navigation','[data-navigation-rail]'],['Close tools','[data-tools-rail]']].every(([name,selector])=>{
-			const button=root.querySelector('button[aria-label="'+name+'"]'),panel=root.querySelector(selector),b=button.getBoundingClientRect(),p=panel.getBoundingClientRect();
-			return b.y>=0 && b.y+b.height<=52 && Math.abs(b.y+b.height/2-(header.y+header.height/2))<=1 && b.x>=p.x && b.x+b.width<=p.x+p.width && (name!=='Close navigation'||b.x>=left) && getComputedStyle(button).getPropertyValue('--app-region').trim()==='no-drag';
-		}) && root.querySelectorAll('header button[aria-label^="Toggle "]').length===0;
+		const header=root.querySelector('header').getBoundingClientRect(),tools=root.querySelector('[data-tools-rail]').getBoundingClientRect(),spacer=root.querySelector('[data-titlebar-spacer]').getBoundingClientRect();
+		const navClose=root.querySelector('button[aria-label="Close navigation"]'),toolsClose=root.querySelector('button[aria-label="Close tools"]');
+		const nc=navClose.getBoundingClientRect(),tc=toolsClose.getBoundingClientRect(),navPanel=root.querySelector('[data-navigation-rail]').getBoundingClientRect();
+		return Math.abs(header.height-52)<=1 && Math.abs(tools.y)<=1 && Math.abs(spacer.height-52)<=1
+			&& nc.y>=0 && nc.y+nc.height<=52 && Math.abs(nc.y+nc.height/2-(spacer.y+spacer.height/2))<=1 && nc.x>=navPanel.x && nc.x+nc.width<=navPanel.x+navPanel.width && nc.x>=left && getComputedStyle(navClose).getPropertyValue('--app-region').trim()==='no-drag'
+			&& tc.y>=0 && tc.y+tc.height<=52 && Math.abs(tc.y+tc.height/2-(header.y+header.height/2))<=1 && tc.x>=tools.x && tc.x+tc.width<=tools.x+tools.width && getComputedStyle(toolsClose).getPropertyValue('--app-region').trim()==='no-drag'
+			&& root.querySelectorAll('header button[aria-label^="Toggle "]').length===0;
 	})()`) != true {
 	}
 	nativeDropEval(t, win, `for(const [name,key] of [['Resize navigation','ArrowRight'],['Resize tools','ArrowLeft']]) {

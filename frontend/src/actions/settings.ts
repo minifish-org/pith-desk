@@ -129,7 +129,13 @@ export async function saveMCP(draft: {
 }
 
 export async function removeMCP(name: string): Promise<boolean> {
-  return mutate('/api/mcp/remove', {name});
+  const ok = await mutate('/api/mcp/remove', {name});
+  if (ok || desk().activity.error === 'MCP server not found') {
+    if (!ok) desk().setError('');
+    window.dispatchEvent(new Event('pith:mcp-refresh'));
+    return true;
+  }
+  return false;
 }
 
 export function confirmRemoveMCP(name: string): void {

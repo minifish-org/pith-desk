@@ -5,6 +5,7 @@ export function installFixture() {
     window.reviewState = { settings, runtime, workspaces: [{ id: 'w', name: 'Review workspace', path: '/tmp/pith-review' }, { id: 'other', name: 'Other workspace', path: '/tmp/pith-other' }], conversations: ['a','b'].map(id => ({ id, title: 'Conversation ' + id, workspaceId: 'w', updatedAt: '', permissionMode: 'ask' })), activeId: 'a', messages: [{ id: 'user', role: 'user', text: 'Stable historical text to select' }, { id: 'old-answer', role: 'assistant', text: '```js\n' + 'const veryLongIdentifier = 123456789; '.repeat(100) + '\n```', status: 'done' }, { id: 'answer', role: 'assistant', text: 'A streaming answer', status: 'streaming' }], queuedMessages: [], running: false, runs: [] };
     const models = { providers: [{ id: 'custom-test', name: 'Review fixture', hasApiKey: true, hasSavedKey: true, custom: true, baseUrl: '', model: 'test', thinkingLevel: 'off' }], models: [{ id: 'test', provider: 'custom-test', name: 'Fixture', thinkingLevels: ['off'], supportsImages: true, contextWindow: 100000, maxTokens: 10000 }] };
     window.review.models = models;
+    let mcp = [{ oauth: false, signedIn: false, name: 'fixture-tools', type: 'http', url: 'http://localhost/mcp', args: [], enabled: false, hasBearerToken: false, status: 'disconnected', toolCount: 0, envKeys: [] }];
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (url, options) => {
       const target = new URL(url, location.href), path = target.pathname;
@@ -44,7 +45,12 @@ export function installFixture() {
         return Response.json(window.review.drafts[target.searchParams.get('id') || target.searchParams.get('workspaceId')] || { text: '', revision: 0 });
       }
       if (path === '/api/custom-connection') return Response.json({ id: 'custom-test', name: 'Review fixture', baseUrl: 'http://localhost/v1', api: 'openai-completions', models: [{ id: 'test', contextWindow: 100000, maxTokens: 10000 }] });
-      if (path === '/api/mcp') return Response.json([{ name: 'fixture-tools', type: 'http', url: 'http://localhost/mcp', enabled: false, status: 'idle' }]);
+      if (path === '/api/mcp') return Response.json(mcp);
+      if (path === '/api/mcp/remove' && options?.method === 'POST') {
+        const name = JSON.parse(options.body).name, before = mcp.length;
+        mcp = mcp.filter(entry => entry.name !== name);
+        return before === mcp.length ? Response.json({error: 'MCP server not found'}, {status: 404}) : Response.json({});
+      }
       if (path === '/api/resources') return Response.json(window.review.resources || { instructions: [], skills: [], templates: [], diagnostics: [] });
       if (path === '/api/update') return Response.json({ version: 'review', enabled: false, phase: 'disabled', availableVersion: '', progress: 0, message: 'Local review fixture' });
       if (path === '/api/artifacts') return Response.json([]);

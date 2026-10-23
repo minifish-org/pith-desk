@@ -25,6 +25,9 @@ export function App() {
   const toolsRef = usePanelRef();
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [toolsCollapsed, setToolsCollapsed] = useState(true);
+  const navCollapsedRef = useRef(false);
+  const toolsCollapsedRef = useRef(true);
+  const toolsIntent = useRef(false);
   const [drawer, setDrawer] = useState<'navigation' | 'tools' | null>(null);
   const drawerTrigger = useRef<HTMLElement | null>(null);
   const sizes = useRef({navigation: width, tools: toolsWidth});
@@ -48,7 +51,7 @@ export function App() {
         firstLayout.current = false;
         setToolsCollapsed(true);
         toolsRef.current?.collapse();
-      } else if (!toolsCollapsed) {
+      } else if (toolsIntent.current) {
         toolsRef.current?.expand();
         toolsRef.current?.resize(sizes.current.tools);
       }
@@ -106,11 +109,13 @@ export function App() {
   };
   const openTools = (trigger?: HTMLElement) => {
     if (!desktop) {openDrawer('tools', trigger); return;}
+    toolsIntent.current = true;
     toolsRef.current?.expand();
     applyWidth(toolsRef, sizes.current.tools);
     focusRailClose('Close tools');
   };
   const closeRail = (which: 'navigation' | 'tools') => {
+    if (which === 'tools') toolsIntent.current = false;
     (which === 'navigation' ? navRef : toolsRef).current?.collapse();
     focusWhenAvailable(`[aria-label="Toggle ${which}"]`);
   };
@@ -158,7 +163,7 @@ export function App() {
               id="navigation" panelRef={navRef} defaultSize={width} minSize={210} maxSize={480} collapsible collapsedSize={0}
               onResize={size => {
                 const collapsed = size.inPixels === 0;
-                setNavCollapsed(collapsed);
+                if (navCollapsedRef.current !== collapsed) {navCollapsedRef.current = collapsed; setNavCollapsed(collapsed);}
                 if (!collapsed) sizes.current.navigation = size.inPixels;
               }}
             >
@@ -173,7 +178,7 @@ export function App() {
               id="tools" panelRef={toolsRef} defaultSize={toolsWidth} minSize={260} maxSize={800} collapsible collapsedSize={0}
               onResize={size => {
                 const collapsed = size.inPixels === 0;
-                setToolsCollapsed(collapsed);
+                if (toolsCollapsedRef.current !== collapsed) {toolsCollapsedRef.current = collapsed; setToolsCollapsed(collapsed);}
                 if (!collapsed) sizes.current.tools = size.inPixels;
               }}
             >

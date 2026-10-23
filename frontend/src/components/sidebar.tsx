@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {memo, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ChevronRight, FileText, Folder, LoaderCircle, MoreHorizontal, Plug, Plus, Search,
   Settings, ShieldAlert, SquarePen, PanelLeftClose,
@@ -14,6 +14,7 @@ import {
 } from '@/actions/conversations.ts';
 import {openConnections, openSettings} from '@/actions/settings.ts';
 import {openResources} from '@/actions/files.ts';
+import {BrandMark} from '@/components/brand';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {
@@ -21,20 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 
-export function BrandMark({className}: {className?: string}) {
-  return (
-    <svg data-brand-mark="" viewBox="0 0 32 32" aria-hidden="true" className={className} fill="currentColor">
-      <g transform="rotate(-8 16 16)">
-        <rect x="4" y="4" width="9" height="9" rx="2.4" />
-        <path d="M19 4h1.2A7.8 7.8 0 0 1 28 11.8V13a2.4 2.4 0 0 1-2.4 2.4H19a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" opacity=".55" />
-        <path d="M5.4 19H7a2.4 2.4 0 0 1 2.4 2.4V28H7.8A3.8 3.8 0 0 1 4 24.2V20.6a1.6 1.6 0 0 1 1.4-1.6Z" opacity=".55" />
-        <rect x="19" y="19" width="9" height="9" rx="2.4" />
-      </g>
-    </svg>
-  );
-}
-
-export function Sidebar({collapsed, onCollapse, overlay, onNavigate}: {collapsed?: boolean; onCollapse?: () => void; overlay?: boolean; onNavigate?: () => void}) {
+function SidebarView({collapsed, onCollapse, overlay, onNavigate}: {collapsed?: boolean; onCollapse?: () => void; overlay?: boolean; onNavigate?: () => void}) {
   const state = useDesk(store => store.state);
   const selectedId = useDesk(store => store.selectedWorkspaceId);
   const busy = useDesk(store => store.activity.busy);
@@ -56,34 +44,50 @@ export function Sidebar({collapsed, onCollapse, overlay, onNavigate}: {collapsed
     });
   }, [state.workspaces, workspace?.id]);
 
+  const titlebarOverlay = runtime.titlebar === 'overlay';
+  const closeButton = (
+    <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label="Close navigation" title="Close navigation" aria-expanded onClick={onCollapse}>
+      <PanelLeftClose className="size-4" />
+    </Button>
+  );
+  const closeNavigation = onCollapse
+    ? overlay ? closeButton : (
+      <Tooltip>
+        <TooltipTrigger asChild>{closeButton}</TooltipTrigger>
+        <TooltipContent side="right">Collapse navigation</TooltipContent>
+      </Tooltip>
+    )
+    : null;
+
   const conversations = useMemo(() => [...state.conversations].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()), [state.conversations]);
   const query = search.trim().toLowerCase();
 
   return (
     <aside data-navigation-rail="" className={cn('flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground', overlay && 'w-[280px] border-r shadow-xl')} aria-label="Navigation">
+      {titlebarOverlay ? (
+        <div
+          data-app-region="drag"
+          data-titlebar-spacer=""
+          className="flex shrink-0 items-center justify-end px-3"
+          style={{height: 'var(--mygo-titlebar-height, 52px)'}}
+        >
+          {closeNavigation}
+        </div>
+      ) : null}
       <div
         data-app-region="drag"
         data-rail-heading=""
-        className="flex shrink-0 items-center gap-2 px-3"
+        className="flex shrink-0 items-center gap-2.5 px-3"
         style={{
-          height: 'var(--frame-header-height)',
-          paddingLeft: 'max(0.75rem, var(--mygo-titlebar-inset-left, 0px))',
+          height: titlebarOverlay ? '44px' : 'var(--frame-header-height)',
+          paddingLeft: titlebarOverlay ? '1.25rem' : 'max(1.25rem, var(--mygo-titlebar-inset-left, 0px))',
         }}
       >
-        <div data-brand="" className="flex min-w-0 items-center gap-2">
-          <BrandMark className="size-5 shrink-0 text-foreground" />
-          <span className="truncate text-[15px] font-semibold tracking-tight">Pith <span className="font-normal text-muted-foreground">Desk</span></span>
+        <div data-brand="" className="flex min-w-0 items-center gap-2.5">
+          <BrandMark className="size-6 shrink-0" />
+          <span className="truncate text-[18px] font-semibold">Pith <span className="font-normal text-muted-foreground">Desk</span></span>
         </div>
-        {onCollapse ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label="Close navigation" title="Close navigation" aria-expanded onClick={onCollapse}>
-                <PanelLeftClose className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Collapse navigation</TooltipContent>
-          </Tooltip>
-        ) : null}
+        {!titlebarOverlay ? closeNavigation : null}
       </div>
 
       <div className="shrink-0 px-3 pb-2">
@@ -253,6 +257,9 @@ export function Sidebar({collapsed, onCollapse, overlay, onNavigate}: {collapsed
     </aside>
   );
 }
+
+
+export const Sidebar = memo(SidebarView);
 
 function runtimeLabel(): string {
   return runtime.server ? 'Server' : 'Local';

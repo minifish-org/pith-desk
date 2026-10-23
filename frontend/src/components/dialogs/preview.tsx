@@ -78,8 +78,7 @@ export function PreviewDialog({modal}: {modal: ModalOf<'preview'>}) {
           ) : null}
           {state.kind !== 'loading' && state.kind !== 'error' && state.truncated ? <p className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">The preview was truncated because the file is large.</p> : null}
         </div>
-        <DialogFooter className="items-center border-t px-5 py-2.5 sm:justify-between">
-          <span className="text-[11px] text-muted-foreground">{workspacePreview ? (runtime.server ? 'Server workspace file' : 'Workspace file') : 'Artifact from this conversation'}</span>
+        <DialogFooter className="mx-0 mb-0 items-center justify-end border-t px-5 pt-3 pb-5">
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => {void copyText(modal.path);}}>Copy path</Button>
             {!runtime.server ? <Button size="sm" variant="secondary" onClick={() => {if (workspacePreview) void workspaceFileAction('reveal', {workspaceId: modal.owner.id, path: modal.path}); else void artifactAction('reveal', {ownerId: activeId, path: modal.path});}}><FolderOpen className="size-3.5" />Reveal</Button> : null}
@@ -119,7 +118,7 @@ export function HistoryDialog({modal}: {modal: ModalOf<'history'>}) {
   }, [activeId]);
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="flex max-h-[82dvh] w-full max-w-xl flex-col overflow-hidden p-0">
+      <DialogContent className="flex max-h-[82dvh] w-full sm:max-w-xl flex-col overflow-hidden p-0">
         <DialogHeader className="border-b px-4 py-3">
           <DialogTitle>Branch history</DialogTitle>
           <DialogDescription>Earlier nodes are kept so you can return to a previous reply. Continuing from a node replaces this conversation’s current path.</DialogDescription>
@@ -156,7 +155,7 @@ export function HistoryDialog({modal}: {modal: ModalOf<'history'>}) {
             ))}
           </div>
         </div>
-        <DialogFooter className="border-t px-4 py-2.5"><Button size="sm" variant="secondary" onClick={() => closeModalId(modal.id)}>Close</Button></DialogFooter>
+        <DialogFooter className="mx-0 mb-0 border-t px-4 pt-3 pb-5"><Button size="sm" variant="secondary" onClick={() => closeModalId(modal.id)}>Done</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );

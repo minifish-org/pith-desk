@@ -49,15 +49,17 @@ test('text and image drafts restore together after switching and reload', async 
   await expect(page.getByRole('textbox', {name: 'Message Pith'})).toHaveValue('Keep this draft');
 });
 
-test('stream snapshots cannot enable a model picker still loading', async ({ page }) => {
+test('stream snapshots cannot enable a model menu still loading', async ({ page }) => {
   await page.evaluate(() => { (window as any).review.holdModels = true; });
   await page.getByRole('button', {name: 'Choose model'}).click();
-  const use = page.getByRole('dialog', {name: 'Choose model'}).getByRole('button', {name: 'Use this model'});
-  await expect(use).toBeDisabled();
+  await page.getByRole('menuitem', {name: /^Model/}).click();
+  const loading = page.getByText('Loading models…', {exact: true});
+  await expect(loading).toBeVisible();
   await page.evaluate(() => { (window as any).reviewState.runtime.contextTokens++; (window as any).emitReview(); });
-  await expect(use).toBeDisabled();
+  await expect(loading).toBeVisible();
   await page.evaluate(() => (window as any).releaseModels());
-  await expect(use).toBeEnabled();
+  await expect(loading).toHaveCount(0);
+  await expect(page.getByRole('menuitem', {name: /Fixture/, exact: false})).toBeVisible();
 });
 
 test('a committed create operation reports refresh trouble without a retry', async ({ page }) => {

@@ -73,6 +73,7 @@
   --success: oklch(0.55 0.12 155);
   --warning: oklch(0.75 0.13 80);
   --warning-foreground: oklch(0.28 0.06 70);
+  --warning-text: oklch(0.52 0.13 70);
   --border: oklch(0.91 0 0);
   --input: oklch(0.91 0 0);
   --ring: oklch(0.65 0 0);
@@ -117,6 +118,7 @@
   --success: oklch(0.78 0.14 155);
   --warning: oklch(0.83 0.14 80);
   --warning-foreground: oklch(0.95 0.04 85);
+  --warning-text: oklch(0.84 0.13 80);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -193,8 +195,8 @@
 
 /* Markdown rendered from model output is presentation-owned and sanitized. */
 .markdown {
-  font-size: 0.9375rem;
-  line-height: 1.7;
+  font-size: 0.875rem;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .markdown > :first-child {
@@ -209,7 +211,7 @@
 .markdown blockquote,
 .markdown table,
 .markdown pre {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.5rem;
 }
 .markdown h1,
 .markdown h2,
@@ -217,22 +219,24 @@
 .markdown h4,
 .markdown h5,
 .markdown h6 {
-  margin: 1.25rem 0 0.5rem;
+  margin: 1.125rem 0 0.5rem;
+  font-size: 1.0625rem;
   font-weight: 600;
   line-height: 1.35;
   letter-spacing: -0.011em;
 }
 .markdown h1 {
-  font-size: 1.3rem;
+  font-size: 1.375rem;
 }
 .markdown h2 {
-  font-size: 1.15rem;
+  font-size: 1.1875rem;
 }
 .markdown h3 {
-  font-size: 1.02rem;
+  font-size: 1.0625rem;
 }
 .markdown ul,
 .markdown ol {
+  margin: 0.5rem 0;
   padding-left: 1.3rem;
 }
 .markdown ul {
@@ -242,7 +246,7 @@
   list-style: decimal;
 }
 .markdown li {
-  margin: 0.2rem 0;
+  margin: 0.25rem 0;
 }
 .markdown li > p {
   margin-bottom: 0.35rem;
@@ -299,10 +303,10 @@
   overflow-x: auto;
   border-radius: 0.6rem;
   background: var(--code-surface);
-  padding: 0.85rem;
+  padding: 0.75rem;
   font-family: var(--font-mono);
   font-size: 0.8125rem;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 .markdown pre code {
   font-family: inherit;
@@ -326,7 +330,16 @@ html.visual-viewport-short .app-root {
   height: var(--desk-vv-height, 100dvh);
 }
 
-html.visual-viewport-short [data-composer-panels] {
+html.visual-viewport-short [data-navigation-rail],
+[data-tools-rail] {
+  contain: layout paint;
+}
+[data-conversation-scroll] {
+  contain: layout paint;
+  overflow-anchor: none;
+}
+
+[data-composer-panels] {
   max-height: calc(var(--desk-vv-height, 100dvh) * 0.4);
 }
 
@@ -341,6 +354,35 @@ html.visual-viewport-short [data-slot="dialog-content"] {
   translate: -50% 0;
   max-height: calc(var(--desk-vv-height, 100dvh) - 24px);
   overflow-y: auto;
+}
+
+[data-navigation-rail],
+[data-tools-rail] {
+  contain: layout paint;
+}
+[data-conversation-scroll] {
+  contain: layout paint;
+  overflow-anchor: none;
+}
+
+[data-composer-panels] {
+  scrollbar-width: none;
+}
+[data-composer-panels]::-webkit-scrollbar {
+  display: none;
+}
+
+/* Conversation, runtime panels and composer share one measured column. */
+.conversation-column {
+  width: 100%;
+  max-width: 50.625rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+@media (min-width: 640px) {
+  .conversation-column {
+    padding-inline: 1.5rem;
+  }
 }
 
 /* Conversation find uses the CSS Custom Highlight API so it never mutates
@@ -359,4 +401,39 @@ html.visual-viewport-short [data-slot="dialog-content"] {
 /* xterm paints its viewport black by default; keep the terminal surface unified. */
 [data-terminal-viewport] .xterm-viewport {
   background-color: var(--terminal-surface, var(--code-surface)) !important;
+}
+
+/* Settings keeps one control rhythm so fields and actions align. */
+.settings-body input:not([type="checkbox"]),
+.settings-body [data-slot="select-trigger"] {
+  min-height: 2.5rem;
+  height: 2.5rem;
+  font-size: 13px;
+}
+.settings-body [data-slot="button"][data-size="sm"] {
+  min-height: 2.5rem;
+}
+
+/* The Pith mark is four tiles with two softened outer corners. */
+.brand-mark {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12.5%;
+  transform: rotate(-8deg);
+  color: #4a62c8;
+}
+.dark .brand-mark {
+  color: #86b6f2;
+}
+.brand-mark i {
+  background: currentColor;
+  border-radius: 14%;
+}
+.brand-mark i:nth-child(2) {
+  border-radius: 14% 66% 14% 14%;
+  opacity: .55;
+}
+.brand-mark i:nth-child(3) {
+  border-radius: 14% 14% 14% 66%;
+  opacity: .55;
 }

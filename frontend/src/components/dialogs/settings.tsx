@@ -5,17 +5,15 @@ import {closeModalId, desk, useDesk, type ModalOf} from '@/stores/desk.ts';
 import {runtime} from '@/lib/runtime.ts';
 import {applyAppearance} from '@/actions/core.ts';
 import {
-  createInstructions, exportDiagnostics, loadModels, openCustomConnection, openModels, openSettings,
+  createInstructions, exportDiagnostics, loadModels, openCustomConnection, openSettings,
   providerAction, removeProviderKey, saveAppearance, saveModelSelection, saveProviderConfig,
   testProviderConnection, updateAction, updateStatus,
 } from '@/actions/settings.ts';
 import {thinkingLabel} from '@/lib/format';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import {Badge} from '@/components/ui/badge';
 import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
-import {Separator} from '@/components/ui/separator';
 import {Switch} from '@/components/ui/switch';
 import type {ModelCatalog, ProviderChoice, UpdateStatus} from '@/contract.generated.ts';
 
@@ -33,6 +31,7 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<{message: string; ok?: boolean}>({message: ''});
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState('');
   const [appearance, setAppearance] = useState(settings.appearance || 'system');
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
   const providerGeneration = useRef(0);
@@ -60,6 +59,12 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
     }).catch(failure => {if (active) setError(failure instanceof Error ? failure.message : String(failure));});
     return () => {active = false;};
   }, [settings.provider]);
+
+  useEffect(() => {
+    const onConnectionsChanged = () => {void loadModels().then(setCatalog).catch(() => {});};
+    window.addEventListener('pith:model-connections-changed', onConnectionsChanged);
+    return () => window.removeEventListener('pith:model-connections-changed', onConnectionsChanged);
+  }, []);
 
   useEffect(() => {
     if (runtime.server) return;
@@ -91,6 +96,7 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
     setApiKey('');
     setTest({message: ''});
     setError('');
+    setSaved('');
   };
 
   const disabled = busy || running;
@@ -98,169 +104,37 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
   // user abandons that draft. The generation guard keeps the earlier result out.
   const fieldsDisabled = running;
 
+  const runConnectionTest = async (): Promise<void> => {
+    if (!provider) return;
+    if (testing) {probe.current?.abort(); return;}
+    const controller = new AbortController();
+    probe.current = controller;
+    setTesting(true);
+    setTest({message: 'Testing streaming and tool calling…'});
+    try {
+      const result = await testProviderConnection({provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})}, controller.signal);
+      if (probe.current === controller) setTest({message: result.message, ok: result.ok});
+    } catch (failure) {
+      if (probe.current === controller) setTest({message: controller.signal.aborted ? 'Test cancelled.' : failure instanceof Error ? failure.message : String(failure), ok: false});
+    } finally {
+      if (probe.current === controller) {
+        probe.current = null;
+        setTesting(false);
+      }
+    }
+  };
+
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden p-0">
+      <DialogContent className="flex max-h-[86dvh] w-full sm:max-w-[500px] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>Model connections, appearance, diagnostics{runtime.server ? '' : ' and updates'}.</DialogDescription>
         </DialogHeader>
-        <div className="scrollbar-quiet min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <section className="space-y-3">
-            {runtime.server ? <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">Model requests run on the server. localhost in a Base URL refers to the server, not this browser’s device. Credentials stay in the server’s private data directory.</p> : null}
-            <div className="flex items-center justify-between">
-              <h3 className="text-[14px] font-semibold">Model connection</h3>
-              {catalog ? <Badge variant="secondary" className="font-normal">{catalog.providers?.length || 0} providers</Badge> : null}
-            </div>
-            {!catalog && !error ? <p className="flex items-center gap-2 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading providers…</p> : null}
-            {error ? <p className="text-[12px] text-destructive" role="alert">{error}</p> : null}
-            {catalog ? (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-[12px] font-medium" htmlFor="provider-select">Provider</label>
-                  <Select value={provider?.id || ''} onValueChange={choose} disabled={fieldsDisabled}>
-                    <SelectTrigger id="provider-select" aria-label="Provider" className="w-full"><SelectValue placeholder="Choose a provider" /></SelectTrigger>
-                    <SelectContent>
-                      {(catalog.providers || []).map(entry => (
-                        <SelectItem key={entry.id} value={entry.id}>
-                          {entry.name}{entry.hasApiKey ? ' · configured' : ''}{entry.signedIn ? ' · signed in' : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {provider ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      {provider.custom ? 'Independent endpoint with its own models and credentials.' : provider.oauth ? 'Supports provider sign-in.' : 'API key stored in Pith Desk’s private local data.'}
-                      {provider.baseUrl ? ` · ${provider.baseUrl}` : ''}
-                    </p>
-                  ) : null}
-                </div>
-
-                {provider?.oauth || provider?.custom ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {provider.oauth ? (
-                      <Button
-                        size="sm" variant={provider.signedIn ? 'secondary' : 'default'} disabled={disabled}
-                        aria-label="Sign in with provider"
-                        onClick={async () => {
-                          const result = await providerAction(provider.signedIn ? 'logout' : 'login', provider);
-                          if (!result.ok) setError(result.error || '');
-                        }}
-                      >
-                        {provider.signedIn ? `Sign out of ${provider.name}` : `Sign in with ${provider.name}`}
-                      </Button>
-                    ) : null}
-                    {provider.custom ? (
-                      <>
-                        <Button size="sm" variant="secondary" disabled={disabled} onClick={() => {closeModalId(modal.id); openCustomConnection(provider.id);}}>Edit connection</Button>
-                        <Button size="sm" variant="ghost" disabled={disabled} onClick={() => {void providerAction('remove-connection', provider);}}>Remove connection…</Button>
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {!keyStatus.hidden ? (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[12px] font-medium" htmlFor="provider-key">API key</label>
-                      <span className={cn('text-[11px]', keyStatus.retained ? 'text-[var(--success)]' : 'text-muted-foreground')}>{keyStatus.status}</span>
-                    </div>
-                    <Input
-                      id="provider-key" type="password" autoComplete="new-password"
-                      aria-label="API key"
-                      placeholder={keyStatus.retained ? 'Leave blank to keep this provider’s key' : provider?.custom ? 'Optional API key for this endpoint' : 'Paste this provider’s API key'}
-                      value={apiKey} onChange={event => setApiKey(event.target.value)}
-                      disabled={fieldsDisabled}
-                    />
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      {keyStatus.retained
-                        ? 'A saved key stays on the host and is never returned to this page. Changing the endpoint requires entering the key again.'
-                        : 'Testing sends one small model request. It does not save this form or access workspace files.'}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-[12px] text-muted-foreground">No API key is needed for this provider; sign in with your provider account above.</p>
-                )}
-
-                <details className="rounded-md border px-3 py-2" open={advanced} onToggle={event => setAdvanced((event.target as HTMLDetailsElement).open)}>
-                  <summary className="cursor-pointer text-[12px] text-muted-foreground">Advanced connection settings</summary>
-                  <div className="mt-2 space-y-1.5">
-                    <label className="text-[12px] font-medium" htmlFor="provider-url">API base URL</label>
-                    <Input id="provider-url" aria-label="API base URL" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} disabled={fieldsDisabled} />
-                    <p className="text-[11px] text-muted-foreground">{runtime.server ? 'Model requests run on the server. localhost refers to the server, not this browser.' : 'Override the endpoint for proxies or compatible services that speak the selected provider’s protocol.'}</p>
-                  </div>
-                </details>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button
-                    size="sm" variant="secondary" disabled={disabled || !provider}
-                    onClick={async () => {
-                      if (testing) {
-                        probe.current?.abort();
-                        return;
-                      }
-                      const controller = new AbortController();
-                      probe.current = controller;
-                      setTesting(true);
-                      setTest({message: 'Testing streaming and tool calling…'});
-                      try {
-                        const result = await testProviderConnection({provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})}, controller.signal);
-                        if (probe.current === controller) setTest({message: result.message, ok: result.ok});
-                      } catch (failure) {
-                        if (probe.current === controller) setTest({message: controller.signal.aborted ? 'Test cancelled.' : failure instanceof Error ? failure.message : String(failure), ok: false});
-                      } finally {
-                        if (probe.current === controller) {
-                          probe.current = null;
-                          setTesting(false);
-                        }
-                      }
-                    }}
-                  >
-                    {testing ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}{testing ? 'Cancel test' : 'Test connection'}
-                  </Button>
-                  {keyStatus.retained ? (
-                    <Button
-                      size="sm" variant="ghost" disabled={disabled}
-                      onClick={async () => {if (await removeProviderKey({provider: providerId, baseUrl})) closeModalId(modal.id); else setError(desk().activity.error);}}
-                    >
-                      Remove saved key
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="sm" className="ml-auto" disabled={disabled || saving || testing || !provider}
-                    onClick={async () => {
-                      setSaving(true);
-                      setError('');
-                      const generation = providerGeneration.current;
-                      try {
-                        const saved = await saveProviderConfig({provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})});
-                        if (generation !== providerGeneration.current) return;
-                        if (saved) {
-                          setApiKey('');
-                          closeModalId(modal.id);
-                          if (!desk().state.settings.hasApiKey && desk().state.settings.hasConnections) openModels();
-                        } else setError(desk().activity.error);
-                      } finally {setSaving(false);}
-                    }}
-                  >
-                    {saving ? <LoaderCircle className="size-3.5 animate-spin" /> : null}Save settings
-                  </Button>
-                </div>
-                {test.message ? (
-                  <p className={cn('text-[12px]', test.ok === false ? 'text-destructive' : test.ok ? 'text-[var(--success)]' : 'text-muted-foreground')} role="status">{test.message}</p>
-                ) : null}
-                <button type="button" className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => {closeModalId(modal.id); openCustomConnection();}}>
-                  Add independent model connection
-                </button>
-              </>
-            ) : null}
-          </section>
-
-          <Separator className="my-5" />
-
+        <div className="settings-body scrollbar-quiet flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
           <section className="space-y-2">
-            <h3 className="text-[14px] font-semibold">Appearance</h3>
-            <p className="text-[12px] text-muted-foreground">Applies immediately and follows the system when selected.</p>
+            <h3 className="text-[16px] font-semibold">Appearance</h3>
+            <p className="text-[13px] leading-5 text-muted-foreground">Applies immediately and follows the system when selected.</p>
             <Select
               value={appearance}
               onValueChange={async value => {
@@ -280,21 +154,10 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
             </Select>
           </section>
 
-          <Separator className="my-5" />
-
-          <section className="space-y-2">
-            <h3 className="text-[14px] font-semibold">Diagnostics</h3>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">Save a JSON report with version, platform, counts, usage and failure categories. It excludes prompts, transcript text, file contents, local paths, endpoints and credentials.</p>
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => {void exportDiagnostics();}}>
-              <Download className="size-3.5" />{runtime.server ? 'Download diagnostics' : 'Save diagnostics'}
-            </Button>
-          </section>
-
           {!runtime.server ? (
             <>
-              <Separator className="my-5" />
-              <section className="space-y-2">
-                <h3 className="text-[14px] font-semibold">Updates</h3>
+              <section className="mt-5 space-y-2 border-t pt-5">
+                <h3 className="text-[16px] font-semibold">Updates</h3>
                 {update ? (
                   <div className="space-y-1.5">
                     <p className="text-[12px] text-muted-foreground">
@@ -313,11 +176,147 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
               </section>
             </>
           ) : null}
-        </div>
-        <DialogFooter className="border-t px-5 py-3">
-          <Button variant="ghost" onClick={() => closeModalId(modal.id)}>Cancel</Button>
-          <Button variant="secondary" onClick={() => closeModalId(modal.id)}>Done</Button>
-        </DialogFooter>
+
+          <section className="mt-5 space-y-3 border-t pt-5">
+            {runtime.server ? <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">Model requests run on the server. localhost in a Base URL refers to the server, not this browser’s device. Credentials stay in the server’s private data directory.</p> : null}
+            <h3 className="text-[16px] font-semibold">Model providers</h3>
+            <p className="text-[13px] leading-5 text-muted-foreground">Connect your model providers here. Choose models and thinking effort beside the message box.</p>
+            <div className="flex justify-end"><Button size="sm" variant="secondary" onClick={() => {openCustomConnection();}}>Add independent model connection</Button></div>
+            {!catalog && !error ? <p className="flex items-center gap-2 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading providers…</p> : null}
+            {error ? <p className="text-[12px] text-destructive" role="alert">{error}</p> : null}
+            {catalog ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-[13px] font-medium" htmlFor="provider-select">Provider</label>
+                  <Select value={provider?.id || ''} onValueChange={choose} disabled={fieldsDisabled}>
+                    <SelectTrigger id="provider-select" aria-label="Provider" className="w-full"><SelectValue placeholder="Choose a provider" /></SelectTrigger>
+                    <SelectContent className="!max-h-80" collisionPadding={12}>
+                      {(catalog.providers || []).map(entry => (
+                        <SelectItem key={entry.id} value={entry.id}>
+                          {entry.name}{entry.hasApiKey ? ' · configured' : ''}{entry.signedIn ? ' · signed in' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {provider?.baseUrl ? <p className="text-[12px] text-muted-foreground">{provider.baseUrl}</p> : null}
+                </div>
+
+                {provider?.oauth || provider?.custom ? (
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    {provider.oauth ? (
+                      <Button
+                        size="sm" variant={provider.signedIn ? 'secondary' : 'default'} disabled={disabled}
+                        aria-label="Sign in with provider"
+                        onClick={async () => {
+                          const result = await providerAction(provider.signedIn ? 'logout' : 'login', provider);
+                          if (!result.ok) setError(result.error || '');
+                        }}
+                      >
+                        {provider.signedIn ? `Sign out of ${provider.name}` : `Sign in with ${provider.name}`}
+                      </Button>
+                    ) : null}
+                    {provider.custom ? (
+                      <>
+                        <Button size="sm" variant="secondary" disabled={disabled} onClick={() => {openCustomConnection(provider.id);}}>Edit connection</Button>
+                        <Button size="sm" variant="ghost" disabled={disabled} onClick={() => {void providerAction('remove-connection', provider);}}>Remove connection…</Button>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {!keyStatus.hidden ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[13px] font-medium" htmlFor="provider-key">API key</label>
+                      <span className={cn('text-[11px]', keyStatus.retained ? 'text-[var(--success)]' : 'text-muted-foreground')}>{keyStatus.status}</span>
+                    </div>
+                    <div className="relative">
+                      <Input
+                        id="provider-key" type="password" autoComplete="new-password"
+                        aria-label="API key"
+                        className={keyStatus.retained ? 'pr-20' : undefined}
+                        placeholder={keyStatus.retained ? 'Leave blank to keep this provider’s key' : provider?.custom ? 'Optional API key for this endpoint' : 'Paste this provider’s API key'}
+                        value={apiKey} onChange={event => {setApiKey(event.target.value); setSaved('');}}
+                        disabled={fieldsDisabled}
+                      />
+                      {keyStatus.retained ? (
+                        <Button
+                          type="button" size="xs" variant="ghost"
+                          className="absolute top-1/2 right-1 h-8 -translate-y-1/2 px-2 text-destructive hover:text-destructive"
+                          aria-label="Remove saved key"
+                          disabled={disabled || testing || saving}
+                          onClick={async () => {
+                            setSaved('');
+                            if (await removeProviderKey({provider: providerId, baseUrl})) {
+                              setApiKey('');
+                              setSaved('API key removed.');
+                              void loadModels().then(setCatalog).catch(() => {});
+                            } else setError(desk().activity.error);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      ) : null}
+                    </div>
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      {keyStatus.retained ? 'Saved key stays on this host; leave blank to keep it.' : 'Stored in Pith Desk’s private data.'}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-[12px] text-muted-foreground">No API key is needed for this provider; sign in with your provider account above.</p>
+                )}
+
+                <details className="rounded-md border px-3 py-2" open={advanced} onToggle={event => setAdvanced((event.target as HTMLDetailsElement).open)}>
+                  <summary className="cursor-pointer text-[12px] text-muted-foreground">Advanced connection settings</summary>
+                  <div className="mt-2 space-y-1.5">
+                    <label className="text-[12px] font-medium" htmlFor="provider-url">API base URL</label>
+                    <Input id="provider-url" aria-label="API base URL" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} disabled={fieldsDisabled} />
+                    <p className="text-[11px] text-muted-foreground">{runtime.server ? 'Model requests run on the server. localhost refers to the server, not this browser.' : 'Override the endpoint for proxies or compatible services that speak the selected provider’s protocol.'}</p>
+                  </div>
+                </details>
+
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-1.5 border-t pt-4">
+                  <Button
+                    size="sm" variant="secondary" disabled={disabled || !provider}
+                    title="Check streaming and tool calling without saving"
+                    onClick={() => {void runConnectionTest();}}
+                  >
+                    {testing ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}{testing ? 'Cancel test' : 'Test connection'}
+                  </Button>
+                  <Button
+                    size="sm" className={undefined} disabled={disabled || saving || testing || !provider}
+                    onClick={async () => {
+                      setSaving(true);
+                      setError('');
+                      const generation = providerGeneration.current;
+                      try {
+                        const saved = await saveProviderConfig({provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})});
+                        if (generation !== providerGeneration.current) return;
+                        if (saved) {
+                          setApiKey('');
+                          setSaved('Provider saved.');
+                          void loadModels().then(setCatalog).catch(() => {});
+                        } else setError(desk().activity.error);
+                      } finally {setSaving(false);}
+                    }}
+                  >
+                    {saving ? <LoaderCircle className="size-3.5 animate-spin" /> : null}Save settings
+                  </Button>
+                </div>
+                {saved ? <p role="status" className="text-right text-[12px] text-[var(--success)]">{saved}</p> : null}
+                {test.message ? <p className={cn('text-[12px]', test.ok === false ? 'text-destructive' : test.ok ? 'text-[var(--success)]' : 'text-muted-foreground')} role="status">{test.message}</p> : null}
+              </>
+            ) : null}
+          </section>
+
+          <section className="mt-5 space-y-2 border-t pt-5">
+            <h3 className="text-[16px] font-semibold">Diagnostics</h3>
+            <p className="text-[13px] leading-5 text-muted-foreground">Version, usage and failure category only; no conversation, file contents, paths or credentials.</p>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => {void exportDiagnostics();}}>
+              <Download className="size-3.5" />{runtime.server ? 'Download diagnostics' : 'Save diagnostics'}
+            </Button>
+          </section>
+                </div>
       </DialogContent>
     </Dialog>
   );
@@ -357,7 +356,7 @@ export function ModelsDialog({modal}: {modal: ModalOf<'models'>}) {
 
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden p-0">
+      <DialogContent className="flex max-h-[80dvh] w-full sm:max-w-[500px] flex-col overflow-hidden p-0">
         <DialogHeader className="border-b px-4 py-3">
           <DialogTitle>Choose model</DialogTitle>
           <DialogDescription>Applies to the next task. Stop running tasks before changing the shared model.</DialogDescription>
@@ -399,14 +398,11 @@ export function ModelsDialog({modal}: {modal: ModalOf<'models'>}) {
           ))}
         </div>
         {error ? <p className="border-t px-4 py-2 text-[12px] text-destructive">{error}</p> : null}
-        <DialogFooter className="items-center border-t px-4 py-2.5 sm:justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-muted-foreground">Thinking</span>
-            <Select value={thinking} onValueChange={setThinking} disabled={levels.length < 2 || running || busy}>
-              <SelectTrigger aria-label="Thinking effort" className="h-7 w-32 text-[12px]"><SelectValue /></SelectTrigger>
-              <SelectContent>{levels.map(level => <SelectItem key={level} value={level}>{thinkingLabel(level)}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
+        <DialogFooter className="mx-0 mb-0 items-center border-t px-4 pt-3 pb-5 sm:justify-between">
+          <Select value={thinking} onValueChange={setThinking} disabled={levels.length < 2 || running || busy}>
+            <SelectTrigger aria-label="Thinking effort" title="Thinking effort" className="h-7 w-32 text-[12px]"><SelectValue /></SelectTrigger>
+            <SelectContent>{levels.map(level => <SelectItem key={level} value={level}>{thinkingLabel(level)}</SelectItem>)}</SelectContent>
+          </Select>
           <Button
             size="sm" disabled={!selectedModel || saving || running || busy}
             onClick={async () => {

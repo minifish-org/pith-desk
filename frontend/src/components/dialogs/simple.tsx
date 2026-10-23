@@ -19,7 +19,7 @@ export function ConfirmDialog({modal}: {modal: ModalOf<'confirm'>}) {
   const description = modal.description;
   return (
     <Dialog open onOpenChange={open => {if (!open && !busy) closeModalId(modal.id);}}>
-      <DialogContent className="max-w-md" aria-describedby={undefined}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{modal.title}</DialogTitle>
           <DialogDescription className="leading-relaxed">
@@ -53,7 +53,7 @@ export function RenameDialog({modal}: {modal: ModalOf<'rename'>}) {
   const [busy, setBusy] = useState(false);
   return (
     <Dialog open onOpenChange={open => {if (!open && !busy) closeModalId(modal.id);}}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Rename conversation</DialogTitle></DialogHeader>
         <form
           className="space-y-3"
@@ -84,7 +84,7 @@ export function WorkspaceDialog({modal}: {modal: ModalOf<'workspace'>}) {
   const [error, setError] = useState(modal.error || '');
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="max-w-md" aria-describedby={undefined}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader><DialogTitle>Workspaces</DialogTitle></DialogHeader>
         {workspaces.length ? (
           <div className="max-h-52 space-y-1 overflow-y-auto">
@@ -166,7 +166,7 @@ export function FullAccessDialog({modal}: {modal: ModalOf<'full-access'>}) {
   const [busy, setBusy] = useState(false);
   return (
     <Dialog open onOpenChange={open => {if (!open && !busy) closeModalId(modal.id);}}>
-      <DialogContent className="max-w-md" aria-describedby={undefined}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><ShieldAlert className="size-4 text-[var(--warning)]" />Enable full access?</DialogTitle>
           <DialogDescription className="leading-relaxed">
@@ -212,7 +212,7 @@ export function EditorDialog({modal}: {modal: ModalOf<'editor'>}) {
   }, [modal.id]);
   return (
     <Dialog open onOpenChange={open => {if (!open && !busy) closeModalId(modal.id);}}>
-      <DialogContent className="max-w-xl" data-text-edit="">
+      <DialogContent className="sm:max-w-xl" data-text-edit="">
         <DialogHeader><DialogTitle>{modal.title}</DialogTitle></DialogHeader>
         <form
           className="space-y-3"
@@ -251,7 +251,7 @@ export function EditorDialog({modal}: {modal: ModalOf<'editor'>}) {
 export function ImageDialog({modal}: {modal: ModalOf<'image'>}) {
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="max-w-[min(92vw,1100px)] p-2" aria-describedby={undefined} onCloseAutoFocus={event => event.preventDefault()}>
+      <DialogContent className="sm:max-w-[min(92vw,1100px)] p-2" aria-describedby={undefined} onCloseAutoFocus={event => event.preventDefault()}>
         <DialogHeader className="sr-only"><DialogTitle>{modal.alt}</DialogTitle></DialogHeader>
         <div className="grid max-h-[80dvh] place-items-center overflow-auto rounded-md bg-muted/40">
           <img src={modal.src} alt={modal.alt} className="max-h-[78dvh] max-w-full object-contain" />
@@ -272,7 +272,7 @@ export function ServerDialog({modal}: {modal: ModalOf<'server'>}) {
   const session = runtime.session;
   return (
     <Dialog open onOpenChange={() => {}}>
-      <DialogContent className="max-w-md" aria-describedby={undefined} onInteractOutside={event => event.preventDefault()} onEscapeKeyDown={event => event.preventDefault()}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined} onInteractOutside={event => event.preventDefault()} onEscapeKeyDown={event => event.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{login ? 'Pith Desk Server' : 'Reconnect to Pith Desk'}</DialogTitle>
           <DialogDescription className="leading-relaxed">
@@ -323,7 +323,7 @@ export function ServerDialog({modal}: {modal: ModalOf<'server'>}) {
 export function RecoveredDialog({modal}: {modal: ModalOf<'recovered'>}) {
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Recovered unsent text</DialogTitle>
           <DialogDescription className="leading-relaxed">
