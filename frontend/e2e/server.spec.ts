@@ -84,12 +84,12 @@ test('Server workspace entry uses server paths and omits the native folder picke
   await expect(dialog).not.toBeVisible();
   await expect.poll(async () => (await host.command('state')).state.workspaces.some(workspace => workspace.path === folder)).toBe(true);
   await expect(page.getByRole('button',{name: 'Server folder 中文',exact: true})).toBeVisible();
-  await expect(page.locator('.pui-breadcrumb')).toContainText('Server folder 中文');
+  await expect(page.locator('header')).toContainText('Server folder 中文');
   await page.getByRole('button',{name: 'Workspace resources',exact: true}).click();
   const resources = page.getByRole('dialog',{name: 'Workspace resources',exact: true});
   await expect(resources).toContainText('AGENTS.md');
   await expect(resources.getByRole('button',{name: 'Reveal',exact: true})).toHaveCount(0);
-  const workspaceInstructions = resources.locator('.pui-file-card').filter({hasText: folder + '/AGENTS.md'});
+  const workspaceInstructions = resources.locator('[data-resource-path]').filter({hasText: folder + '/AGENTS.md'});
   await expect(workspaceInstructions.getByRole('button',{name: 'Copy server path',exact: true})).toBeVisible();
   await workspaceInstructions.getByRole('button',{name: 'Copy server path',exact: true}).click();
   expect(await page.evaluate(() => (window as unknown as {copiedServerPath: string}).copiedServerPath)).toBe(folder + '/AGENTS.md');
@@ -111,7 +111,7 @@ test('closing and reopening a browser page preserves an actual running task with
   await reopened.getByRole('button', {name: 'Continue here', exact: true}).click();
   await expect(reopened.getByRole('button', {name: 'Stop agent', exact: true})).toBeVisible();
   await host.command('hold-provider', {enabled: false});
-  await expect(reopened.locator('.pui-messages')).toContainText('Fixture answer');
+  await expect(reopened.locator('[data-conversation-scroll]')).toContainText('Fixture answer');
   const finished = await host.command('state');
   expect(finished.requests).toBe(1);
   expect(finished.canceled).toBe(0);
@@ -137,10 +137,10 @@ test('pending tool approval survives takeover, rejects the old lease, and export
   expect((await host.command('state')).state.pendingApproval.id).toBe(pending.id);
   await second.getByRole('button', {name: 'Allow this action', exact: true}).click();
   await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
-  await expect(second.locator('.pui-messages')).toContainText('Fixture answer');
+  await expect(second.locator('[data-conversation-scroll]')).toContainText('Fixture answer');
   await expect(second.getByRole('button', {name: 'Conversation files (1 file)', exact: true})).toHaveText('1');
   await second.getByRole('button', {name: 'Conversation files (1 file)', exact: true}).click();
-  const files = second.locator('.pui-artifacts-panel');
+  const files = second.locator('[data-artifacts-panel]');
   await expect(files.getByRole('button',{name: 'Reveal',exact: true})).toHaveCount(0);
   const fileDownload = second.waitForEvent('download');
   await files.getByRole('button',{name: 'Download',exact: true}).click();
@@ -151,7 +151,7 @@ test('pending tool approval survives takeover, rejects the old lease, and export
   const preview = second.getByRole('dialog',{name: 'approved.txt',exact: true});
   await expect(preview).toContainText('Approved on Server');
   await expect(preview.getByRole('button',{name: 'Reveal',exact: true})).toHaveCount(0);
-  await preview.getByRole('button',{name: 'Close approved.txt',exact: true}).click();
+  await preview.getByRole('button',{name: 'Close',exact: true}).first().click();
   const state = (await host.command('state')).state;
   const lease = await second.evaluate(() => sessionStorage.getItem('pith-desk-server-lease'));
   const file = await context.request.get(host.url + '/api/conversation-file?id=' + state.activeId + '&path=approved.txt', {headers: {'X-Desk-Lease': lease!}});

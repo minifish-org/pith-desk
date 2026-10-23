@@ -2,7 +2,7 @@
 
 A workspace for getting things done with an AI agent, available as a native **Desktop** app or a headless **Server** accessed through your browser. Bring your model connection, choose a folder, and work through conversations, files and reviewed tool actions.
 
-![Pith Desk on macOS in Light appearance, showing workspace conversations, a generated checklist and the model controls beside the composer](docs/images/pith-desk-macos.png)
+![Pith Desk in Light appearance, showing workspace navigation, the conversation view and workspace tools](docs/images/pith-desk-overview.png)
 
 *Current macOS desktop in Light appearance. All screenshots use demonstration workspaces and conversation data.*
 
@@ -71,7 +71,7 @@ Open **Settings → Appearance** to choose **Light**, **Dark**, or **Follow syst
 
 Appearance changes apply immediately, including during an agent task, and are saved in the local settings file for the next launch. Native window controls follow the same preference. Model settings and conversation permissions are independent of appearance.
 
-![Pith Desk in Dark appearance showing a file-edit diff awaiting approval](docs/images/pith-desk-dark-approval.png)
+![Pith Desk showing a reviewable file change awaiting approval](docs/images/pith-desk-approval.png)
 
 *Dark appearance with a file change ready for review.*
 
@@ -180,8 +180,7 @@ right-click Refresh (or use Shift+F10) for **Open externally**. Multiple Web tab
 remain independent. Addresses, contents and credentials are not saved in
 conversations or layout storage.
 
-In **Desktop**, the existing Pith UI controls surround an independent MyGo native
-WebView. Websites and localhost load directly. Switching tabs/workspaces or
+In **Desktop**, the tool rail surrounds an independent MyGo native WebView. Websites and localhost load directly. Switching tabs/workspaces or
 hiding tools retains the page; closing its tab releases it. Resizing the rail
 resizes the native page. Desk dialogs and popovers temporarily hide it so they
 keep their existing focus and interaction. Native page permissions and automatic
@@ -222,10 +221,9 @@ rejected. Remote HTTPS Server use requires the
 the authorized proxy origin in Server and the project address in Desktop.
 These are user-operated previews; they add no Agent browser automation.
 
-The shared preview controls use the pinned Pith UI package. For local component
-development, explicitly select a companion checkout with
-`npm run dev:server -- --ui-source ../pith-ui` (or `npm run dev -- --ui-source ../pith-ui`
-for Desktop). Normal builds and releases use the registry dependency and lockfile.
+The preview controls and tool rail are part of the source-controlled frontend.
+Normal builds and releases use that embedded UI; `--dev-url` only serves it from a
+loopback Vite server during development.
 
 ### Manual terminal
 
@@ -444,7 +442,7 @@ embed their bytes.
 
 ## Server mode
 
-Server uses the same Go service, Pith Agent core, persisted data format and Pith UI
+Server uses the same Go service, Pith Agent core, persisted data format and Web UI
 as Desktop. It runs without MyGo, a display server, GTK or WebKit. The production
 executable embeds the frontend; Go, Node and npm are only needed to build it.
 
@@ -694,52 +692,36 @@ changes. Use different `--data-dir` values when running both commands together.
 Development rejects paths overlapping the default production profiles, including
 symlink aliases. Use disposable workspaces for mutating tests.
 
-### Local Pith UI development
+### Frontend development
 
-Keep product wording, composition, business actions and mode visibility in Desk.
-Pith UI owns stable parts, styles, shared interactions and their lifetimes. For
-example, `createFilesUI` in `frontend/src/files.ts` sets
-`fileActions = {reveal: !api.server}` once for the file list, preview and resources.
-Changing this product choice needs no library edit or publication.
+The shared Web UI is source-controlled in `frontend/src` and runs in both modes.
+It uses React 19 with Vite, Tailwind CSS v4 and shadcn/ui (Nova, Radix), Lucide
+icons, Motion for animation, react-resizable-panels for the rails, dnd-kit for
+attachment ordering and Zustand for application state.
 
-To iterate on shared components alongside Desk, explicitly select a checkout:
+Keep requests, permissions, persistence, operation targets and application
+coordination in Go and the TypeScript action modules under
+`frontend/src/actions`. Components render store state and emit intents. Do not add
+a second icon set, animation library, panel implementation, drag library or state
+container. shadcn components are checked in under `frontend/src/components/ui`;
+restyle them there instead of layering presentation overrides elsewhere.
 
-```sh
-npm --prefix ../pith-ui ci
-npm run dev:server -- --ui-source ../pith-ui
-```
+`npm run dev` and `npm run dev:server` build embedded assets when missing, then
+serve frontend edits and Vite HMR through the shared Host. Server development uses
+the same token login and exclusive lease checks as the embedded UI. Restart after
+Go changes. Use different `--data-dir` values when running both commands together.
+Development rejects paths overlapping the default production profiles, including
+symlink aliases. Use disposable workspaces for mutating tests.
 
-Desktop uses the same option: `npm run dev -- --ui-source ../pith-ui`. The runner
-checks the public boundary and types against the selected source, then resolves
-only `pith-ui`, `pith-ui/recipes` and `pith-ui/styles.css` in its Vite server. CSS
-updates in place; TypeScript edits reload the browser. It never links packages,
-changes package metadata or rewrites either lockfile. The development proxy
-allows source paths only within that explicit checkout, including symlink checks.
-The first run needs embedded assets, which it builds from the pinned package;
-initialize those assets before experimenting with an unpublished public API.
-
-Stop the command and run `npm run dev:server` or `npm run dev` without
-`--ui-source` to return to the installed package. There is no environment override
-to clear. `build:ui`, `build:server`, Desktop packaging and CI always use the
-locked npm dependency; local resolution is never part of their Vite config.
-
-For a quick UI check, without bundling or running the Go/browser suites:
+For a fast type check without bundling or the Go/browser suites:
 
 ```sh
 npm run check:ui
-# Or check the selected checkout's public types during local development:
-npm run check:ui -- --ui-source ../pith-ui
 ```
 
-Run the relevant behavior checks for the change. For Server integration use
-`npm run test:ui -- frontend/e2e/server.spec.ts`; shared component interactions
-belong in Pith UI's focused tests. Complete local source acceptance against the
-explicit checkout, including affected browser, native and concurrency checks
-from [Testing](docs/TESTING.md). New interfaces can be implemented and validated
-locally before publication. When preparing formal builds or CI, publish and pin
-the validated library, then run `npm run check`, `npm run test:ui` and the affected
-native checks against that locked package. Local source acceptance, package
-publication and product release are separate steps.
+Run the relevant behavior checks for the change, for example
+`npm run test:ui -- frontend/e2e/refactor-smoke.spec.ts`. Browser and native
+acceptance are separate facts from a successful build.
 
 For an embedded browser check after `npm run build:ui`, run
 `GOWORK=off CGO_ENABLED=0 go run ./cmd/pith-desk-server --data-dir /path/to/separate/test-data`.
@@ -755,30 +737,33 @@ host route drift. `build:ui` and the CI check run this check automatically.
 Desktop retains the authenticated loopback transport; Server uses its cookie and page lease for HTTP/WebSocket access.
 Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
-Desk pins the published `pith-ui@0.12.0` package in
-`frontend/package-lock.json`. Parts come from `pith-ui`, complete regions from
-`pith-ui/recipes`, and styles from `pith-ui/styles.css`. UI owns region layout,
-controls, drafts, focus, selection, scrolling and dialog lifetime.
+The generated transport contract comes from Go; run `npm run generate:contract`
+after a schema change. `npm run check:contract` rejects stale generated TypeScript
+or host route drift, and `build:ui` runs it automatically.
+Desktop retains the authenticated loopback transport; Server uses its cookie and page lease for HTTP/WebSocket access.
+Opaque SDK JSON remains `unknown`; business validation stays in the service.
 
-`frontend/src/ui-application.ts` is the thin application coordinator. It connects
-regions and projects business availability; controllers retain requests,
-original operation targets, configuration persistence, permissions and native
-capabilities. Dialog slots use the shared `createDialogHost`. Region source and
-presentation algorithms are maintained once in Pith UI. Fix shared behavior in
-the library; preview locally before publishing a patch and pinning it for formal builds.
+HTTP requests, queries, responses and streamed State types come from Go's
+`internal/wire` registry and JSON tags. Run `npm run generate:contract` after a
+schema change; `npm run check:contract` rejects stale generated TypeScript or
+host route drift. `build:ui` and the CI check run this check automatically.
+Desktop retains the authenticated loopback transport; Server uses its cookie and
+page lease for HTTP/WebSocket access. Opaque SDK JSON remains `unknown`; business
+validation stays in the service.
 
-`npm run check:ui-consumption` checks production imports, DOM/style/template
-bypasses, bounded mount/bootstrap/native adapters, and the registry dependency
-and installed exports. It runs in `build:ui` and therefore in CI. The application
-mount adapter is `ui-mount.ts`; the application coordinator attaches one opaque part tree through
-`mountParts`. `ui-bootstrap.ts` consumes only the finite host metadata fields
-and initial appearance. Native adapters forward validated events and read
-foreground state without finding or changing UI nodes. The pure readers in
-`native-protocol.ts` validate native data; their behavior tests cover invalid
-input. Static checks restrict capability/data flow rather than statement counts
-or declaration layout. Branding uses finite
-library-owned resources or approved application assets. New UI styling or
-internal-node access in Desk is outside this boundary.
+`frontend/src/stores/desk.ts` owns the single application snapshot projection and
+transient UI state. `frontend/src/actions` owns requests, business coordination and
+persistence calls. `frontend/src/components` owns composition only. Native adapters
+under `frontend/src/lib` validate events and forward data without finding or
+changing UI nodes. The titlebar overlay follows `--mygo-titlebar-height` and
+`--mygo-titlebar-inset-*`, and marks only drag regions with `--app-region`.
+
+For an embedded browser check after `npm run build:ui`, run
+`GOWORK=off CGO_ENABLED=0 go run ./cmd/pith-desk-server --data-dir /path/to/separate/test-data`.
+There are exactly two modes: Desktop and Server. The old `--preview` flag and
+`npm run preview` entry have been removed. Packaged executables use embedded
+assets and never start Vite. `--dev-url` is loopback-only and must not be used for
+remote deployments.
 
 ### CI checks and caches
 
@@ -862,8 +847,10 @@ Both Pith and MyGo are pinned in `go.mod`; applications build without a sibling 
 
 ## Where to read the code
 
-- `frontend/src/`: business controllers, streamed state, region coordination and finite host adapters.
-- `frontend/src/ui-application.ts`: application coordination using published Pith UI regions.
+- `frontend/src/`: React application, streamed state, actions, native adapters and the checked-in shadcn components.
+- `frontend/src/stores/desk.ts`: the single Zustand projection of the Host snapshot and transient UI state.
+- `frontend/src/actions/`: requests, business coordination and persistence.
+- `frontend/src/components/`: shell, conversation, composer, dialogs, tools and settings composition.
 - `internal/desk/`: the application service and its Pith SDK adapter, persisted settings/history and tool policy.
 - `internal/host/`: shared embedded frontend/API, Desktop authentication, Server sessions/leases and streamed snapshots.
 - `internal/wire/` and `cmd/contractgen/`: Go request/response schemas and generated TypeScript contracts.

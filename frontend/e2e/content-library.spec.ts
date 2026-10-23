@@ -48,20 +48,22 @@ test('library integration preserves per-message copy eligibility, host branch ac
 for (const appearance of ['light', 'dark']) {
   test(`tool error status and failed group retain semantic error color in ${appearance}`, async ({ page }) => {
     await page.evaluate((appearance) => { const app = window as ContentTestWindow; app.reviewState.settings.appearance = appearance; app.emitReview(); }, appearance);
-    const failed = page.locator('.pui-tool-group-failed');
-    await expect(failed).toHaveText('1 failed');
-    const group = page.locator('.pui-tool-group').filter({ has: page.locator('[data-reading-id="tool-error"]') });
+    const group = page.locator('[data-tool-group]').filter({ has: page.locator('[data-reading-id="tool-error"]') });
     await expect(group).toHaveCount(1);
-    await group.locator(':scope > summary').click();
-    await expect(group).toHaveJSProperty('open', true);
-    const status = page.locator('[data-reading-id="tool-error"] .pui-tool-status-error');
+    const groupStatus = group.locator('[data-tool-group-status]');
+    await expect(groupStatus).toHaveText('Failed');
+    await group.getByRole('button', { expanded: false }).click();
+    const status = page.locator('[data-reading-id="tool-error"] [data-tool-status]');
     await expect(status).toBeVisible();
-    await expect(status).toHaveText('error');
+    await expect(status).toHaveText('Failed');
     const colors = await page.evaluate(() => {
-      const probe = document.createElement('span'); probe.style.color = 'var(--pui-error-text)'; document.querySelector('.pui')!.append(probe);
+      const probe = document.createElement('span'); probe.style.color = 'var(--destructive)'; document.body.append(probe);
       const error = getComputedStyle(probe).color; probe.remove();
-      return { error, status: getComputedStyle(document.querySelector('.pui-tool-status-error')!).color, group: getComputedStyle(document.querySelector('.pui-tool-group-failed')!).color };
+      const statusNode = document.querySelector<HTMLElement>('[data-reading-id="tool-error"] [data-tool-status]')!;
+      const groupNode = document.querySelector<HTMLElement>('[data-tool-group-status]')!;
+      return { error, status: getComputedStyle(statusNode).color, group: getComputedStyle(groupNode).color };
     });
-    expect(colors.status).toBe(colors.error); expect(colors.group).toBe(colors.error);
+    expect(colors.status).toBe(colors.error);
+    expect(colors.group).toBe(colors.error);
   });
 }

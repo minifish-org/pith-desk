@@ -44,6 +44,7 @@ test.beforeEach(async ({page}) => {
     return fixture.reviewSocket?.onmessage && !document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Pith"]')!.readOnly;
   });
   await page.getByRole('button', {name: 'Workspace resources', exact: true}).click();
+  await expect(page.getByRole('dialog', {name: 'Workspace resources', exact: true})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Create AGENTS.md in this workspace', exact: true})).toBeEnabled();
 });
 
@@ -65,28 +66,31 @@ test('creating AGENTS.md writes once to the inventory workspace without opening 
   });
   await expect(create).toBeEnabled(); await create.click();
   await expect.poll(() => page.evaluate(() => (window as unknown as BrowserFixture).instructions.writes)).toEqual([{workspaceId: 'w'}]);
-  await expect(page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"])')).toContainText('AGENTS.md');
+  await expect(page.getByRole('dialog', {name: 'Workspace resources', exact: true})).toContainText('AGENTS.md');
   await expect(create).toHaveCount(0);
-  await expect(page.getByRole('dialog',{name: 'Workspace resources',exact: true}).getByRole('button',{name: 'Reveal',exact: true})).toBeVisible();
-  await expect(page.locator('dialog.pui-feature-modal:not(:has(.pui-feature-toolbar[aria-label="Resource actions"]))')).not.toBeVisible();
+  const resources = page.getByRole('dialog', {name: 'Workspace resources', exact: true});
+  await expect(resources.getByRole('button', {name: 'Reveal', exact: true})).toBeVisible();
+  await expect(resources).toContainText('AGENTS.md');
+  await expect(page.getByRole('dialog', {name: 'Project instructions', exact: true})).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as BrowserFixture).instructions.reads)).toEqual(['w', 'w']);
 });
 
 test('creation failures permit an explicit retry and a failed refresh never repeats the committed write', async ({page}) => {
   const create = page.getByRole('button', {name: 'Create AGENTS.md in this workspace', exact: true});
   await page.evaluate(() => {(window as unknown as BrowserFixture).instructions.failWrite = true;});
+  const resources = page.getByRole('dialog', {name: 'Workspace resources', exact: true});
   await create.click();
-  await expect(page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"]) > div > .pui-form-error')).toHaveText('Instruction creation rejected');
+  await expect(resources.getByRole('alert')).toHaveText('Instruction creation rejected');
   await expect(create).toBeEnabled();
   expect(await page.evaluate(() => (window as unknown as BrowserFixture).instructions.writes)).toEqual([{workspaceId: 'w'}]);
   await page.evaluate(() => {const controls = (window as unknown as BrowserFixture).instructions; controls.failWrite = false; controls.failRead = true;});
   await create.click();
-  await expect(page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"]) > div > .pui-form-error')).toHaveText('Instruction inventory refresh failed');
-  await expect(page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"])')).toBeVisible();
+  await expect(resources.getByRole('alert')).toHaveText('Instruction inventory refresh failed');
+  await expect(resources).toBeVisible();
   await expect(create).toBeEnabled();
   expect(await page.evaluate(() => (window as unknown as BrowserFixture).instructions.writes)).toEqual([{workspaceId: 'w'}, {workspaceId: 'w'}]);
   await page.evaluate(() => {(window as unknown as BrowserFixture).instructions.failRead = false;});
-  await page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"])').getByRole('button', {name: 'Refresh', exact: true}).click();
+  await resources.getByRole('button', {name: 'Refresh', exact: true}).click();
   await expect(create).toHaveCount(0);
   expect(await page.evaluate(() => {
     const controls = (window as unknown as BrowserFixture).instructions;
@@ -98,7 +102,8 @@ test('a delayed creation cannot refresh or report into a newly opened inventory'
   await page.evaluate(() => {(window as unknown as BrowserFixture).instructions.holdWrite = true;});
   await page.getByRole('button', {name: 'Create AGENTS.md in this workspace', exact: true}).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as BrowserFixture).instructions.writes)).toEqual([{workspaceId: 'w'}]);
-  await page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"])').getByRole('button', {name: 'Close workspace resources', exact: true}).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', {name: 'Workspace resources', exact: true})).toHaveCount(0);
   await page.evaluate(() => {
     const fixture = window as unknown as BrowserFixture;
     fixture.reviewState.conversations.find(entry => entry.id === 'b')!.workspaceId = 'other'; fixture.reviewState.activeId = 'b'; fixture.emitReview();
@@ -106,9 +111,10 @@ test('a delayed creation cannot refresh or report into a newly opened inventory'
   await page.getByRole('button', {name: 'Workspace resources', exact: true}).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as BrowserFixture).instructions.reads)).toEqual(['w', 'other']);
   await page.evaluate(() => {(window as unknown as BrowserFixture).instructions.releaseWrite!();});
+  const reopened = page.getByRole('dialog', {name: 'Workspace resources', exact: true});
   await expect(page.getByRole('button', {name: 'Create AGENTS.md in this workspace', exact: true})).toBeEnabled();
-  await expect(page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"]) > div > .pui-form-error')).toHaveText('');
-  await expect(page.locator('dialog.pui-feature-modal:has(.pui-feature-toolbar[aria-label="Resource actions"])')).toContainText('Other workspace');
+  await expect(reopened.getByRole('alert')).toHaveCount(0);
+  await expect(reopened).toContainText('Other workspace');
   expect(await page.evaluate(() => {
     const controls = (window as unknown as BrowserFixture).instructions;
     return {writes: controls.writes, reads: controls.reads, created: controls.created};

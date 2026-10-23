@@ -7,23 +7,29 @@ Pith Desk's own code is covered by the root [LICENSE](../LICENSE), GNU Affero Ge
 | Component | Pinned version | License and retained notice |
 | --- | --- | --- |
 | [Pith](https://github.com/minifish-org/pith) | `v0.0.0-20261010121423-8eec8d5b88d3` | AGPL v3: `PITH-LICENSE`, `PITH-NOTICE`. Pith is an independent Go migration of selected Pi components; their MIT notice is retained in `PI-LICENSE`. |
-| [Pith UI](https://github.com/minifish-org/pith-ui/tree/v0.12.0) | `0.12.0` | AGPL-3.0-only: `PITH-UI-LICENSE`. TypeScript UI parts, shared region recipes and styles. |
 | [MyGo](https://github.com/egoist/mygo) | `v0.6.2` | MIT: `MYGO-LICENSE`. Native desktop window and system WebView integration. |
 | [Ebitengine purego](https://github.com/ebitengine/purego) | `v0.11.1` | Apache-2.0: `PUREGO-LICENSE`. Native platform interop; its Go-derived source retains `GO-LICENSE`. |
 | [coder/websocket](https://github.com/coder/websocket) | `v1.8.15` | ISC: `WEBSOCKET-LICENSE`. |
 | [gofrs/flock](https://github.com/gofrs/flock) | `v0.13.1` | BSD-3-Clause: `FLOCK-LICENSE`. |
 | [creack/pty](https://github.com/creack/pty/tree/v1.1.24) | `v1.1.24` | MIT: `PTY-LICENSE`. Manual terminal PTY and shell startup. |
 | [xterm.js](https://github.com/xtermjs/xterm.js) | `@xterm/xterm 6.0.0`, `@xterm/addon-fit 0.11.0` | MIT: `XTERM-LICENSE`, `XTERM-FIT-LICENSE`. Manual terminal rendering and container fitting. |
-| [Marked](https://github.com/markedjs/marked) | `16.4.2` | MIT, with upstream Markdown attribution: the complete `MARKED-LICENSE` file is retained. |
-| [DOMPurify](https://github.com/cure53/DOMPurify) | `3.4.16` | Upstream declares `MPL-2.0 OR Apache-2.0`. This distribution uses the Apache-2.0 option and retains that upstream text in `DOMPURIFY-LICENSE`, together with the package's attribution below. |
+| [Marked](https://github.com/markedjs/marked) | `18.1.1` | MIT, with upstream Markdown attribution: the complete `MARKED-LICENSE` file is retained. |
+| [DOMPurify](https://github.com/cure53/DOMPurify) | `3.4.17` | Upstream declares `MPL-2.0 OR Apache-2.0`. This distribution uses the Apache-2.0 option and retains that upstream text in `DOMPURIFY-LICENSE`, together with the package's attribution below. |
+| [React](https://react.dev) | `19.3.1` | MIT. Application rendering. |
+| [Tailwind CSS](https://tailwindcss.com) | `4.3.3` | MIT. Utility styling and theme tokens. |
+| [Radix UI](https://www.radix-ui.com) | `1.8.1` | MIT. Accessible primitives for the checked-in shadcn components. |
+| [Lucide](https://lucide.dev) | `1.61.0` | ISC. Icon set. |
+| [Motion](https://motion.dev) | `14.6.0` | MIT. Animation. |
+| [react-resizable-panels](https://github.com/bvaughn/react-resizable-panels) | `4.14.8` | MIT. Resizable rails. |
+| [dnd-kit](https://dndkit.com) | `6.3.1` / `10.0.0` | MIT. Attachment ordering. |
+| [Zustand](https://github.com/pmndrs/zustand) | `5.0.16` | MIT. Application state. |
 
-Desk directly imports the published `pith-ui/recipes` module. The retained
-`PITH-UI-LICENSE` covers the bundled library. The application coordinator remains
-Desk code; region implementations are not copied into this repository.
+The checked-in shadcn/ui components and `frontend/src` application code are covered
+by this repository's license; their upstream MIT/ISC texts remain their own.
 
-Marked, DOMPurify and the two xterm packages are runtime dependencies of Pith UI and remain bundled with Pith Desk.
+Marked, DOMPurify and the two xterm packages are bundled with Pith Desk.
 
-DOMPurify 3.4.16: Copyright Cure53 and other contributors. The bundled upstream module identifies its license and links to its [versioned license file](https://github.com/cure53/DOMPurify/blob/3.4.16/LICENSE).
+DOMPurify 3.4.17: Copyright Cure53 and other contributors. The bundled upstream module identifies its license and links to its [versioned license file](https://github.com/cure53/DOMPurify/blob/3.4.16/LICENSE).
 
 ## Go dependencies used by the executable
 

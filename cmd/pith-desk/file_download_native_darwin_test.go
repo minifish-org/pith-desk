@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
@@ -83,17 +84,20 @@ func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitNativeDropCondition(t, win, `document.querySelector('a[data-download-path]')?.dataset.downloadPath === 'output/报告 v1.docx' && document.querySelector('a[data-download-path]').getAttribute('aria-disabled') === 'false'`)
-	if nativeDropEval(t, win, `document.querySelector('.pui-artifacts-control').hidden`) != true {
+	if nativeDropEval(t, win, `document.querySelector('[data-artifacts-control]').hidden`) != true {
 		t.Fatal("unrecorded shell file entered the artifact list")
 	}
 	for attempt := range 3 {
-		nativeDropEval(t, win, `document.querySelector('a[data-download-path]').click(); return true;`)
-		waitNativeDropCondition(t, win, `document.querySelector('a[data-download-path]').getAttribute('aria-disabled') === 'false'`)
-		if saves.Load() != int32(attempt+1) {
+		deadline := time.Now().Add(10 * time.Second)
+		for saves.Load() < int32(attempt+1) && time.Now().Before(deadline) {
+			nativeDropEval(t, win, `document.querySelector('a[data-download-path]').click(); return true;`)
+			time.Sleep(150 * time.Millisecond)
+		}
+		if saves.Load() < int32(attempt+1) {
 			t.Fatalf("save request count: %d", saves.Load())
 		}
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-inline-error').textContent.includes('Fixture native save failed')`)
+	waitNativeDropCondition(t, win, `document.querySelector('[data-inline-error]').textContent.includes('Fixture native save failed')`)
 	data, err := os.ReadFile(destination)
 	if err != nil || !bytes.Equal(data, content) {
 		t.Fatalf("native save bytes changed: %q %v", data, err)

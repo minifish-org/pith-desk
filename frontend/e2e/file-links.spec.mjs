@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 test('local Word links download binary files with their Unicode names without entering the artifact list', async ({ page }, testInfo) => {
   const link = page.getByRole('link', { name: '下载 Word 文档' });
   await expect(link).toHaveAttribute('data-download-path', 'output/报告 v1.docx');
-  await expect(page.locator('.pui-artifacts-control')).toBeHidden();
+  await expect(page.locator('[data-artifacts-control]')).toBeHidden();
   const received = page.waitForEvent('download');
   await link.click();
   const download = await received;
@@ -34,11 +34,11 @@ test('native save cancellation and failure never fall back to an automatic brows
   await page.evaluate(() => { window.review.nativeDownload = true; });
   await page.getByRole('link', { name: '下载 Word 文档' }).click();
   await expect(page.getByRole('link', { name: '下载 Word 文档' })).toHaveAttribute('aria-disabled', 'false');
-  expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST']);
+  await expect.poll(() => page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST']);
   await page.evaluate(() => { window.review.failMutation = '/api/conversation-file'; });
   await page.getByRole('link', { name: '下载 Word 文档' }).click();
-  await expect(page.locator('.pui-inline-error')).toContainText('Fixture action rejected');
-  expect(await page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST', 'POST']);
+  await expect(page.getByRole('alert')).toContainText('Fixture action rejected');
+  await expect.poll(() => page.evaluate(() => window.review.requests.filter(r => r.path === '/api/conversation-file').map(r => r.method))).toEqual(['POST', 'POST']);
 });
 
 test('a delayed save retains its original conversation after another workspace becomes active', async ({ page }) => {
@@ -66,8 +66,10 @@ test('file URLs use the local save action while external links and Markdown sani
   await expect(page.getByRole('link', { name: 'File URI', exact: true })).toHaveAttribute('data-download-path', '/tmp/work/report v1.docx');
   const website = page.getByRole('link', { name: 'Website', exact: true });
   await expect(website).toHaveAttribute('href', 'https://example.com/report');
-  await expect(website).toHaveAttribute('rel', 'noopener noreferrer');
-  await expect(page.locator('.pui-markdown img, .pui-markdown script')).toHaveCount(0);
+  const rel = await website.getAttribute('rel');
+  expect(rel).toContain('noopener');
+  expect(rel).toContain('noreferrer');
+  await expect(page.locator('.markdown img, .markdown script')).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Forged', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => window.unsafeLink)).toBeUndefined();
 });

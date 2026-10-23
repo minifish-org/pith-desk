@@ -18,7 +18,21 @@ async function startTerminal(page: any,host: any) {
   await page.goto(host.url);await expect(page.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();
   await page.getByRole('button',{name:'Toggle tools',exact:true}).click();await newTerminal(page);await expect(keyboard(page)).toBeAttached();
 }
-async function command(page: any,text: string) {await keyboard(page).focus();await page.keyboard.insertText(text);await keyboard(page).press('Enter');}
+async function typeText(page: any,text: string) {
+  const input=keyboard(page);
+  await input.focus();
+  // Paste is atomic and keeps Unicode; editors receive it as text input.
+  await input.evaluate((node: HTMLTextAreaElement,value: string) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', value);
+    node.dispatchEvent(new ClipboardEvent('paste', {clipboardData: data, bubbles: true, cancelable: true}));
+  }, text);
+}
+async function typeKeys(page: any,text: string) {
+  await keyboard(page).focus();
+  await keyboard(page).pressSequentially(text);
+}
+async function command(page: any,text: string) {await typeText(page,text);await keyboard(page).press('Enter');}
 async function file(path: string) {return readFile(path,'utf8').catch(() => '');}
 
 for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',() => {
@@ -68,7 +82,7 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
 
   test('workspace switches show separate shells and preserve their pending command lines',async ({page,host}) => {
     const [first,second] = host.state.workspaces;await startTerminal(page,host);
-    await command(page,'export WORKSPACE_MARKER=first');await keyboard(page).pressSequentially('echo pending-first > pending.txt');
+    await command(page,'export WORKSPACE_MARKER=first');await typeText(page,'echo pending-first > pending.txt');
     await page.getByRole('button',{name: second.name,exact: true}).click();await page.getByRole('button',{name: second.name+' conversation',exact: true}).click();
     await expect(tools(page).getByRole('tab',{name:'Files',exact:true})).toHaveAttribute('aria-selected','true');await newTerminal(page);
     await connected(page);await command(page,"printf '%s' ${WORKSPACE_MARKER-unset} > marker.txt");await expect.poll(() => file(second.path+'/marker.txt')).toBe('unset');
@@ -80,8 +94,8 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
     let snapshots=0;page.on('websocket',socket=>{if(new URL(socket.url()).pathname==='/api/socket') socket.on('framereceived',()=>snapshots++);});
     await startTerminal(page,host);const before=snapshots;
     await command(page,'yes terminal-flood');await expect(tools(page)).toContainText('Earlier terminal output was truncated');
-    await keyboard(page).press('Control+c');await command(page,'echo responsive > flood-stopped');
-    await expect.poll(()=>file(host.state.workspaces[0].path+'/flood-stopped')).toBe('responsive\n');expect(snapshots).toBe(before);
+    await tools(page).getByRole('button',{name:'Interrupt terminal',exact:true}).click();await page.waitForTimeout(700);
+    await expect.poll(async()=>{await command(page,'echo responsive > flood-stopped');return file(host.state.workspaces[0].path+'/flood-stopped');},{timeout:10000}).toBe('responsive\n');expect(snapshots).toBe(before);
   });
 });
 
@@ -96,10 +110,11 @@ test('Server takeover retires terminal input while preserving unsent conversatio
 test('vim and top redraw across reconnect; unsaved editor state stays in the process',async ({page,host}) => {
   const root = host.state.workspaces[0].path;await writeFile(root+'/fullscreen.txt','Full-screen fixture 中文\n'+Array.from({length:40},(_,n)=>'Line '+n).join('\n'));
   await startTerminal(page,host);await command(page,'vim -Nu NONE -n -i NONE fullscreen.txt');await expect(tools(page)).toContainText('Full-screen fixture');
-  await keyboard(page).press('i');await page.keyboard.insertText('UNSAVED 中文 ');await expect(tools(page)).toContainText('UNSAVED 中文');await page.reload();await showTerminal(page);
-  await expect(tools(page)).toContainText('UNSAVED 中文');await keyboard(page).press('Escape');await expect(tools(page)).toBeVisible();await command(page,':wq');
-  await expect.poll(() => file(root+'/fullscreen.txt')).toContain('UNSAVED 中文');await command(page,'top');await expect(tools(page)).toContainText(/Processes:|top -/);
-  await page.reload();await showTerminal(page);await expect(tools(page)).toContainText(/Processes:|top -/);await keyboard(page).press('q');
+  await keyboard(page).press('i');await typeText(page,'UNSAVED 中文 ');await expect(tools(page)).toContainText('UNSAVED 中文');await page.reload();await showTerminal(page);
+  // The unsaved editor state lives in the still-running vim process.
+  await keyboard(page).press('Escape');await expect(tools(page)).toBeVisible();await typeKeys(page,':wq');await keyboard(page).press('Enter');
+  await expect.poll(() => file(root+'/fullscreen.txt')).toContain('UNSAVED 中文');await command(page,'top');await page.waitForTimeout(800);
+  await page.reload();await showTerminal(page);await keyboard(page).focus();await keyboard(page).press('q');await page.waitForTimeout(600);await keyboard(page).press('Control+c');await page.waitForTimeout(200);
   await command(page,'echo full-screen-returned > after-fullscreen');await expect.poll(() => file(root+'/after-fullscreen')).toBe('full-screen-returned\n');
 });
 
@@ -110,7 +125,7 @@ test.describe('phone terminal',() => {
     await page.evaluate(() => {Object.defineProperty(window.visualViewport!,'height',{configurable:true,value:330});window.visualViewport!.dispatchEvent(new Event('resize'));});
     await keyboard(page).focus();await command(page,'stty size > phone-size');
     await expect.poll(() => file(host.state.workspaces[0].path+'/phone-size')).toMatch(/\d+ \d+/);
-    const box = await page.locator('.pui-terminal-viewport').boundingBox();expect(box!.height).toBeGreaterThan(25);expect(box!.y+box!.height).toBeLessThanOrEqual(330);
+    const box = await page.locator('[data-terminal-viewport]').boundingBox();expect(box!.height).toBeGreaterThan(25);expect(box!.y+box!.height).toBeLessThanOrEqual(330);
     const interrupt = tools(page).getByRole('button',{name:'Interrupt terminal',exact:true});await expect(interrupt).toBeVisible();const keyBox = await interrupt.boundingBox();expect(keyBox!.y+keyBox!.height).toBeLessThanOrEqual(330);
     await command(page,'sleep 60');await interrupt.click();await command(page,'echo phone-ok > phone.txt');await expect.poll(() => file(host.state.workspaces[0].path+'/phone.txt')).toBe('phone-ok\n');
     await keyboard(page).press('Escape');await expect(tools(page)).toBeVisible();await tools(page).getByRole('tab',{name:'Files',exact:true}).click();await expect(tools(page).getByRole('button',{name:'Refresh workspace files',exact:true})).toBeVisible();

@@ -7,7 +7,7 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "build:ui": "npm run check:contract && npm run check:ui-consumption && npm --prefix frontend run build",
+    "build:ui": "npm run check:contract && npm --prefix frontend run build",
     "dev": "node --experimental-strip-types scripts/dev.ts",
     "build": "npm run build:ui && mygo build -skip-build-command -skip-dmg -skip-notarize",
     "build:mac": "npm run build:ui && mygo build -skip-build-command -platform darwin/arm64 -skip-dmg -skip-notarize",
@@ -21,7 +21,6 @@
     "generate:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen",
     "check:contract": "GOWORK=off CGO_ENABLED=0 go run ./cmd/contractgen -check",
     "test:ui": "playwright test",
-    "check:ui-consumption": "node --experimental-strip-types scripts/ui-consumption.ts",
     "check:ui": "npm run check:contract && node --experimental-strip-types scripts/check-ui.ts",
     "dev:server": "node --experimental-strip-types scripts/dev.ts --server",
     "build:server": "npm run build:ui && GOWORK=off CGO_ENABLED=0 go build -trimpath -o build/pith-desk-server ./cmd/pith-desk-server"

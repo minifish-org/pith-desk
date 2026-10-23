@@ -13,7 +13,16 @@ async function create(page:any,kind:'files'|'terminal') {
   await page.getByRole('menuitem',{name:kind==='files'?'New files':'New terminal',exact:true}).click();
   if(kind==='terminal') await expect(panel(page).getByLabel('Interactive terminal',{exact:true})).toHaveAttribute('aria-disabled','false');
 }
-async function command(page:any,text:string) {await input(page).focus();await page.keyboard.insertText(text);await input(page).press('Enter');}
+async function command(page:any,text:string) {
+  const target=input(page);
+  await target.focus();
+  await target.evaluate((node: HTMLTextAreaElement,value: string) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', value);
+    node.dispatchEvent(new ClipboardEvent('paste', {clipboardData: data, bubbles: true, cancelable: true}));
+  }, text);
+  await target.press('Enter');
+}
 async function open(page:any,host:any) {await page.goto(host.url);await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toBeEditable();await page.getByRole('button',{name:'Toggle tools',exact:true}).click();}
 
 for(const mode of ['desktop','server']) test.describe(mode+' workspace tool tabs',()=>{

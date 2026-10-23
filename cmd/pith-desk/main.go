@@ -36,7 +36,7 @@ func run() error {
 
 	dataDir := flag.String("data-dir", "", "directory for settings and conversation history")
 	devURL := flag.String("dev-url", "", "loopback Vite origin for frontend hot reload (isolated development data)")
-	devUIRoot := flag.String("dev-ui-root", "", "local Pith UI checkout, only with --dev-url")
+	devUIRoot := flag.String("dev-ui-root", "", "local frontend source root for /@fs assets, only with --dev-url")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flag.Args())

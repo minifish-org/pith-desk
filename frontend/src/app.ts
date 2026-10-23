@@ -175,5 +175,3 @@ export function createApp(options: AppOptions) {
     },
   };
 }
-
-export {readAppBootstrap} from './ui-bootstrap.ts';

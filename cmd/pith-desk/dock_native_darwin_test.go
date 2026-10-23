@@ -166,11 +166,11 @@ func TestTaskDockNativeUnreadLifecycle(t *testing.T) {
 	if err := service.SendConversation(conversation.ID, "Finish the isolated Dock fixture"); err != nil {
 		t.Fatal(err)
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-history-spinner') !== null`)
+	waitNativeDropCondition(t, win, `document.querySelector('[data-history-spinner]') !== null`)
 	waitNativeBadge(t, "")
 	release()
 	waitNativeBadge(t, "1")
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-history-unread') !== null && !document.hasFocus()`)
+	waitNativeDropCondition(t, win, `document.querySelector('[data-history-unread]') !== null && !document.hasFocus()`)
 	if !service.Snapshot().Conversations[0].Unread {
 		t.Fatal("background WebView acknowledged a result it was not displaying")
 	}
@@ -178,7 +178,7 @@ func TestTaskDockNativeUnreadLifecycle(t *testing.T) {
 		win.Show()
 		win.Focus()
 	})
-	waitNativeDropCondition(t, win, `document.hasFocus() && document.querySelector('.pui-history-unread') === null`)
+	waitNativeDropCondition(t, win, `document.hasFocus() && document.querySelector('[data-history-unread]') === null`)
 	waitNativeBadge(t, "")
 	if service.Snapshot().Conversations[0].Unread {
 		t.Fatal("viewing the completed conversation did not acknowledge its result")

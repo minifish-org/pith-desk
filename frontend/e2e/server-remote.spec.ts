@@ -32,8 +32,8 @@ test('revoked autosave cannot overwrite the new owner and unsent text remains re
   await expect(second.getByRole('button',{name: 'Attach images',exact: true})).toBeEnabled();
   await expect(second.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();
   await expect(page.getByRole('dialog')).toContainText('Other pages will disconnect');
-  await expect(page.getByRole('textbox',{name: 'Message Pith',exact: true})).not.toBeEditable();
-  await expect(page.getByRole('textbox',{name: 'Unsent text on this page',exact: true})).toContainText('Unsent text from the old page');
+  await expect(page.getByRole('textbox',{name: 'Message Pith',exact: true})).toHaveCount(0);
+  await expect(page.getByRole('textbox',{name: 'Unsent text on this page',exact: true})).toHaveValue(/Unsent text from the old page/);
   await second.getByRole('textbox',{name: 'Message Pith',exact: true}).fill('Draft belonging to the new page');
   await expect.poll(async () => (await draft(second,context,host)).text).toBe('Draft belonging to the new page');
   release();
@@ -62,7 +62,8 @@ test('Server configuration explains execution location, hides unavailable integr
   const download = page.waitForEvent('download');await settings.getByRole('button',{name: 'Download diagnostics',exact: true}).click();
   const diagnostics = await readFile((await (await download).path())!,'utf8');
   expect(() => JSON.parse(diagnostics)).not.toThrow();expect(diagnostics).not.toContain('fixture-provider-key');
-  await settings.locator('select[aria-label="Provider"]').selectOption('openai-codex');
+  await settings.getByRole('combobox',{name: 'Provider'}).click();
+  await page.getByRole('option',{name: /OpenAI Codex/i}).click();
   await expect(settings.getByRole('button',{name: 'Sign in with provider',exact: true})).toBeVisible();
   await settings.getByRole('button',{name: 'Cancel',exact: true}).click();
   await page.getByRole('button',{name: 'Connections',exact: true}).click();
@@ -78,7 +79,7 @@ test('takeover preserves an unsubmitted message edit without editing or resendin
   await input.fill('Original question');await page.getByRole('button',{name: 'Send message',exact: true}).click();
   await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
   await page.getByRole('button',{name: 'Edit message',exact: true}).click();
-  await page.locator('.pui-text-edit textarea').fill('Unsubmitted edit from the old page');
+  await page.locator('[data-text-edit] textarea').fill('Unsubmitted edit from the old page');
   const second = await context.newPage();await second.goto(host.url);await second.getByRole('button',{name: 'Continue here',exact: true}).click();
   await expect(page.getByRole('textbox',{name: 'Unsent text on this page',exact: true})).toHaveValue(/Unsubmitted edit from the old page/);
   await expect(page.getByRole('button',{name: 'Send again',exact: true})).toHaveCount(0);
@@ -123,7 +124,7 @@ test('queued work and unread completion survive a refresh and closed browser wit
   expect(finished.requests).toBe(2);expect(finished.state.queuedMessages).toHaveLength(0);
   expect(finished.state.conversations.find(conversation => conversation.id === host.state.activeId).unread).toBe(true);
   const reopened = await context.newPage();await reopened.goto(host.url);await reopened.getByRole('button',{name: 'Continue here',exact: true}).click();
-  await expect(reopened.locator('.pui-messages')).toContainText('Queued follow up');
+  await expect(reopened.locator('[data-conversation-scroll]')).toContainText('Queued follow up');
   expect((await host.command('stats')).requests).toBe(2);expect((await host.command('state')).canceled).toBe(0);
 });
 
@@ -136,14 +137,14 @@ test.describe('phone browser',() => {
     await page.evaluate(() => {Object.defineProperty(window.visualViewport!,'height',{configurable: true,value: 330});window.visualViewport!.dispatchEvent(new Event('resize'));});
     const input = page.getByRole('textbox',{name: 'Message Pith',exact: true});await input.fill('Unsent text with the keyboard open');
     await expect.poll(async () => (await input.boundingBox())!.y + (await input.boundingBox())!.height).toBeLessThanOrEqual(330);
-    const panels = page.locator('.pui-composer-panels');expect(await panels.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
+    const panels = page.locator('[data-composer-panels]');expect(await panels.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
     await page.getByRole('button',{name: 'Toggle navigation',exact: true}).click();await expect(page.getByRole('button',{name: 'Settings',exact: true})).toBeVisible();
     await page.mouse.click(380,100);await expect(page.getByRole('button',{name: 'Toggle navigation',exact: true})).toHaveAttribute('aria-expanded','false');
     await page.getByRole('button',{name: 'Allow this action',exact: true}).click();
     await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
     await expect(input).toHaveValue('Unsent text with the keyboard open');
     await page.getByRole('button',{name: 'Conversation files (1 file)',exact: true}).click();
-    const download = page.waitForEvent('download');await page.locator('.pui-artifacts-panel').getByRole('button',{name: 'Download',exact: true}).click();
+    const download = page.waitForEvent('download');await page.locator('[data-artifacts-panel]').getByRole('button',{name: 'Download',exact: true}).click();
     expect(await readFile((await (await download).path())!,'utf8')).toBe('Approved on Server');
   });
 });

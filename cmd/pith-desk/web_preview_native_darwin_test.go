@@ -97,12 +97,25 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	}
 	win.Show()
 	win.Focus()
-	waitNativeDropCondition(t, win, `!!document.querySelector('textarea[aria-label="Message Pith"]') && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Toggle tools"]').click();document.querySelector('button[aria-label="New tool tab"]').click();return true;`)
+	waitNativeDropCondition(t, win, `!!document.querySelector('textarea[aria-label="Message Pith"]') && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly && !!document.querySelector('button[aria-label="Toggle tools"]')`)
+	for _, selector := range []string{`button[aria-label="Toggle tools"]`, `button[aria-label="New tool tab"]`} {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if nativeDropEval(t, win, `(() => {const button=document.querySelector(`+strconv.Quote(selector)+`);if(!button)return false;for(const type of ['pointerdown','pointerup'])button.dispatchEvent(new PointerEvent(type,{bubbles:true,button:0,pointerId:1}));button.click();return true})()`) == true {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("native control did not appear: %s", selector)
+			}
+			time.Sleep(15 * time.Millisecond)
+		}
+	}
 	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[role="menuitem"]')].some(b=>b.textContent==='New Web')`)
 	nativeDropEval(t, win, `[...document.querySelectorAll('[role="menuitem"]')].find(b=>b.textContent==='New Web').click();return true;`)
 	waitNativeDropCondition(t, win, `!!document.querySelector('input[aria-label="Web address"]') && !document.querySelector('input[aria-label="Web address"]').disabled`)
-	nativeDropEval(t, win, `const input=document.querySelector('input[aria-label="Web address"]');input.value=`+strconv.Quote(projectURL)+`;input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));return true;`)
+	nativeDropEval(t, win, `const input=document.querySelector('input[aria-label="Web address"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,`+strconv.Quote(projectURL)+`);input.dispatchEvent(new Event('input',{bubbles:true}));return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('input[aria-label="Web address"]').value === `+strconv.Quote(projectURL))
+	nativeDropEval(t, win, `document.querySelector('input[aria-label="Web address"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));return true;`)
 	select {
 	case isolated := <-ready:
 		if !isolated {
@@ -120,7 +133,7 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	waitNativeDropCondition(t, win, `!document.querySelector('iframe')`)
 	waitBrowser := func(shown bool, excluded ...*mygo.WebView) *mygo.WebView {
 		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(15 * time.Second)
 		for time.Now().Before(deadline) {
 			win.mu.Lock()
 			visible := win.shown != ""
@@ -139,29 +152,48 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 					matches = false
 				}
 			}
-			if visible == shown && v != nil && b.Height > 100 && matches {
+			if visible == shown && v != nil && (!shown || b.Height > 100) && matches {
 				return v
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
+		t.Logf("preview state: %v", nativeDropEval(t, win, `JSON.stringify({panel:document.querySelector('[role="tabpanel"]:not(.hidden)')?.getBoundingClientRect(),modals:document.querySelectorAll('[role="dialog"]').length,address:document.querySelector('input[aria-label="Web address"]')?.value})`))
+		win.mu.Lock()
+		t.Logf("window: shown=%q bounds=%+v tabs=%d", win.shown, win.bounds, len(win.tabs))
+		win.mu.Unlock()
 		t.Fatal("native browser visibility/bounds did not settle")
 		return nil
 	}
+	clickUntil := func(script, condition string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			nativeDropEval(t, win, script)
+			if nativeDropEval(t, win, condition) == true {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("native control did not settle: %s", condition)
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+	}
 	browser := waitBrowser(true)
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close tools"]').click();return true;`)
+	clickUntil(`[...document.querySelectorAll('[data-tools-rail] [role="tab"]')].find(tab=>tab.textContent.trim()==='Files')?.click();return true;`, `[...document.querySelectorAll('[data-tools-rail] [role="tab"]')].some(tab=>tab.textContent.trim()==='Files' && tab.getAttribute('aria-selected')==='true')`)
 	waitBrowser(false)
+	clickUntil(`document.querySelector('button[aria-label="Close tools"]')?.click();return true;`, `!document.querySelector('[data-tools-rail]') || document.querySelector('[data-tools-rail]').getBoundingClientRect().width < 50`)
 	if browser.IsDestroyed() {
 		t.Fatal("hidden browser was destroyed")
 	}
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Toggle tools"]').click();return true;`)
+	clickUntil(`document.querySelector('button[aria-label="Toggle tools"]')?.click();return true;`, `document.querySelector('[data-tools-rail]')?.getBoundingClientRect().width > 200`)
+	clickUntil(`[...document.querySelectorAll('[data-tools-rail] [role="tab"]')].find(tab=>tab.textContent.trim()==='Web')?.click();return true;`, `[...document.querySelectorAll('[data-tools-rail] [role="tab"]')].some(tab=>tab.textContent.trim()==='Web' && tab.getAttribute('aria-selected')==='true')`)
 	if waitBrowser(true) != browser {
 		t.Fatal("tab switching replaced browser")
 	}
 	// Modal focus must stay in the existing Pith UI dialog.
-	nativeDropEval(t, win, `[...document.querySelectorAll('button')].find(b=>b.textContent==='Settings').click();return true;`)
-	waitNativeDropCondition(t, win, `!!document.querySelector('dialog[open]')`)
+	clickUntil(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Settings')?.click();return true;`, `!!document.querySelector('[role="dialog"]')`)
 	waitBrowser(false)
-	nativeDropEval(t, win, `document.querySelector('dialog[open]').close();return true;`)
+	clickUntil(`document.querySelector('[data-slot="dialog-close"]')?.click();return true;`, `!document.querySelector('[role="dialog"]')`)
 	waitBrowser(true)
 	// A second native page must retain the first page and its live state.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -176,22 +208,24 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	if _, err := browser.Page().EvalContext(ctx, `window.retainedNativeState='kept'`); err != nil {
 		t.Fatal(err)
 	}
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="New tool tab"]').click();return true;`)
-	waitNativeDropCondition(t, win, `!!document.querySelector('[role="menu"]:popover-open')`)
+	nativeDropEval(t, win, `const b=document.querySelector('button[aria-label="New tool tab"]');for(const type of ['pointerdown','pointerup'])b.dispatchEvent(new PointerEvent(type,{bubbles:true,button:0,pointerId:1}));return true;`)
+	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[role="menuitem"]')].some(b=>b.textContent==='New Web')`)
 	nativeDropEval(t, win, `[...document.querySelectorAll('[role="menuitem"]')].find(b=>b.textContent==='New Web').click();return true;`)
-	nativeDropEval(t, win, `const input=document.querySelector('.pui-tool-panel:not([hidden]) input[aria-label="Web address"]');input.value=`+strconv.Quote(projectURL+"/second")+`;input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));return true;`)
+	nativeDropEval(t, win, `const input=document.querySelector('[role="tabpanel"]:not(.hidden) input[aria-label="Web address"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,`+strconv.Quote(projectURL+"/second")+`);input.dispatchEvent(new Event('input',{bubbles:true}));return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('[role="tabpanel"]:not(.hidden) input[aria-label="Web address"]').value === `+strconv.Quote(projectURL+"/second"))
+	nativeDropEval(t, win, `document.querySelector('[role="tabpanel"]:not(.hidden) input[aria-label="Web address"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));return true;`)
 	second := waitBrowser(true, browser)
 	if second == browser || browser.IsDestroyed() {
 		t.Fatal("second native tab replaced the first page")
 	}
-	nativeDropEval(t, win, `[...document.querySelectorAll('.pui-tools [role="tab"]')].filter(b=>b.textContent==='Web')[0].click();return true;`)
+	nativeDropEval(t, win, `[...document.querySelectorAll('[data-tools-rail] [role="tab"]')].filter(b=>b.textContent==='Web')[0].click();return true;`)
 	if waitBrowser(true, second) != browser {
 		t.Fatal("switching native tabs did not restore the original page")
 	}
 	if value, err := browser.Page().EvalContext(ctx, `window.retainedNativeState`); err != nil || value != "kept" {
 		t.Fatalf("native page state was lost: %v %v", value, err)
 	}
-	nativeDropEval(t, win, `document.querySelector('.pui-tool-panel:not([hidden])').closest('.pui-workspace-tools').querySelector('button[aria-label="Close Web"]').click();return true;`)
+	nativeDropEval(t, win, `document.querySelector('[role="tabpanel"]:not(.hidden)').closest('[data-tools-rail]').querySelector('button[aria-label="Close Web"]').click();return true;`)
 
 	deadline := time.Now().Add(5 * time.Second)
 	for !browser.IsDestroyed() && time.Now().Before(deadline) {

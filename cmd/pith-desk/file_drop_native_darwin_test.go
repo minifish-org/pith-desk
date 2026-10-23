@@ -76,6 +76,8 @@ func TestWorkspaceFileDropNativeBridge(t *testing.T) {
 	if err := win.Page().LoadURL(server.URL); err != nil {
 		t.Fatal(err)
 	}
+	win.Show()
+	win.Focus()
 	select {
 	case <-loaded:
 	case err := <-failed:
@@ -83,14 +85,14 @@ func TestWorkspaceFileDropNativeBridge(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("embedded UI did not load")
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-breadcrumb > span:first-of-type')?.textContent === 'workspace' && document.querySelector('textarea[aria-label="Message Pith"]')?.placeholder !== 'Connecting to Pith…'`)
+	waitNativeDropCondition(t, win, `document.visibilityState==='visible' && document.querySelector('[data-breadcrumb-workspace]')?.textContent === 'workspace' && document.querySelector('textarea[aria-label="Message Pith"]')?.placeholder !== 'Connecting to Pith…'`)
 	var point struct {
 		X int `json:"x"`
 		Y int `json:"y"`
 	}
 	data, err := json.Marshal(nativeDropEval(t, win, `
 const input = document.querySelector('textarea[aria-label="Message Pith"]');
-input.value = 'Review OLD please'; input.setSelectionRange(7, 10);
+Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Review OLD please');input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();input.setSelectionRange(7, 10);
 window.__dropReferenceRequests = 0;
 const originalFetch = window.fetch;
 window.fetch = (...args) => { if (String(args[0]) === '/api/workspace-references') window.__dropReferenceRequests++; return originalFetch.apply(window, args); };
@@ -107,10 +109,18 @@ return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rec
 	waitNativeDropCondition(t, win, `document.querySelector('textarea[aria-label="Message Pith"]').value === `+string(encodedWant))
 	t.Logf("native bridge inserted %q through the embedded WebView and authenticated host", want)
 
-	if err := forwardNativeFileDrop(win, &mygo.FileDropEvent{Paths: []string{outside}, X: point.X, Y: point.Y}); err != nil {
-		t.Fatal(err)
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		if err := forwardNativeFileDrop(win, &mygo.FileDropEvent{Paths: []string{outside}, X: point.X, Y: point.Y}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if nativeDropEval(t, win, `document.querySelector('[data-inline-error]')?.textContent.includes('selected workspace')`) == true {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("outside file drop was not rejected")
+		}
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-inline-error').textContent.includes('selected workspace')`)
 	if value := nativeDropEval(t, win, `document.querySelector('textarea[aria-label="Message Pith"]').value`); value != want {
 		t.Fatalf("outside path changed draft: %v", value)
 	}
@@ -155,6 +165,6 @@ func waitNativeDropCondition(t *testing.T, win *desktopWindow, condition string)
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
-	value := nativeDropEval(t, win, `({focused: document.hasFocus(), visibility: document.visibilityState, frameHeight: document.querySelector('.pui-app')?.getBoundingClientRect().height, frameWidth:document.querySelector('.pui-app')?.getBoundingClientRect().width, active:document.activeElement.getAttribute('aria-label'),rails:[...document.querySelectorAll('aside')].map(node=>({classes:node.className,inert:node.inert,x:node.getBoundingClientRect().x})), viewportHeight: window.visualViewport?.height, draft: document.querySelector('textarea[aria-label="Message Pith"]')?.value, error: document.querySelector('.pui-inline-error')?.textContent, workspace: document.querySelector('.pui-breadcrumb > span:first-of-type')?.textContent, approvalPaths: [...document.querySelectorAll('.pui-approval-file code')].map(node => node.textContent), diffAdd: document.querySelector('.pui-approval-diff .pui-diff-add')?.textContent, approvalDisabled: [...document.querySelectorAll('.pui-approval-card button')].find(button => button.textContent === 'Allow this action')?.disabled})`)
+	value := nativeDropEval(t, win, `({focused: document.hasFocus(), visibility: document.visibilityState, frameHeight: document.querySelector('.app-root')?.getBoundingClientRect().height, frameWidth:document.querySelector('.app-root')?.getBoundingClientRect().width, active:document.activeElement.getAttribute('aria-label'),rails:[...document.querySelectorAll('aside')].map(node=>({classes:node.className,inert:node.inert,x:node.getBoundingClientRect().x})), viewportHeight: window.visualViewport?.height, draft: document.querySelector('textarea[aria-label="Message Pith"]')?.value, error: document.querySelector('[data-inline-error]')?.textContent, workspace: document.querySelector('[data-breadcrumb-workspace]')?.textContent, approvalPaths: [...document.querySelectorAll('[data-approval-file] code')].map(node => node.textContent), diffAdd: document.querySelector('[data-diff="add"]')?.textContent, approvalDisabled: [...document.querySelectorAll('[data-approval-card] button')].find(button => button.textContent === 'Allow this action')?.disabled})`)
 	t.Fatalf("native UI condition failed (%s): %v", strings.TrimSpace(condition), value)
 }

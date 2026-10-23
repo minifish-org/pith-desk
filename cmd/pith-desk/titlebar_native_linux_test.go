@@ -91,8 +91,8 @@ func TestTitlebarNativeLinuxAndNarrowComposer(t *testing.T) {
 		}
 		t.Fatalf("native condition failed: %s; titlebar %v", code, eval(`({height:getComputedStyle(document.documentElement).getPropertyValue('--mygo-titlebar-height'),style:document.documentElement.getAttribute('style'),dpr:devicePixelRatio})`))
 	}
-	wait(`!!document.querySelector('.pui-composer-toolbar')`)
-	if eval(`document.querySelector('.pui-titlebar-overlay, .pui-native-titlebar') === null`) != true {
+	wait(`!!document.querySelector('form[data-composer]')`)
+	if eval(`document.querySelector('.app-root.titlebar-overlay') === null`) != true {
 		t.Fatal("Linux must not reserve application content for window controls")
 	}
 	nativeScale := float64(win.ContentBounds().Width) / eval(`innerWidth`).(float64)
@@ -105,18 +105,18 @@ func TestTitlebarNativeLinuxAndNarrowComposer(t *testing.T) {
 		_ = eval(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`)
 		geometry := eval(`(() => {
 			const rect = node => { const r = node.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
-			const native = getComputedStyle(document.documentElement),composer = document.querySelector('.pui-composer');
+			const native = getComputedStyle(document.documentElement),composer = document.querySelector('form[data-composer]');
 			return {viewport:innerWidth,dpr:devicePixelRatio,font:getComputedStyle(composer).fontSize,
-				header:rect(document.querySelector('.pui-topbar')),composer:rect(composer),
-				permission:rect(document.querySelector('.pui-permission-control')),caption:rect(document.querySelector('.pui-permission-control .pui-select-value')),
+				header:rect(document.querySelector('header')),composer:rect(composer),
+				permission:rect(document.querySelector('button[aria-label="Conversation permissions"]')),caption:rect(document.querySelector('button[aria-label="Conversation permissions"] [data-select-value]')),
 				nativeHeight:native.getPropertyValue('--mygo-titlebar-height'),nativeRight:native.getPropertyValue('--mygo-titlebar-inset-right')};
 		})()`)
 		t.Logf("width %d: %v", width, geometry)
-		if eval(`document.querySelector('.pui-composer').getBoundingClientRect().width <= 680 && document.querySelector('.pui-permission-control .pui-select-value').getBoundingClientRect().width > 1`) == true {
+		if eval(`document.querySelector('form[data-composer]').getBoundingClientRect().width <= 680 && document.querySelector('button[aria-label="Conversation permissions"] [data-select-value]').getBoundingClientRect().width > 1`) == true {
 			t.Error("permission text must collapse before the composer actions wrap")
 		}
-		if eval(`(() => {const centers=[...document.querySelectorAll('.pui-composer-context > *, .pui-composer-actions > *')].filter(node=>node.getBoundingClientRect().width).map(node=>{const r=node.getBoundingClientRect();return r.y+r.height/2}); return Math.max(...centers)-Math.min(...centers)<=1;})()`) != true {
-			t.Error("the composer controls do not share one centered row")
+		if eval(`(() => [...document.querySelectorAll('[data-composer-context],[data-composer-actions]')].every(row=>{const centers=[...row.children].filter(node=>node.getBoundingClientRect().width).map(node=>{const r=node.getBoundingClientRect();return r.y+r.height/2});return !centers.length||Math.max(...centers)-Math.min(...centers)<=1;}))()`) != true {
+			t.Error("a composer control row is not vertically centered")
 		}
 	}
 	for _, zoom := range []float64{1.25, .8, 1} {
@@ -124,7 +124,7 @@ func TestTitlebarNativeLinuxAndNarrowComposer(t *testing.T) {
 		win.SetSize(width, int(700*nativeScale))
 		win.Page().SetZoomFactor(zoom)
 		wait(fmt.Sprintf(`Math.abs(innerWidth-%f)<=1`, float64(width)/nativeScale/zoom))
-		if eval(`document.querySelector('.pui-titlebar-overlay, .pui-native-titlebar') === null`) != true {
+		if eval(`document.querySelector('.app-root.titlebar-overlay') === null`) != true {
 			t.Errorf("page zoom %v must not add application window controls", zoom)
 		}
 	}

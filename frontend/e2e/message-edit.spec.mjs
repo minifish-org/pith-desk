@@ -31,12 +31,12 @@ test('user copy preserves all paragraphs and both roles show their saved local t
   }
   await expect(user.getByRole('button', { name: 'Edit message', exact: true })).toBeEnabled();
   await page.setViewportSize({ width: 900, height: 600 });
-  await page.locator('.pui-chat-scroll').screenshot({ path: `output/playwright/message-actions-${testInfo.project.name}.png` });
+  await page.locator('[data-conversation-scroll]').screenshot({ path: `output/playwright/message-actions-${testInfo.project.name}.png` });
 });
 
 test('editing cancels without a mutation, and a rejected resend keeps the edited text and old reply', async ({ page }) => {
   await page.locator('[data-reading-id="user"]').getByRole('button', {name: 'Edit message', exact: true}).click();
-  const text = page.locator('.pui-text-edit textarea');
+  const text = page.locator('[data-text-edit] textarea');
   await expect(text).toHaveValue(userText);
   await expect(text).toBeFocused();
   await text.fill('Canceled change');
@@ -46,7 +46,7 @@ test('editing cancels without a mutation, and a rejected resend keeps the edited
   await page.locator('[data-reading-id="user"]').getByRole('button', {name: 'Edit message', exact: true}).click();
   await text.fill('Revised question 中文');
   await page.getByRole('button', { name: 'Send again', exact: true }).click();
-  await expect(page.locator('.pui-text-edit .pui-notice')).toHaveText('Fixture action rejected');
+  await expect(page.locator('[data-text-edit] [role=alert]')).toHaveText('Fixture action rejected');
   await expect(text).toHaveValue('Revised question 中文');
   await expect(page.locator('[data-reading-id="reply"]')).toHaveText(/Original answer/);
   expect(await page.evaluate(() => window.review.requests.filter(entry => entry.path === '/api/edit-message').map(entry => entry.body))).toEqual([
@@ -56,10 +56,10 @@ test('editing cancels without a mutation, and a rejected resend keeps the edited
 
 test('editing cannot resend into a changed conversation or overwrite a newer reply', async ({ page }) => {
   await page.locator('[data-reading-id="user"]').getByRole('button', {name: 'Edit message', exact: true}).click();
-  await page.locator('.pui-text-edit textarea').fill('Keep this edit');
+  await page.locator('[data-text-edit] textarea').fill('Keep this edit');
   await page.evaluate(() => { window.reviewState.activeId = 'b'; window.emitReview(); });
   await expect(page.getByRole('button', { name: 'Send again', exact: true })).toBeDisabled();
-  await expect(page.locator('.pui-text-edit textarea')).toHaveValue('Keep this edit');
+  await expect(page.locator('[data-text-edit] textarea')).toHaveValue('Keep this edit');
   await page.evaluate(() => {
     window.reviewState.activeId = 'a';
     window.reviewState.messages.push({ id: 'new-reply', role: 'assistant', branchNodeId: 'new-reply', text: 'New answer' });

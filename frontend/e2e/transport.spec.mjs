@@ -7,7 +7,7 @@ test.setTimeout(90000);
 async function ready(page, url) {
   await page.goto(url);
   await expect(page.getByRole('textbox', { name: 'Message Pith' })).toBeEditable();
-  await expect(page.locator('.pui-composer-model')).toBeEnabled();
+  await expect(page.locator('[aria-label="Choose model"]')).toBeEnabled();
 }
 
 test('Server delayed HTTP cannot revert newer WS state', async ({ page, host }) => {
@@ -27,10 +27,10 @@ test('Server delayed HTTP cannot revert newer WS state', async ({ page, host }) 
     await page.getByRole('button', {name: target.title || 'Untitled conversation', exact: true}).click();
     await held;
     await host.command('rename', { id: target.id, title: 'Newer streamed title 中文' });
-    await expect(page.locator('.pui-breadcrumb-current')).toHaveText('Newer streamed title 中文');
+    await expect(page.locator('[data-breadcrumb-current]')).toHaveText('Newer streamed title 中文');
   } finally { release(); }
-  await expect(page.locator('.pui-composer-model')).toBeEnabled();
-  await expect(page.locator('.pui-breadcrumb-current')).toHaveText('Newer streamed title 中文');
+  await expect(page.locator('[aria-label="Choose model"]')).toBeEnabled();
+  await expect(page.locator('[data-breadcrumb-current]')).toHaveText('Newer streamed title 中文');
   expect((await host.command('state')).state.activeId).toBe(target.id);
 });
 
@@ -70,14 +70,13 @@ test('committed create and send survive failed refresh and WS reconnect without 
     await closed.route.close({ code: 1001, reason: 'Injected disconnect' });
     await closed.server.close({ code: 1001, reason: 'Injected disconnect' });
     await expect.poll(() => sockets.length).toBe(count + 1);
-    await expect(page.locator('.pui-local-status')).toBeHidden();
   };
   hold = true; failRead = true;
   await page.getByRole('button', {name: `New conversation in ${host.state.workspaces[0].name}`, exact: true}).click();
-  await expect(page.locator('.pui-inline-error')).toContainText('Change saved');
+  await expect(page.getByRole('alert')).toContainText('Change saved');
   expect((await host.command('state')).state.conversations).toHaveLength(before + 1);
   await reconnect();
-  await expect(page.locator('.pui-breadcrumb-current')).toHaveText('New conversation');
+  await expect(page.locator('[data-breadcrumb-current]')).toHaveText('New conversation');
   expect(posts.filter((path) => path === '/api/conversations')).toHaveLength(1);
   for (const request of authenticated.filter((request) => request.resourceType() === 'fetch' && !new URL(request.url()).pathname.startsWith('/api/server/'))) {
     expect((await request.allHeaders())['x-desk-lease']).toMatch(/^[a-f0-9]{64}$/);
@@ -89,10 +88,10 @@ test('committed create and send survive failed refresh and WS reconnect without 
   hold = true; failRead = true;
   await page.getByRole('textbox', { name: 'Message Pith' }).fill('One committed send');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await expect(page.locator('.pui-inline-error')).toContainText('Change saved');
+  await expect(page.getByRole('alert')).toContainText('Change saved');
   await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
   await reconnect();
-  await expect(page.locator('.pui-messages')).toContainText('Fixture answer');
+  await expect(page.locator('[data-conversation-scroll]')).toContainText('Fixture answer');
   const actual = await host.command('state');
   expect(actual.requests).toBe(1);
   expect(actual.state.messages.filter((message) => message.role === 'user' && message.text === 'One committed send')).toHaveLength(1);
@@ -104,7 +103,7 @@ test('real SDK history, drafts and completion survive isolated restart; download
   await ready(page, host.url);
   await page.getByRole('textbox', { name: 'Message Pith' }).fill('Persistent history 中文');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await expect(page.locator('.pui-messages')).toContainText('Fixture answer');
+  await expect(page.locator('[data-conversation-scroll]')).toContainText('Fixture answer');
   await expect.poll(async () => (await host.command('state')).state.running).toBe(false);
   const finished = await host.command('state');
   const id = finished.state.activeId;
@@ -123,8 +122,8 @@ test('real SDK history, drafts and completion survive isolated restart; download
   expect(restarted.requests).toBe(1);
   expect(restarted.state.conversations.find((entry) => entry.id === id).completedRunId).toBe(completed);
   await ready(page, restarted.url);
-  await expect(page.locator('.pui-messages')).toContainText('Persistent history 中文');
-  await expect(page.locator('.pui-messages')).toContainText('Fixture answer');
+  await expect(page.locator('[data-conversation-scroll]')).toContainText('Persistent history 中文');
+  await expect(page.locator('[data-conversation-scroll]')).toContainText('Fixture answer');
   await expect(composer).toHaveValue('Persistent draft 中文');
 
   const download = page.waitForEvent('download');

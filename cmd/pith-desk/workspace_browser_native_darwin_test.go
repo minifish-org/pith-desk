@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/desk"
@@ -86,33 +87,51 @@ func TestWorkspaceBrowserNativeSidebarPreviewReferenceAndSave(t *testing.T) {
 	}
 	win.Show()
 	waitNativeDropCondition(t, win, `!!document.querySelector('button[aria-label="Toggle tools"]') && document.querySelector('textarea')?.value==='Stored draft' && !document.querySelector('textarea').readOnly`)
-	nativeDropEval(t, win, `const input = document.querySelector('textarea[aria-label="Message Pith"]');input.value='Keep draft';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Toggle tools"]').click();return true;`)
-	waitNativeDropCondition(t, win, `[...document.querySelectorAll('.pui-tools .pui-history-item')].some(button=>button.textContent==='Native 中文.md')`)
+	nativeDropEval(t, win, `const input = document.querySelector('textarea[aria-label="Message Pith"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Keep draft');input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Toggle tools"]').click();return true;`)
+	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[data-tools-rail] button')].some(button=>button.textContent.trim()==='Native 中文.md')`)
 	for _, action := range []string{"Open", "Reveal", "Copy file", "Download", "Insert reference"} {
-		nativeDropEval(t, win, `document.querySelector('.pui-tools button[aria-label="Actions for Native 中文.md"]').click();return true;`)
+		nativeDropEval(t, win, `const trigger=document.querySelector('[data-tools-rail] button[aria-label="Actions for Native 中文.md"]');for(const type of ['pointerdown','pointerup'])trigger.dispatchEvent(new PointerEvent(type,{bubbles:true,button:0,pointerId:1}));return true;`)
+		waitNativeDropCondition(t, win, `[...document.querySelectorAll('[role="menuitem"]')].some(button=>button.textContent===`+strconv.Quote(action)+`)`)
 		// UIAction handlers report completion asynchronously, retaining the same
 		// native callbacks and authenticated bridge as generated files.
 		nativeDropEval(t, win, `[...document.querySelectorAll('[role="menuitem"]')].find(button=>button.textContent===`+strconv.Quote(action)+`).click();return true;`)
-		waitNativeDropCondition(t, win, `!document.querySelector('[role="menu"]:popover-open')`)
+		waitNativeDropCondition(t, win, `!document.querySelector('[role="menu"]')`)
 	}
 	waitNativeDropCondition(t, win, `document.querySelector('textarea').value.includes('Keep draft') && document.querySelector('textarea').value.includes('Native 中文.md')`)
 	if opened.Load() != 1 || revealed.Load() != 1 || copied.Load() != 1 || saved.Load() != 1 || automatic.Load() != 0 {
 		t.Fatalf("native actions: open=%d reveal=%d copy=%d save=%d browser=%d", opened.Load(), revealed.Load(), copied.Load(), saved.Load(), automatic.Load())
 	}
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close navigation"]').click();return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('button[aria-label="Toggle tools"]').getAttribute('aria-expanded')==='true' && document.querySelector('button[aria-label="Toggle navigation"]').getAttribute('aria-expanded')==='false' && document.querySelector('button[aria-label="Toggle navigation"]').getBoundingClientRect().x>=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mygo-titlebar-inset-left'))`)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		nativeDropEval(t, win, `document.querySelector('button[aria-label="Close navigation"]')?.click();return true;`)
+		if nativeDropEval(t, win, `!!document.querySelector('button[aria-label="Toggle navigation"]')`) == true {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("narrow navigation did not collapse")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	waitNativeDropCondition(t, win, `document.querySelector('button[aria-label="Toggle navigation"]').getBoundingClientRect().x>=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mygo-titlebar-inset-left')) && document.querySelector('[data-tools-rail]').getBoundingClientRect().width>200`)
 
-	nativeDropEval(t, win, `[...document.querySelectorAll('.pui-tools .pui-history-item')].find(button=>button.textContent==='Native 中文.md').click();return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('dialog[open]')?.textContent.includes('Native workspace preview')`)
+	nativeDropEval(t, win, `[...document.querySelectorAll('[data-tools-rail] button')].find(button=>button.textContent.trim()==='Native 中文.md').click();return true;`)
+	waitNativeDropCondition(t, win, `document.querySelector('[role="dialog"]')?.textContent.includes('Native workspace preview')`)
 	saveUsabilityScreenshot(t, win, "workspace-files-native.png")
-	nativeDropEval(t, win, `document.querySelector('dialog[open]').close();return true;`)
+	nativeDropEval(t, win, `document.querySelector('[data-slot="dialog-close"]').click();return true;`)
 	win.SetSize(480, 700)
 	win.Show()
-	waitNativeDropCondition(t, win, `innerWidth===480 && document.querySelector('button[aria-label="Toggle tools"]').getAttribute('aria-expanded')==='false' && document.querySelector('.pui-tools').inert`)
+	waitNativeDropCondition(t, win, `innerWidth===480 && !!document.querySelector('button[aria-label="Toggle tools"]') && document.querySelectorAll('[data-tools-rail]').length===0`)
 	nativeDropEval(t, win, `document.querySelector('button[aria-label="Toggle tools"]').click();return true;`)
-	waitNativeDropCondition(t, win, `document.querySelector('.pui-tools').classList.contains('pui-open')`)
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close tools"]').click();return true;`)
-	if nativeDropEval(t, win, `document.activeElement===document.querySelector('button[aria-label="Toggle tools"]') && document.querySelector('textarea').value.includes('Keep draft') && !document.querySelector('main').inert`) != true {
-		t.Fatal("narrow native tools did not restore focus and draft")
+	waitNativeDropCondition(t, win, `!!document.querySelector('[data-drawer-panel]') && !!document.querySelector('[data-drawer-panel] button[aria-label="Close tools"]')`)
+	nativeDropEval(t, win, `document.querySelector('[data-drawer-panel] button[aria-label="Close tools"]').click();return true;`)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		if nativeDropEval(t, win, `document.activeElement===document.querySelector('button[aria-label="Toggle tools"]') && document.querySelector('textarea').value.includes('Keep draft')`) == true {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("narrow native tools did not restore focus and draft: %v", nativeDropEval(t, win, `JSON.stringify({active:document.activeElement?.getAttribute('aria-label'),draft:document.querySelector('textarea')?.value})`))
+		}
+		time.Sleep(30 * time.Millisecond)
 	}
 }

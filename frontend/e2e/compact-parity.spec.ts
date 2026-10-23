@@ -5,8 +5,8 @@ for (const scenario of ['empty', 'running', 'no active conversation'] as const) 
   test(`Compact remains unavailable with ${scenario}`, async ({page}) => {
     await page.addInitScript(installFixture);
     await page.goto('/');
-    const compact = page.getByRole('button', {name: 'Compress context', exact: true});
-    await expect(page.locator('.pui-composer textarea[aria-label="Message Pith"]')).toBeEditable();
+    const compact = page.getByRole('button', {name: 'Compact', exact: true});
+    await expect(page.getByRole('textbox', {name: 'Message Pith'})).toBeEditable();
     await expect(compact).toBeEnabled();
     await page.evaluate(value => {
       const scope = window as unknown as {
@@ -19,6 +19,6 @@ for (const scenario of ['empty', 'running', 'no active conversation'] as const) 
       scope.emitReview();
     }, scenario);
     await expect(compact).toBeDisabled();
-    await expect(page.locator('.pui-inline-error')).not.toContainText('This action is no longer available.');
+    await expect(page.getByRole('alert')).toHaveCount(0);
   });
 }

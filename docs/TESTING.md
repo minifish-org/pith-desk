@@ -1,30 +1,19 @@
 # Testing Pith Desk
 
-The behavior baseline for shared recipes is Desk `3838b7f` and UI `0.6.3`.
-Desk consumes the exact published npm package and has one application coordinator.
-UI tests controls and region interaction; Desk tests business mapping, original
-request targets, persistence and necessary integration. Shared interface details
-are tested in Pith UI once.
+The Web UI is source-controlled in this repository. Browser specs cover product
+behavior and interaction; Go tests cover business mapping, original request
+targets, persistence and native integration. The checked-in shadcn components
+are part of the product and follow the same acceptance as application code.
 
 ## Current checks
 
-For ordinary UI edits, start with `npm run check:ui`: generated contract,
-production consumption boundary and frontend types, without a bundle or Go
-test run. `npm run check:ui -- --ui-source ../pith-ui` uses the explicitly selected
-checkout for types while still checking the registry install and public imports.
-Use `npm run dev:server -- --ui-source ../pith-ui` for live source preview; omit
-the flag after stopping it to restore npm resolution. Neither command changes
-the lock or the installed package. New shared interfaces can be implemented,
-debugged and accepted locally before publication. Complete the affected local
-source checks, including browser and native integration, against that explicit
-checkout. Normal builds and automated product suites use the pinned package;
-publish and pin the validated library when preparing formal consumer builds,
-CI or a product release. Publication is not a prerequisite for local source
-development or its acceptance.
+For ordinary UI edits, start with `npm run check:ui`: generated contract and
+frontend types, without a bundle or Go test run. Use `npm run dev` or
+`npm run dev:server` for live frontend preview through the authenticated Host.
 
 Run the relevant browser spec, for example
-`npm run test:ui -- frontend/e2e/server.spec.ts`. In Pith UI, run the affected
-part/recipe checks. The full product sequence remains:
+`npm run test:ui -- frontend/e2e/refactor-smoke.spec.ts`. The full product
+sequence remains:
 
 ```sh
 npm ci
@@ -71,17 +60,9 @@ The tag workflow extracts and verifies both Server archives and runs the
 packaged amd64 executable's `--help` on Ubuntu. ARM64 is built, packaged and
 inspected; this workflow does not establish ARM64 runtime acceptance.
 
-`npm run check:ui-consumption` verifies the actual registry dependency/lock and
-installed parts/recipes exports, unique native mount adapter, CSS/private-entry
-boundaries and source aliases. It does not require local copies of recipes.
-Types come from the installed package or are inferred from the coordinator.
-
-The checker permits safe declaration grouping, aliases and intermediate data
-values. It still rejects DOM creation, internal selectors, styles, private UI
-imports, raw native event forwarding and mount leakage. Native event validation
-lives in `native-protocol.ts` with behavior tests; the consumption checker
-restricts ingress to those readers instead of matching their source layout.
-Mounting, bootstrap metadata and the ownership tree remain bounded.
+The former Pith UI consumption checker was removed with the package. Frontend
+types, generated contracts and the behavior suites are the remaining boundaries.
+Native ingress is validated in `native-protocol.ts` and forwarded as data.
 
 ## Required behavior
 
@@ -115,7 +96,7 @@ architecture are unchanged by this simplification.
 After `npm run build:ui`, run the opt-in actual WebView scenarios:
 
 ```sh
-GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run '^Test(TitlebarNative|UsabilityNative|WorkspaceFileDropNativeBridge|ConversationFileLinkNative|UpdatesNative|TaskDockNative)' -v -count=1
+GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk -run 'Native' -v -count=1
 ```
 
 The Linux `TestTitlebarNativeLinuxAndNarrowComposer` check runs with the same
@@ -128,8 +109,9 @@ different widget/text scaling. `PITH_DESK_NATIVE_INSPECT=1` keeps its isolated
 verification window open after the assertions until it is closed manually.
 
 These checks exercise native titlebar insets and existing controls, drafts, rejected sends, approval, file previews/downloads,
-file-drop forwarding, update progress/failure and Dock unread state in native
-WebViews, with temporary data and local providers. Browser validation alone
+file-drop forwarding, terminal tabs and reconnect, the native Web preview view,
+update progress/failure and Dock unread state in native WebViews, with temporary
+data and local providers. Browser validation alone
 does not establish native behavior. These checks require an interactive desktop
 session; they do not download or install a Desk release.
 
@@ -139,14 +121,14 @@ draft insertion, independent panels and narrow focus restoration. The check
 shows its disposable window before measuring layout and waits for breakpoint
 updates before operating the phone-style controls.
 
-For explicit source integration, keep `npm run dev:server -- --ui-source ../pith-ui`
+For native acceptance against a live source frontend, keep `npm run dev:server`
 running with disposable data, then pass the printed **Development frontend**
-origin and the same source checkout to native acceptance:
+origin and the frontend source root to native acceptance:
 
 ```sh
 GOWORK=off CGO_ENABLED=0 PITH_DESK_NATIVE_SMOKE=1 go test ./cmd/pith-desk \
-  -run '^Test(TitlebarNative|UsabilityNative|WorkspaceFileDropNativeBridge|ConversationFileLinkNative|WorkspaceBrowserNative)' -v -count=1 \
-  -args -native-ui-url http://127.0.0.1:PORT -native-ui-root /absolute/path/to/pith-ui
+  -run 'Native' -v -count=1 \
+  -args -native-ui-url http://127.0.0.1:PORT -native-ui-root /absolute/path/to/pith-desk/frontend
 ```
 
 These test-only flags select the same authenticated development Host and public
@@ -249,18 +231,12 @@ browser scenario uses Vite's default bind settings to retain that real-world gap
 Include `WebPreviewNative` in the native test filter; remote wildcard DNS/TLS and
 physical mobile browsers need deployment-specific acceptance.
 
-The preview controls normally use the pinned registry package. To validate
-companion Pith UI source changes before publication, start
-`npm run dev:server -- --ui-source ../pith-ui --preview-listen 127.0.0.1:0` and use
-its printed frontend origin for `hostFrontend` plus the absolute checkout for
-`hostUISource` in a temporary local Playwright config. The same existing native
-`-native-ui-url` / `-native-ui-root` flags select it for native tests. Keep
+Start `npm run dev:server -- --preview-listen 127.0.0.1:0` and use its printed
+frontend origin for `hostFrontend` in a temporary local Playwright config. The
+same `-native-ui-url` / `-native-ui-root` flags select it for native tests. Keep
 temporary configuration, binaries and disposable workspaces outside commits.
-Run `npm run check:ui -- --ui-source ../pith-ui` for contract/boundary/types,
-frontend units, the full Go race suite/vet and affected browser/native suites.
-Library acceptance also includes its full validation and packed consumer checks.
-After publishing and pinning the library, repeat formal consumer builds without
-source resolution; no npm version or lockfile is changed for local acceptance.
+Run `npm run check:ui` for contract/types, frontend units, the full Go race
+suite/vet and affected browser/native suites.
 
 ## Terminal acceptance
 

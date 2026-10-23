@@ -183,7 +183,16 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	socketOrigin := strings.Replace(strings.Replace(s.URL, "https://", "wss://", 1), "http://", "ws://", 1)
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' "+socketOrigin+"; img-src 'self' data: blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	policy := "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' " + socketOrigin + "; img-src 'self' data: blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+	if s.development != nil {
+		// Vite injects an inline React Refresh preamble and its HMR client may
+		// connect directly to the loopback dev server. Both are development-only
+		// capabilities; embedded production assets keep the strict policy.
+		devOrigin := s.development.url.String()
+		policy = strings.Replace(policy, "script-src 'self';", "script-src 'self' 'unsafe-inline';", 1)
+		policy = strings.Replace(policy, "connect-src 'self' "+socketOrigin+";", "connect-src 'self' "+socketOrigin+" "+devOrigin+" "+strings.Replace(devOrigin, "http://", "ws://", 1)+";", 1)
+	}
+	w.Header().Set("Content-Security-Policy", policy)
 	expectedHost := strings.TrimPrefix(strings.TrimPrefix(s.URL, "https://"), "http://")
 	if r.Host != expectedHost {
 		http.Error(w, "Invalid host", http.StatusForbidden)

@@ -27,12 +27,12 @@ Frontend hot reload is explicitly enabled only with a loopback `--dev-url`. The 
 
 ## Server interface
 
-Local Pith UI source resolution requires the explicit `--ui-source` development
-runner option. It does not change installed dependencies or production config.
-The runner's `--dev-ui-root` is valid only with loopback Vite; the Host proxies
-`/@fs/` only inside that canonical directory and rejects symlink escapes. Vite's
-filesystem allowlist adds the same checkout and the frontend directory. Normal
-development without this option and embedded production expose no local UI paths.
+Development source paths are explicit. The runner passes its own `frontend`
+directory as `--dev-ui-root`; the Host proxies `/@fs/` only inside that canonical
+directory and rejects symlink escapes. The development policy additionally allows
+Vite's inline React Refresh preamble and its loopback HMR endpoint. Embedded
+production assets keep the strict `script-src 'self'` policy and expose no local
+source paths.
 
 
 Server uses separate login authentication and never injects a desktop bearer

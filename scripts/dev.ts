@@ -5,18 +5,15 @@ import { access } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {checkUI} from './check-ui.ts';
-import {localUIArguments,localUIResolution,readLocalUI} from './local-ui.ts';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const frontend = join(root, 'frontend');
 const server = process.argv.includes('--server');
-const parsed = localUIArguments(process.argv.slice(2).filter(arg => arg !== '--server'));
-const args = parsed.args;
+const args = process.argv.slice(2).filter(arg => arg !== '--server');
 if (args.some((arg) => /^--dev-(?:url|ui-root)(?:=|$)/.test(arg))) {
-  throw new Error('Use --ui-source for local UI; the runner chooses its frontend origin and source root.');
+  throw new Error('The runner chooses the frontend origin and source root.');
 }
 const env = { ...process.env, GOWORK: 'off', CGO_ENABLED: '0' };
-const uiSource = await readLocalUI(parsed.uiSource);
 // Go embeds the production UI even when development serves Vite. A fresh clone
 // therefore needs the assets once; this does not watch or rebuild on edits.
 let needsAssets = false;
@@ -26,7 +23,7 @@ if (needsAssets) await new Promise<void>((resolve, reject) => {
   build.on('error', reject);
   build.on('exit', (code) => code === 0 ? resolve() : reject(new Error('Initial frontend build failed')));
 });
-await checkUI(uiSource);
+await checkUI();
 const requireFrontend = createRequire(join(frontend, 'package.json'));
 const { createServer } = await import(pathToFileURL(requireFrontend.resolve('vite')).href);
 // Vite treats port 0 as its default port. Pick an ephemeral loopback port, then
@@ -42,18 +39,17 @@ const port = await new Promise<number>((resolve, reject) => {
 });
 const vite = await createServer({
   root: frontend,
-  configFile: false,
-  resolve: localUIResolution(uiSource),
-  optimizeDeps: uiSource ? {exclude: ['pith-ui','pith-ui/recipes']} : undefined,
+  // The frontend config owns React, Tailwind and the source alias. The runner
+  // keeps only the authenticated HMR path and the chosen loopback port.
+  configFile: join(frontend, 'vite.config.ts'),
   server: { host: '127.0.0.1', port, strictPort: true, hmr: { path: '/__desk_hmr' },
-    fs: {allow: [frontend,...(uiSource ? [uiSource.root] : [])]} },
+    fs: {allow: [frontend]} },
 });
 await vite.listen();
 const address = vite.httpServer.address();
 if (!address || typeof address === 'string') throw new Error('No frontend listener');
 console.log(`Development frontend: http://127.0.0.1:${address.port}`);
-if (uiSource) console.log(`Local Pith UI: ${uiSource.root} (development only; npm install and lockfile unchanged)`);
-const child = spawn('go', ['run', server ? './cmd/pith-desk-server' : './cmd/pith-desk', ...(server ? ['--listen', '127.0.0.1:0'] : []), '--dev-url', `http://127.0.0.1:${address.port}`, ...(uiSource ? ['--dev-ui-root',uiSource.root] : []), ...args], {
+const child = spawn('go', ['run', server ? './cmd/pith-desk-server' : './cmd/pith-desk', ...(server ? ['--listen', '127.0.0.1:0'] : []), '--dev-url', `http://127.0.0.1:${address.port}`, '--dev-ui-root', frontend, ...args], {
   cwd: root, env, stdio: 'inherit', detached: true,
 });
 let stopping = false;

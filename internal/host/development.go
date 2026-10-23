@@ -119,8 +119,8 @@ func (d *developmentFrontend) assetPath(path string) bool {
 		relative, err := filepath.Rel(d.uiRoot, resolved)
 		return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 	}
-	return path == "/__desk_hmr" || path == "/@vite/client" || path == "/@vite/env" ||
+	return path == "/__desk_hmr" || path == "/@vite/client" || path == "/@vite/env" || path == "/@react-refresh" ||
 		path == "/node_modules/vite/dist/client/env.mjs" ||
 		strings.HasPrefix(path, "/src/") || strings.HasPrefix(path, "/@id/") ||
-		strings.HasPrefix(path, "/node_modules/.vite/")
+		strings.HasPrefix(path, "/node_modules/")
 }

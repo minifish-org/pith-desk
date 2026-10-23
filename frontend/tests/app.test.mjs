@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createApp, readAppBootstrap } from '../src/app.ts';
+import { createApp } from '../src/app.ts';
+import { readAppBootstrap } from '../src/lib/bootstrap.ts';
 import { createMutations } from '../src/mutations.ts';
 
 const fixed = JSON.parse(readFileSync(new URL('../../internal/desk/testdata/state.active.json', import.meta.url), 'utf8'));
