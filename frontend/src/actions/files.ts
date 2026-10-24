@@ -1,5 +1,5 @@
 import {busy, copyText, mutate, request, setError} from './core.ts';
-import {closeModalId, desk, modalId} from '@/stores/desk.ts';
+import {closeModalId, desk} from '@/stores/desk.ts';
 import {saveBlob} from '@/lib/save.ts';
 import {app, runtime} from '@/lib/runtime.ts';
 import {conversationRunning, selectedWorkspace} from '@/lib/derive.ts';
@@ -24,14 +24,10 @@ export async function downloadConversationFile(id: string, path: string): Promis
   }
 }
 
-export async function workspaceFileAction(action: 'open' | 'reveal' | 'copy' | 'copy-path' | 'download' | 'preview', target: {workspaceId: string; path: string}): Promise<void> {
+export async function workspaceFileAction(action: 'open' | 'reveal' | 'copy' | 'copy-path' | 'download', target: {workspaceId: string; path: string}): Promise<void> {
   const workspace = selectedWorkspace(desk().state, desk().selectedWorkspaceId);
   if (busy() || target.workspaceId !== workspace?.id) return;
   const {workspaceId, path} = target;
-  if (action === 'preview') {
-    desk().openModal({kind: 'preview', id: modalId('preview'), owner: {kind: 'workspace', id: workspaceId}, path});
-    return;
-  }
   try {
     if (action === 'copy-path') {
       await copyText(`${workspace!.path.replace(/[\\/]$/, '')}/${path}`);

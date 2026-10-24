@@ -69,8 +69,40 @@ test('Server configuration explains execution location, hides unavailable integr
   await page.getByRole('button',{name: 'Connections',exact: true}).click();
   const connections = page.getByRole('dialog',{name: 'Connections',exact: true});
   await expect(connections).toContainText('environment variables and runtime dependencies all refer to that server');
-  await expect(connections.getByRole('checkbox',{name: 'Sign in with OAuth',exact: true})).toHaveCount(0);
-  await expect(connections.getByRole('button',{name: 'Sign in',exact: true})).toHaveCount(0);
+});
+
+for (const hostMode of ['desktop', 'server']) test.describe(`${hostMode} MCP OAuth controls`, () => {
+  test.use({hostMode});
+  test('the actual connection menu and editor expose new authorization only on Desktop', async ({page, host}) => {
+    const snapshot = page.waitForRequest(request => new URL(request.url()).pathname === '/api/state');
+    await ready(page, host);
+    // Seed a saved OAuth connection through the real authenticated Host API.
+    const headers = await (await snapshot).allHeaders();
+    const saved = await page.request.post(host.url + '/api/mcp/save', {
+      headers: {Origin: host.url, 'X-Desk-Request': String(Date.now()), ...Object.fromEntries(Object.entries(headers).filter(([key]) => ['authorization', 'x-desk-lease'].includes(key)))},
+      data: {name: 'saved-oauth', type: 'http', url: 'https://example.invalid/mcp', args: [], oauth: true, enabled: false},
+    });
+    expect(saved.ok()).toBe(true);
+    // Reload renews the Server lease after this test-only setup write.
+    await page.reload();
+    await expect(page.getByRole('textbox', {name: 'Message Pith', exact: true})).toBeEditable();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await page.getByRole('button', {name: 'Connections', exact: true}).click();
+    const connections = page.getByRole('dialog', {name: 'Connections', exact: true});
+    await connections.getByRole('button', {name: 'saved-oauth options', exact: true}).click();
+    const signIn = page.getByRole('menu').getByRole('menuitem', {name: 'Sign in…', exact: true});
+    if (hostMode === 'desktop') await expect(signIn).toBeEnabled();
+    else await expect(signIn).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await connections.getByRole('button', {name: 'New connection', exact: true}).click();
+    await expect(connections.getByLabel('Bearer token')).toBeVisible();
+    const oauth = connections.getByRole('switch', {name: 'Use OAuth', exact: true});
+    if (hostMode === 'desktop') {
+      await oauth.check();
+      await expect(connections.getByLabel('OAuth client ID')).toBeVisible();
+      await expect(connections.getByLabel('OAuth scope')).toBeVisible();
+    } else await expect(oauth).toHaveCount(0);
+  });
 });
 
 test('takeover preserves an unsubmitted message edit without editing or resending the conversation',async ({page,context,host}) => {

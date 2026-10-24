@@ -4,28 +4,46 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo"
 	"github.com/minifish-org/pith-desk/internal/host"
 )
 
-func installFileDownload(server *host.Server, parent func() *mygo.Window, dialogMu *sync.Mutex) {
-	server.SetFileDownloadAction(func(name string, source io.Reader) error {
+func installFileSaves(server *host.Server, parent func() *mygo.Window, dialogMu *sync.Mutex, choosePath func(mygo.SaveDialogOptions) (string, error)) {
+	save := func(options mygo.SaveDialogOptions, source io.Reader) error {
 		dialogMu.Lock()
 		defer dialogMu.Unlock()
+		options.Parent, options.CreateDirectories = parent(), true
+		path, err := choosePath(options)
+		if err != nil || path == "" {
+			return err // Cancel does not fall back to a browser download.
+		}
+		return saveDownloadedFile(path, source)
+	}
+	server.SetFileDownloadAction(func(name string, source io.Reader) error {
 		downloads, err := mygo.App.Path(mygo.PathDownloads)
 		if err != nil {
 			return err
 		}
-		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
-			Parent: parent(), Title: "Save file",
-			DefaultPath: filepath.Join(downloads, name), CreateDirectories: true,
-		})
-		if err != nil || path == "" {
+		return save(mygo.SaveDialogOptions{Title: "Save file", DefaultPath: filepath.Join(downloads, name)}, source)
+	})
+	server.SetExportAction(func(markdown string) error {
+		downloads, err := mygo.App.Path(mygo.PathDownloads)
+		if err != nil {
 			return err
 		}
-		return saveDownloadedFile(path, source)
+		return save(mygo.SaveDialogOptions{
+			Title: "Export conversation", DefaultPath: filepath.Join(downloads, "conversation.md"),
+			Filters: []mygo.FileFilter{{Name: "Markdown", Extensions: []string{"md"}}},
+		}, strings.NewReader(markdown))
+	})
+	server.SetDiagnosticsAction(func(data string) error {
+		return save(mygo.SaveDialogOptions{
+			Title: "Save diagnostics", DefaultPath: "pith-desk-diagnostics.json",
+			Filters: []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}},
+		}, strings.NewReader(data))
 	})
 }
 

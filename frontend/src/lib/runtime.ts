@@ -10,7 +10,6 @@ export const runtime: {
   nativeBrowser: boolean;
   nativeClipboard: boolean;
   nativeFileDrop: boolean;
-  nativeMenus: boolean;
   titlebar: 'overlay' | undefined;
   session?: {
     login(token: string): Promise<void>;
@@ -29,7 +28,6 @@ export const runtime: {
   nativeBrowser: false,
   nativeClipboard: false,
   nativeFileDrop: false,
-  nativeMenus: false,
   titlebar: undefined,
 };
 

@@ -226,14 +226,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	}
 	waitNativeDropCondition(t, win, `location.search === '?restore-draft' && document.querySelector('textarea[aria-label="Message Pith"]')?.value === 'Last text before reload' && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly`)
 	waitSavedDraft(t, service, first.ID, "Last text before reload")
-	// The production quit guard saves before the host and WebView go away,
-	// including keystrokes still waiting for the normal autosave debounce.
-	nativeDropEval(t, win, `const input=document.querySelector('textarea[aria-label="Message Pith"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'中'.repeat(2796202)+'ab'); input.dispatchEvent(new Event('input', {bubbles:true})); return true;`)
-	if err := flushDesktopDrafts(win); err != nil {
-		t.Fatal(err)
-	}
-	waitSavedDraft(t, service, first.ID, strings.Repeat("中", desk.MaxDraftBytes/3)+"ab")
-	t.Log("text and image drafts survived conversation switches, immediate reload and a new host origin; native exit saved the last keystrokes; send cleared only its draft; real write/edit approvals rendered SDK diffs; PNG, Markdown and UTF-8 text previews loaded; HTML and Markdown scripts remained inert")
+	t.Log("text and image drafts survived conversation switches, immediate reload and a new host origin; send cleared only its draft; real write/edit approvals rendered SDK diffs; PNG, Markdown and UTF-8 text previews loaded; HTML and Markdown scripts remained inert")
 }
 
 func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {

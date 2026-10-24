@@ -19,7 +19,6 @@ import (
 // remote side effects. Continue uses the saved transcript and a new instruction.
 type deskDurable struct {
 	harness      *dh.Harness
-	storage      durable.Storage
 	conversation durable.ConversationID
 	task         durable.TaskID
 	wait         context.Context
@@ -137,7 +136,7 @@ func (r *RunExecution) admitDurableWithQueueLocked(id string, workspace Workspac
 		_ = harness.Close(context.Background())
 		return nil, err
 	}
-	journal := &deskDurable{harness: harness, storage: storage, conversation: conversation.ID(), wait: wait}
+	journal := &deskDurable{harness: harness, conversation: conversation.ID(), wait: wait}
 	encoded, err := json.Marshal(input)
 	if err == nil {
 		err = harness.CommitConversation(context.Background(), conversation.ID(), func(tx *durable.Transaction) error {

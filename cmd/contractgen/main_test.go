@@ -59,22 +59,10 @@ func serveFeatureMutation() { switch path { case "/api/unregistered": } }`)
 	}
 }
 
-func TestChangedDecoderFailsDriftCheck(t *testing.T) {
-	endpoints := []wire.Endpoint{{Method: "POST", Path: "/api/open", Input: reflect.TypeFor[wire.IDInput](), Format: "json"}}
-	for _, name := range []string{"in", "input"} {
-		t.Run(name, func(t *testing.T) {
-			directory := writeHandler(t, `package host
-func serveFeatureMutation() { switch path { case "/api/open": var `+name+` wire.PathInput; _ = wire.Decode(path, decode, &`+name+`) } }`)
-			if err := verifyHandlers(directory, endpoints); err == nil || !strings.Contains(err.Error(), "request type drift") {
-				t.Fatalf("got %v", err)
-			}
-		})
-	}
-}
-
 func TestHandlerNamesDoNotChangeTheirContracts(t *testing.T) {
 	directory := writeHandler(t, `package host
 import nethttp "net/http"
+import "github.com/minifish-org/pith-desk/internal/wire"
 func renamedRouter() {
   if req.URL.Path == "/api/state" && nethttp.MethodGet == req.Method { return }
 }
@@ -96,37 +84,6 @@ func renamedWrites() {
 	}
 }
 
-func TestDecoderChecksItsArgumentInsteadOfAnotherLocal(t *testing.T) {
-	for _, delegated := range []bool{false, true} {
-		for _, typ := range []string{"IDInput", "PathInput"} {
-			for _, form := range []struct{ declaration, argument string }{
-				{`var input wire.TYPE`, `&input`},
-				{`input := wire.TYPE{}`, `&input`},
-				{``, `&wire.TYPE{}`},
-				{`var input *wire.TYPE`, `input`},
-				{`input := new(wire.TYPE)`, `input`},
-				{`input := &wire.TYPE{}`, `input`},
-				{``, `new(wire.TYPE)`},
-			} {
-				body := strings.ReplaceAll(`var in wire.PathInput; _ = in; `+form.declaration+`; _ = wire.Decode(r.URL.Path, decode, `+form.argument+`)`, "TYPE", typ)
-				if delegated {
-					body = strings.ReplaceAll(body, "r.URL.Path", `"/api/open"`)
-					body = `switch r.URL.Path { case "/api/open": delegated() }; ` + body
-				} else {
-					body = `switch r.URL.Path { case "/api/open": ` + body + ` }`
-				}
-				directory := writeHandler(t, `package host
-func dispatch() { if r.Method != http.MethodPost { return }; `+body+` }`)
-				endpoints := []wire.Endpoint{{Method: "POST", Path: "/api/open", Input: reflect.TypeFor[wire.IDInput](), Format: "json"}}
-				err := verifyHandlers(directory, endpoints)
-				if typ == "IDInput" && err != nil || typ != "IDInput" && (err == nil || !strings.Contains(err.Error(), "request type drift")) {
-					t.Fatalf("delegated=%t type=%s form=%+v: %v", delegated, typ, form, err)
-				}
-			}
-		}
-	}
-}
-
 func TestRemovedHandlerFailsDriftCheck(t *testing.T) {
 	directory := writeHandler(t, "package host")
 	endpoints := []wire.Endpoint{{Method: "POST", Path: "/api/open", Input: reflect.TypeFor[wire.IDInput](), Format: "json"}}
@@ -137,10 +94,27 @@ func TestRemovedHandlerFailsDriftCheck(t *testing.T) {
 
 func TestChangedQueryFailsDriftCheck(t *testing.T) {
 	directory := writeHandler(t, `package host
+import "github.com/minifish-org/pith-desk/internal/wire"
 func serveFeatureRead() { if r.Method != http.MethodGet { return }; switch path { case "/api/history": wire.ReadQuery[wire.WorkspaceInput](r) } }`)
 	endpoints := []wire.Endpoint{{Method: "GET", Path: "/api/history", Query: reflect.TypeFor[wire.IDInput](), Format: "json"}}
 	if err := verifyHandlers(directory, endpoints); err == nil || !strings.Contains(err.Error(), "query type drift") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestQueryImportAliasDoesNotChangeItsContract(t *testing.T) {
+	directory := writeHandler(t, `package host
+import (
+  "net/http"
+  contract "github.com/minifish-org/pith-desk/internal/wire"
+)
+func handler(w http.ResponseWriter, r *http.Request) {
+  if r.Method != http.MethodGet { return }
+  switch r.URL.Path { case "/api/history": _, _ = contract.ReadQuery[contract.IDInput](r) }
+}`)
+	endpoints := []wire.Endpoint{{Method: "GET", Path: "/api/history", Query: reflect.TypeFor[wire.IDInput](), Format: "json"}}
+	if err := verifyHandlers(directory, endpoints); err != nil {
+		t.Fatal(err)
 	}
 }
 

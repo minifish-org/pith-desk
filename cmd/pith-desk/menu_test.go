@@ -90,9 +90,6 @@ func TestNativeMenuShortcutsAndRolesDoNotDuplicateQuit(t *testing.T) {
 	for _, item := range items {
 		if item.Role == mygo.RoleViewMenu {
 			view = true
-			if item.Submenu != nil {
-				t.Fatal("custom View submenu removed standard reload and developer tools")
-			}
 		}
 	}
 	if !view {

@@ -21,12 +21,18 @@ test('a failed MCP write clears the bearer token and retains the environment dra
   await page.getByRole('option', {name: 'Local command (stdio)', exact: true}).click();
   await page.getByLabel('Command', {exact: true}).fill('/usr/bin/tools');
   await page.getByLabel('Environment overrides').fill('{"KEY":"private draft"}');
+  await page.getByRole('combobox', {name: 'Connection type'}).click();
+  await page.getByRole('option', {name: 'HTTP', exact: true}).click();
   await page.evaluate(() => {(window as any).review.failMutation = '/api/mcp/save';});
   await page.getByRole('button', {name: 'Save connection', exact: true}).click();
   await expect(connections.getByRole('alert')).toHaveText('Fixture action rejected');
+  await expect(page.getByLabel('Bearer token')).toHaveValue('');
+  const rejected = await page.evaluate(() => (window as any).review.requests.filter((request: any) => request.path === '/api/mcp/save'));
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0].body).toMatchObject({type: 'http', bearerToken: 'one-shot-token'});
+  await page.getByRole('combobox', {name: 'Connection type'}).click();
+  await page.getByRole('option', {name: 'Local command (stdio)', exact: true}).click();
   await expect(page.getByLabel('Environment overrides')).toHaveValue('{"KEY":"private draft"}');
-  expect(await page.getByLabel('Bearer token').count()).toBe(0);
-  expect(await page.evaluate(() => (window as any).review.requests.filter((request: any) => request.path === '/api/mcp/save').length)).toBe(1);
   // A second, explicit user submission commits once even when its snapshot read fails.
   await page.evaluate(() => {const fixture = window as any; fixture.review.failMutation = ''; fixture.review.failState = true;});
   await page.getByRole('button', {name: 'Save connection', exact: true}).click();

@@ -212,8 +212,8 @@ type ResourceContentResponse struct {
 	Content string `json:"content"`
 }
 
-// Endpoint records the types actually decoded and encoded by the host. The
-// generator checks host route coverage and decoder declarations against it.
+// Endpoint records the types decoded and encoded by the host. The generator
+// checks routes and queries; Host tests exercise actual request decoding.
 type Endpoint struct {
 	Method string
 	Path   string

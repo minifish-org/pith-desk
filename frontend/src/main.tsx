@@ -24,7 +24,6 @@ runtime.server = bootstrap.server;
 runtime.nativeBrowser = bootstrap.nativeBrowser;
 runtime.nativeClipboard = bootstrap.nativeClipboard;
 runtime.nativeFileDrop = bootstrap.nativeFileDrop;
-runtime.nativeMenus = bootstrap.nativeMenus;
 runtime.titlebar = bootstrap.titlebar;
 
 const appearanceMode = (value: unknown): AppearanceMode => value === 'light' || value === 'dark' ? value : 'system';

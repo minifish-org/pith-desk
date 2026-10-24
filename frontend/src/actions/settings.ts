@@ -37,6 +37,6 @@ export async function updateStatus(): Promise<UpdateStatus> {
   return request('/api/update', {query: {}});
 }
 
-export async function updateAction(action: 'check' | 'install' | 'restart'): Promise<void> {
+export async function updateAction(action: 'check' | 'install'): Promise<void> {
   await mutate('/api/update', {action});
 }

@@ -394,7 +394,27 @@ func TestMCPToolCallAbortCancelsHTTPAndCanReconnect(t *testing.T) {
 func TestMCPStdioUsesExplicitEnvironmentAndCleansUp(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "ambient-secret")
 	t.Setenv("DEMO_AUTH_TOKEN", "ambient-secret")
-	s, _, _ := configuredService(t, "http://127.0.0.1:1")
+	var requests atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startSSE(w)
+		name := "env"
+		switch requests.Add(1) {
+		case 1:
+		case 2:
+			name = "fail"
+		default:
+			sse(w, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": "MCP complete"}}}})
+			finishSSE(w, "stop")
+			return
+		}
+		args, _ := json.Marshal(map[string]string{"code": "return await tools.mcp__stdio__" + name + "({});"})
+		sse(w, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": name, "type": "function", "function": map[string]any{"name": "codemode", "arguments": string(args)}}}}}}})
+		finishSSE(w, "tool_calls")
+	}))
+	t.Cleanup(provider.Close)
+	s, _, _ := configuredService(t, provider.URL)
+	// Keep a failing assertion from leaking the child; success must close it first.
+	t.Cleanup(s.active.closeMCP)
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -403,44 +423,35 @@ func TestMCPStdioUsesExplicitEnvironmentAndCleansUp(t *testing.T) {
 	if err := s.SaveMCP(MCPInput{Name: "stdio", Type: "stdio", Command: executable, Args: []string{"-test.run=^TestMCPStdioHelper$", "--", "pith-mcp-stdio-helper", marker}, Env: map[string]string{"SERVICE_KEY": "stdio-only-secret", "HOME": "/tmp/offline-home"}, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := s.active.connectMCP(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defer s.active.closeMCP()
-	policy, err := newFilePolicy(s.Snapshot().Workspaces[0].Path, s.dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer policy.root.Close()
-	registry, err := s.active.buildTools(policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer registry.CloseTools()
 	if err := s.SetPermissionMode(s.Snapshot().ActiveID, PermissionFullAccess); err != nil {
 		t.Fatal(err)
 	}
-	result, err := registry.ExecuteNested(ctx, codingagent.ToolCall{Name: "mcp__stdio__env", Arguments: json.RawMessage(`{}`)})
-	if err != nil {
+	if err := s.Send("Check the MCP environment and its error handling"); err != nil {
 		t.Fatal(err)
 	}
-	if text := blockText(result.Content); text != "true|true|false|false" {
-		t.Fatalf("MCP inherited ambient secrets or lost explicit credentials: %q", text)
+	state := waitState(t, s, func(st State) bool { return !st.Running })
+	if state.Runtime.Phase != "complete" || state.Failure != nil || state.Error != "" {
+		t.Fatalf("MCP task failed: %s, %+v", state.Error, state.Failure)
 	}
-	_, err = registry.ExecuteNested(ctx, codingagent.ToolCall{Name: "mcp__stdio__fail", Arguments: json.RawMessage(`{}`)})
-	if err == nil || strings.Contains(err.Error(), "stdio-only-secret") {
-		t.Fatalf("configured environment credential leaked through MCP error: %v", err)
+	results := map[string]Message{}
+	for _, message := range state.Messages {
+		if message.Role == "tool" {
+			results[message.ToolCallID] = message
+		}
 	}
-	s.active.closeMCP()
+	if result := results["env"]; result.Status != "done" || !strings.Contains(result.Text, "true|true|false|false") {
+		t.Fatalf("MCP inherited ambient secrets or lost explicit credentials: %+v", result)
+	}
+	if result := results["fail"]; result.Status != "error" || !strings.Contains(result.Text, "SERVICE_KEY=[redacted]") || strings.Contains(result.Text, "stdio-only-secret") {
+		t.Fatalf("configured environment credential leaked through MCP error: %+v", result)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(marker); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("MCP child did not close with its task connection")
+			t.Fatal("MCP child did not close after its task completed")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

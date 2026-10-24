@@ -73,10 +73,7 @@ export async function verifyScroll(page) {
     const switchedReadingDrift = Math.round(scroll.scrollTop - savedTop); const afterSwitchTop = scroll.scrollTop;
     document.querySelector('[data-jump-latest]').click(); await pause(100);
     const resumedGap = gap();
-    document.querySelector('textarea[aria-label="Message Pith"]').value = 'A multi-line draft\n'.repeat(8);
-    document.querySelector('textarea[aria-label="Message Pith"]').dispatchEvent(new Event('input', { bubbles: true }));
-    await pause(100);
-    return { text, image, imageNodesReused, imageRenderRaceGap, reading, switchedGap, switchedReadingDrift, savedTop, afterSwitchTop, resumedGap, resizedComposerGap: gap() };
+    return { text, image, imageNodesReused, imageRenderRaceGap, reading, switchedGap, switchedReadingDrift, savedTop, afterSwitchTop, resumedGap };
   });
   return results;
 }

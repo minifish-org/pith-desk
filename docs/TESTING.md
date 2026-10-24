@@ -106,14 +106,19 @@ For resource creation, file-drop routing, Files expansion and late artifact read
 npm run test:ui -- frontend/e2e/regressions.spec.ts frontend/e2e/edited-files.spec.ts frontend/e2e/server-remote.spec.ts frontend/e2e/workspace-tools.spec.ts
 GOWORK=off CGO_ENABLED=0 go test ./internal/desk -run 'TestResourceCreation|TestMCP|TestDeferredMCP|TestWorkspaceMCPAbort' -count=1
 GOWORK=off CGO_ENABLED=0 go test ./cmd/contractgen -count=1
+GOWORK=off CGO_ENABLED=0 go test ./internal/host -run TestTypedMutationsReadAndRejectMalformedBodies -count=1
 ```
 
 Resource write failures run in a separate test process with disposable files and
 a temporary file-size limit. The checks retain existing files, remove incomplete
 new resources and permit a retry. Browser cases cover textarea and frame drops,
 folding a directory during a read, and responses from retired conversation reads.
-Contract checks accept equivalent handler names and decoder declarations while
-rejecting missing routes and incorrect request types.
+Contract generation checks route coverage and query types with resolved import
+aliases. The Host regression sends malformed bodies through every nonempty POST
+contract in Desktop and Server, checking both rejection and actual body reads so
+missing decoding or an early request-type mismatch cannot masquerade as success.
+The stdio MCP regression executes a real task and checks that its child exits
+after task completion, retaining environment isolation and error redaction.
 
 ## Required behavior
 
@@ -169,6 +174,13 @@ disabled. To retain screenshots for visual review, set
 command. Browser validation alone
 does not establish native behavior. These checks require an interactive desktop
 session; they do not download or install a Desk release.
+
+The installed-menu check triggers actual menu callbacks and verifies the page,
+exported file and WebView zoom. The quit check closes a disposable child app:
+a pending or failed draft save must keep its window open, and successful retry
+must reach storage before the window closes. Text export failure checks use
+the installed Host callbacks and an isolated file-size limit to preserve the
+existing destination, then verify cancellation and retry.
 
 Include `WorkspaceBrowserNative` in the native test filter to verify the lazy
 workspace list, existing preview and native Open/Reveal/Copy file/save callbacks,

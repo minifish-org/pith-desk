@@ -40,6 +40,16 @@ export function useStickToBottom(dependency: unknown, conversationKey?: string) 
     if (pinned.current) jump('auto');
   }, [dependency, jump]);
 
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (pinned.current) jump('auto');
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [jump]);
+
   // Switching conversations restores that conversation's reading position; an
   // unvisited conversation starts at its latest message.
   useEffect(() => {

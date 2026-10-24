@@ -118,37 +118,7 @@ func runDesktop(dataDir string, development host.DevelopmentOptions) error {
 		}, func(path string) error {
 			return mygo.Clipboard.WriteFiles(path)
 		})
-		installFileDownload(server, window.Load, &dialogMu)
-		server.SetExportAction(func(markdown string) error {
-			dialogMu.Lock()
-			defer dialogMu.Unlock()
-			downloads, err := mygo.App.Path(mygo.PathDownloads)
-			if err != nil {
-				return err
-			}
-			path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
-				Parent: window.Load(), Title: "Export conversation",
-				DefaultPath: filepath.Join(downloads, "conversation.md"), CreateDirectories: true,
-				Filters: []mygo.FileFilter{{Name: "Markdown", Extensions: []string{"md"}}},
-			})
-			if err != nil || path == "" {
-				return err // Cancel does not fall back to a browser download.
-			}
-			return os.WriteFile(path, []byte(markdown), 0o600)
-		})
-		server.SetDiagnosticsAction(func(data string) error {
-			dialogMu.Lock()
-			defer dialogMu.Unlock()
-			path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
-				Parent: window.Load(), Title: "Save diagnostics",
-				DefaultPath: "pith-desk-diagnostics.json", CreateDirectories: true,
-				Filters: []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}},
-			})
-			if err != nil || path == "" {
-				return err
-			}
-			return os.WriteFile(path, []byte(data), 0o600)
-		})
+		installFileSaves(server, window.Load, &dialogMu, mygo.Dialog.Save)
 		opts := desktopWindowOptions()
 		if development.URL != "" {
 			opts.Page.DevTools = mygo.DevToolsEnabled

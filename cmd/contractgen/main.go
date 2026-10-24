@@ -9,6 +9,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -284,8 +285,8 @@ func (g *generator) scalar(typ reflect.Type) string {
 	}
 }
 
-// Verify all actual /api paths and the declarations passed to Decode. A new
-// handler cannot silently escape the registry just because it was not listed.
+// Verify routes and query types. Host tests exercise request decoding through
+// the actual handlers, including delegated handlers and equivalent Go syntax.
 func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 	registered := map[string]wire.Endpoint{}
 	for _, endpoint := range endpoints {
@@ -302,9 +303,11 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 	aliases := map[string]string{}
 	for _, pkg := range files {
 		for _, file := range pkg.Files {
+			names := fileTypeNames(file, aliases)
 			ast.Inspect(file, func(node ast.Node) bool {
 				if spec, ok := node.(*ast.TypeSpec); ok && spec.Assign.IsValid() {
-					aliases[spec.Name.Name] = exprName(spec.Type, aliases)
+					aliases[spec.Name.Name] = exprName(spec.Type, names)
+					names[spec.Name.Name] = aliases[spec.Name.Name]
 				}
 				return true
 			})
@@ -314,6 +317,7 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 	var errors []string
 	for _, pkg := range files {
 		for path, file := range pkg.Files {
+			names := fileTypeNames(file, aliases)
 			ast.Inspect(file, func(node ast.Node) bool {
 				literal, ok := node.(*ast.BasicLit)
 				if !ok || literal.Kind != token.STRING {
@@ -397,18 +401,12 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 					if len(routes) == 0 {
 						return true
 					}
-					var input string
 					var query string
 					ast.Inspect(clause, func(node ast.Node) bool {
 						if call, ok := node.(*ast.CallExpr); ok {
-							if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "Decode" && len(call.Args) == 3 {
-								if _, literal := call.Args[0].(*ast.BasicLit); !literal {
-									input = decoderInputType(call.Args[2], aliases)
-								}
-							}
 							if indexed, ok := call.Fun.(*ast.IndexExpr); ok {
 								if selector, ok := indexed.X.(*ast.SelectorExpr); ok && selector.Sel.Name == "ReadQuery" {
-									query = exprName(indexed.Index, aliases)
+									query = exprName(indexed.Index, names)
 								}
 							}
 						}
@@ -422,34 +420,9 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 							continue
 						}
 						observed[key] = true
-						if input != "" && endpoint.Input != nil && input != goName(endpoint.Input) {
-							errors = append(errors, fmt.Sprintf("request type drift for %s: handler %s, registry %s", route, input, goName(endpoint.Input)))
-						}
 						if endpoint.Query != nil && endpoint.Query.NumField() > 0 && query != goName(endpoint.Query) {
 							errors = append(errors, fmt.Sprintf("query type drift for %s: handler %s, registry %s", route, query, goName(endpoint.Query)))
 						}
-					}
-					return true
-				})
-				// Delegated handlers (file references and native menus) validate
-				// their literal route with the same Decode helper.
-				ast.Inspect(function.Body, func(node ast.Node) bool {
-					call, ok := node.(*ast.CallExpr)
-					if !ok || len(call.Args) < 3 {
-						return true
-					}
-					selector, ok := call.Fun.(*ast.SelectorExpr)
-					if !ok || selector.Sel.Name != "Decode" {
-						return true
-					}
-					literal, ok := call.Args[0].(*ast.BasicLit)
-					if !ok {
-						return true
-					}
-					route, _ := strconv.Unquote(literal.Value)
-					input := decoderInputType(call.Args[2], aliases)
-					if endpoint, exists := registered["POST "+route]; exists && input != goName(endpoint.Input) {
-						errors = append(errors, fmt.Sprintf("request type drift for %s: handler %s, registry %s", route, input, goName(endpoint.Input)))
 					}
 					return true
 				})
@@ -497,54 +470,24 @@ func requestMethod(condition ast.Expr, comparison token.Token) string {
 	return method
 }
 
-func decoderInputType(expression ast.Expr, aliases map[string]string) string {
-	if pointer, ok := ast.Unparen(decoderTargetType(expression)).(*ast.StarExpr); ok {
-		return exprName(pointer.X, aliases)
+func fileTypeNames(file *ast.File, aliases map[string]string) map[string]string {
+	names := maps.Clone(aliases)
+	for _, spec := range file.Imports {
+		path, _ := strconv.Unquote(spec.Path.Value)
+		name := filepath.Base(path)
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		names[name] = path
 	}
-	return "anonymous"
-}
-
-// Follow local declarations and constructors, not variable names or helper bodies.
-func decoderTargetType(expression ast.Expr) ast.Expr {
-	switch value := ast.Unparen(expression).(type) {
-	case *ast.UnaryExpr:
-		if value.Op == token.AND {
-			if typ := decoderTargetType(value.X); typ != nil {
-				return &ast.StarExpr{X: typ}
-			}
-		}
-	case *ast.CompositeLit:
-		return value.Type
-	case *ast.CallExpr:
-		if name, ok := value.Fun.(*ast.Ident); ok && name.Name == "new" && name.Obj == nil && len(value.Args) == 1 {
-			return &ast.StarExpr{X: value.Args[0]}
-		}
-	case *ast.Ident:
-		if value.Obj == nil {
-			return nil
-		}
-		switch declaration := value.Obj.Decl.(type) {
-		case *ast.ValueSpec:
-			if declaration.Type != nil {
-				return declaration.Type
-			}
-			if len(declaration.Values) == 1 {
-				return decoderTargetType(declaration.Values[0])
-			}
-		case *ast.AssignStmt:
-			if len(declaration.Rhs) == 1 {
-				return decoderTargetType(declaration.Rhs[0])
-			}
-		}
-	}
-	return nil
+	return names
 }
 
 func exprName(expression ast.Expr, aliases map[string]string) string {
 	switch expression := expression.(type) {
 	case *ast.SelectorExpr:
 		if pkg, ok := expression.X.(*ast.Ident); ok {
-			return pkg.Name + "." + expression.Sel.Name
+			return aliases[pkg.Name] + "." + expression.Sel.Name
 		}
 	case *ast.Ident:
 		if name, ok := aliases[expression.Name]; ok {
@@ -554,4 +497,4 @@ func exprName(expression ast.Expr, aliases map[string]string) string {
 	}
 	return "anonymous"
 }
-func goName(typ reflect.Type) string { return filepath.Base(typ.PkgPath()) + "." + typ.Name() }
+func goName(typ reflect.Type) string { return typ.PkgPath() + "." + typ.Name() }

@@ -194,14 +194,14 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
     return () => {active = false;};
   }, [modal.path, modal.workspaceId, loadAttempt]);
 
-  const save = async (remove = false) => {
+  const save = async () => {
     if (loading || content === null || busy) return;
     setError('');
     setBusy(true);
     try {
       let body = content;
       if (!modal.path && modal.resourceKind === 'skill') body = body.replace(/^name: my-skill$/m, `name: ${name}`);
-      const ok = await saveResource({workspaceId: modal.workspaceId, kind: modal.resourceKind, path: modal.path || '', name, content: body, remove});
+      const ok = await saveResource({workspaceId: modal.workspaceId, kind: modal.resourceKind, path: modal.path || '', name, content: body, remove: false});
       if (ok) {
         closeModalId(modal.id);
         emitAppEvent('resourcesChanged');

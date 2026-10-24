@@ -740,6 +740,9 @@ HTTP requests, queries, responses and streamed State types come from Go's
 `internal/wire` registry and JSON tags. Run `npm run generate:contract` after a
 schema change; `npm run check:contract` rejects stale generated TypeScript or
 host route drift. `build:ui` and the CI check run this check automatically.
+The Go Host tests send malformed bodies through the real Desktop and Server
+handlers to verify request decoding, including delegated handlers. Query type
+checks resolve import aliases instead of requiring a particular package name.
 Desktop retains the authenticated loopback transport; Server uses its cookie and
 page lease for HTTP/WebSocket access. Opaque SDK JSON remains `unknown`; business
 validation stays in the service.
