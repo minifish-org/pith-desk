@@ -14,6 +14,15 @@ import (
 // results already carry the harness patch.
 const maxRecordedArtifactPatch = 128 << 10
 
+const nestedFileChangeEntry = "desk.file-change"
+
+type codemodeContextKey struct{}
+
+type nestedFileChange struct {
+	Path string `json:"path"`
+	fileChangeDetails
+}
+
 // fileChangeDetails is the persisted summary of one successful write or edit.
 // Edits reuse the harness patch; writes record their own bounded patch.
 type fileChangeDetails struct {
@@ -21,6 +30,42 @@ type fileChangeDetails struct {
 	Deletions      int    `json:"deletions"`
 	Patch          string `json:"patch,omitempty"`
 	PatchTruncated bool   `json:"patchTruncated,omitempty"`
+}
+
+// The Codemode wrapper marks its execution context, including nested calls.
+// Direct calls already have canonical assistant/tool-result records. Record
+// only successful nested file tools, never inferred script output or shell effects.
+func (r *RunExecution) recordNestedFileChange(ctx context.Context, call codingagent.ToolCall, result codingagent.ToolResult) (codingagent.ToolResult, error) {
+	if ctx.Value(codemodeContextKey{}) != true || result.IsError || (call.Name != "write_file" && call.Name != "edit_file") {
+		return result, nil
+	}
+	var args struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(call.Arguments, &args) != nil || args.Path == "" {
+		return result, nil
+	}
+	s := r.dependencies
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r.activeManager == nil {
+		return result, nil
+	}
+	change := artifactSummary(call.Name, result.Details)
+	if len(change.Patch) > maxRecordedArtifactPatch {
+		change.Patch, change.PatchTruncated = clipUTF8(change.Patch, maxRecordedArtifactPatch), true
+	}
+	data, err := json.Marshal(nestedFileChange{Path: args.Path, fileChangeDetails: change})
+	if err == nil {
+		_, err = r.activeManager.AppendCustomEntry(nestedFileChangeEntry, data)
+	}
+	if err != nil {
+		// The file effect already succeeded. Keep its successful tool result so
+		// a failed history write cannot invite the agent to repeat the change.
+		r.Error = "File changed, but its recorded diff could not be saved: " + err.Error()
+		s.changedLocked()
+	}
+	return result, nil
 }
 
 // clipUTF8 bounds stored patch text without splitting a UTF-8 character.

@@ -43,6 +43,36 @@ func (a SessionAdapter) read(id string) (*codingagent.SessionManager, error) {
 	return codingagent.OpenSession(a.file(id))
 }
 
+// Initial prompts may expand skills/templates, so compare their durable
+// position rather than their text. Repeated text and older sibling branches
+// must not stand in for the newly admitted prompt.
+func (a SessionAdapter) hasPromptAfter(id, afterEntryID string) (bool, error) {
+	manager, err := a.read(id)
+	if err != nil {
+		return false, err
+	}
+	found := afterEntryID == ""
+	if manager != nil {
+		defer manager.Close()
+		for _, entry := range manager.Entries() {
+			if !found {
+				found = entry.ID == afterEntryID
+				continue
+			}
+			if entry.Type == "message" {
+				var message agenttypes.AgentMessage
+				if json.Unmarshal(entry.Payload, &message) == nil && message.Message != nil && message.Message.User != nil {
+					return true, nil
+				}
+			}
+		}
+	}
+	if !found {
+		return false, errors.New("The saved task's transcript boundary is missing")
+	}
+	return false, nil
+}
+
 // The pinned SDK has no public Cwd option on OpenSession. Seed only a missing
 // or historical zero-byte session with its exported header type, then let Pith
 // own all parsing and subsequent records. Existing transcripts stay untouched.

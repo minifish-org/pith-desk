@@ -1,4 +1,5 @@
 import {request} from './core.ts';
+import {closeWebPreview} from './web-preview.ts';
 import {useWorkspaceTools, type FileViewState, type ToolKind, type ToolLayout, type ToolTab} from '@/stores/workspace-tools.ts';
 
 const storagePrefix = 'pith-desk.tools.v1.';
@@ -29,6 +30,20 @@ function readLayout(workspaceId: string): ToolLayout {
 export function loadWorkspaceTools(workspaceId: string): void {
   const store = useWorkspaceTools.getState();
   if (workspaceId && !store.workspaces[workspaceId]) store.setWorkspace(workspaceId, {layout: readLayout(workspaceId), closing: ''});
+}
+
+export function pruneWorkspaceTools(workspaceIds: string[]): void {
+  const existing = new Set(workspaceIds);
+  const store = useWorkspaceTools.getState();
+  for (const [workspaceId, tools] of Object.entries(store.workspaces)) {
+    if (existing.has(workspaceId)) continue;
+    // Removing a workspace ends its tool lifetime; switching away only hides it.
+    store.removeWorkspace(workspaceId);
+    for (const tab of tools.layout.tabs) {
+      if (tab.kind === 'preview' && tab.id !== tools.closing) void closeWebPreview(tab.id);
+    }
+    try {localStorage.removeItem(storagePrefix + workspaceId);} catch { /* Layout is a preference. */ }
+  }
 }
 
 function saveLayout(workspaceId: string, layout: ToolLayout): void {
@@ -73,15 +88,17 @@ export async function closeToolTab(workspaceId: string, id: string): Promise<voi
       // leaves the process running. A failed close still removes the local tab.
       try {await request('/api/terminal/close', {workspaceId, id});} catch { /* The tab closes anyway. */ }
     }
+    if (entry.kind === 'preview') await closeWebPreview(id);
     // Resolve against the latest layout of the original workspace after the
     // request, preserving tabs and selection changed while it was pending.
-    const layout = useWorkspaceTools.getState().workspaces[workspaceId].layout;
+    const layout = useWorkspaceTools.getState().workspaces[workspaceId]?.layout;
+    if (!layout) return;
     const index = layout.tabs.findIndex(tab => tab.id === id);
     const tabs = layout.tabs.filter(tab => tab.id !== id);
     const activeId = layout.activeId === id ? tabs[Math.min(index, tabs.length - 1)]?.id || '' : layout.activeId;
     saveLayout(workspaceId, {...layout, tabs, activeId});
   } finally {
     const current = useWorkspaceTools.getState().workspaces[workspaceId];
-    useWorkspaceTools.getState().setWorkspace(workspaceId, {...current, closing: ''});
+    if (current) useWorkspaceTools.getState().setWorkspace(workspaceId, {...current, closing: ''});
   }
 }

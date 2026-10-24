@@ -1,95 +1,45 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useRef} from 'react';
 import {ArrowUpRight, Globe, LoaderCircle, RotateCw} from 'lucide-react';
-import {request} from '@/actions/core';
+import {navigateWebPreview, placeWebPreview, updateWebPreview} from '@/actions/web-preview';
 import {runtime} from '@/lib/runtime';
 import {useDesk} from '@/stores/desk';
+import {emptyWebPreview, useWorkspaceTools} from '@/stores/workspace-tools';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 
-function reserveTab(): {navigate(url: string): void; close(): void} {
-  // Reserve during the user gesture; authorization finishes asynchronously.
-  const tab = window.open('about:blank', '_blank');
-  if (!tab) throw new Error('Allow new tabs for Pith Desk, then try again.');
-  tab.opener = null;
-  return {
-    navigate(url: string) {tab.location.replace(url);},
-    close() {tab.close();},
-  };
-}
-
 export function WebPreviewView({workspaceId, tabId, active}: {workspaceId: string; tabId: string; active: boolean}) {
-  const [address, setAddress] = useState('');
-  const [current, setCurrent] = useState('');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
-  const generation = useRef(0);
+  const {address, current, pending, error, opened} = useWorkspaceTools(store => store.previews[tabId] || emptyWebPreview);
+  const closing = useWorkspaceTools(store => store.workspaces[workspaceId]?.closing === tabId);
   const modalOpen = useDesk(store => store.modals.length > 0);
   const placeholder = useRef<HTMLDivElement>(null);
-  const opened = useRef(false);
-
-  const sendBounds = (id: string, visible: boolean, attempts = 30) => {
-    if (!runtime.nativeBrowser) return;
-    const rect = visible ? placeholder.current?.getBoundingClientRect() : undefined;
-    if (visible && (!rect || rect.width < 1 || rect.height < 1)) {
-      if (attempts > 0) requestAnimationFrame(() => sendBounds(id, visible, attempts - 1));
-      return;
-    }
-    const bounds = rect && rect.width > 0 && rect.height > 0
-      ? {x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height)}
-      : null;
-    void request('/api/web-preview/view', {id, bounds}).catch(() => {});
-  };
-
-  useEffect(() => () => {
-    generation.current++;
-    if (runtime.nativeBrowser && opened.current) {
-      void request('/api/web-preview/view', {id: tabId, bounds: null}).catch(() => {});
-      void request('/api/web-preview/close', {id: tabId}).catch(() => {});
-    }
-  }, [tabId]);
 
   useEffect(() => {
-    if (!runtime.nativeBrowser || !opened.current) return;
-    sendBounds(tabId, active && !modalOpen);
-    if (!active || modalOpen) return;
-    const observer = new ResizeObserver(() => sendBounds(tabId, true));
-    if (placeholder.current) observer.observe(placeholder.current);
-    const onResize = () => sendBounds(tabId, true);
-    window.addEventListener('resize', onResize);
-    return () => {observer.disconnect(); window.removeEventListener('resize', onResize);};
-  }, [active, modalOpen, tabId]);
-
-  const navigate = async (value: string) => {
-    const target = value.trim();
-    if (!target || pending) return;
-    setAddress(target);
-    setPending(true);
-    setError('');
-    let reserved: ReturnType<typeof reserveTab> | null = null;
-    if (!runtime.nativeBrowser) {
-      try {reserved = reserveTab();} catch (failure) {
-        setError(failure instanceof Error ? failure.message : String(failure));
-        setPending(false);
+    if (!runtime.nativeBrowser || !opened) return;
+    let frame = 0;
+    let attempts = 30;
+    const visible = active && !modalOpen;
+    const sendBounds = () => {
+      const rect = visible ? placeholder.current?.getBoundingClientRect() : undefined;
+      if (visible && (!rect || rect.width < 1 || rect.height < 1) && attempts-- > 0) {
+        frame = requestAnimationFrame(sendBounds);
         return;
       }
-    }
-    const sequence = ++generation.current;
-    try {
-      const result = await request('/api/web-preview', {id: tabId, workspaceId, address: target});
-      if (sequence !== generation.current) {reserved?.close(); return;}
-      if (reserved) reserved.navigate(result.url);
-      if (runtime.nativeBrowser) {
-        opened.current = true;
-        requestAnimationFrame(() => sendBounds(tabId, active));
-      }
-      setCurrent(target);
-    } catch (failure) {
-      reserved?.close();
-      if (sequence === generation.current) setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      if (sequence === generation.current) setPending(false);
-    }
-  };
+      placeWebPreview(tabId, rect && rect.width > 0 && rect.height > 0
+        ? {x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height)} : null);
+    };
+    sendBounds();
+    const observer = new ResizeObserver(sendBounds);
+    if (visible && placeholder.current) observer.observe(placeholder.current);
+    if (visible) window.addEventListener('resize', sendBounds);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', sendBounds);
+      placeWebPreview(tabId, null);
+    };
+  }, [active, modalOpen, opened, tabId]);
+
+  const navigate = (value: string) => navigateWebPreview(workspaceId, tabId, value);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -97,19 +47,20 @@ export function WebPreviewView({workspaceId, tabId, active}: {workspaceId: strin
         <Globe className="size-3.5 shrink-0 text-muted-foreground" />
         <Input
           aria-label="Web address" placeholder="https://localhost:3000" value={address}
-          onChange={event => setAddress(event.target.value)}
+          disabled={closing}
+          onChange={event => updateWebPreview(tabId, {address: event.target.value})}
           onKeyDown={event => {if (event.key === 'Enter') {event.preventDefault(); void navigate(address);}}}
           className="h-7 text-[12px]"
         />
         <Button
           variant="ghost" size="icon-xs" aria-label="Open address" title="Open address"
-          disabled={!address.trim() || pending} onClick={() => {void navigate(address);}}
+          disabled={!address.trim() || pending || closing} onClick={() => {void navigate(address);}}
         >
           <ArrowUpRight className="size-3.5" />
         </Button>
         <Button
           variant="ghost" size="icon-xs" aria-label="Refresh" title="Refresh"
-          disabled={!current || pending} onClick={() => {void navigate(current);}}
+          disabled={!current || pending || closing} onClick={() => {void navigate(current);}}
         >
           {pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
         </Button>
@@ -125,7 +76,6 @@ export function WebPreviewView({workspaceId, tabId, active}: {workspaceId: strin
         ) : !error ? (
           <p className="text-[12px] text-muted-foreground">Enter a local project address. The page opens in its own tab.</p>
         ) : null}
-        {active ? null : null}
       </div>
     </div>
   );

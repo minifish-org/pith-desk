@@ -160,8 +160,13 @@ func (s *Service) AddWorkspace(path string) (Workspace, error) {
 	if workspacefs.Within(path, s.dataDir) || workspacefs.Within(s.dataDir, path) {
 		return Workspace{}, errors.New("Choose a folder separate from Pith Desk's private application data")
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return Workspace{}, err
+	}
 	for _, existing := range s.catalog.Workspaces {
-		if existing.Path == path {
+		existingInfo, err := os.Stat(existing.Path)
+		if existing.Path == path || err == nil && os.SameFile(info, existingInfo) {
 			return existing, nil
 		}
 	}

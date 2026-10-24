@@ -241,7 +241,10 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
                           disabled={disabled || testing || saving}
                           onClick={async () => {
                             setSaved('');
-                            if (await removeProviderKey({provider: providerId, baseUrl})) {
+                            const generation = providerGeneration.current;
+                            const ok = await removeProviderKey({provider: providerId, baseUrl});
+                            if (generation !== providerGeneration.current) return;
+                            if (ok) {
                               setApiKey('');
                               setSaved('API key removed.');
                               void loadModels().then(setCatalog).catch(() => {});

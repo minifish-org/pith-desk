@@ -70,7 +70,7 @@ func (r *RunExecution) buildTools(policy *filePolicy) (*codingagent.ToolRegistry
 				return r.requestApproval(ctx, call, policy)
 			}
 			return ctx.Err()
-		}})
+		}, After: r.recordNestedFileChange})
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +90,10 @@ func (r *RunExecution) buildTools(policy *filePolicy) (*codingagent.ToolRegistry
 	code, err := codingagent.NewCodemodeTool(registry, nil)
 	if err != nil {
 		return nil, err
+	}
+	executeCode := code.Execute
+	code.Execute = func(ctx context.Context, args json.RawMessage) (codingagent.ToolResult, error) {
+		return executeCode(context.WithValue(ctx, codemodeContextKey{}, true), args)
 	}
 	if err = registry.Register(code); err != nil {
 		return nil, err

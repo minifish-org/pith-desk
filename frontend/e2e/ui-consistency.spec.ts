@@ -69,6 +69,38 @@ test('model catalog displays multiple choices and applies the chosen model', asy
   await expect.poll(() => page.evaluate(() => (window as any).review.requests.filter((r: any) => r.path === '/api/model-selection').at(-1)?.body)).toMatchObject({provider: 'custom-test', model: 'model-7', thinkingLevel: 'high'});
 });
 
+test('the model menu refreshes after saving a new connection without reloading the page', async ({page}) => {
+  await page.getByRole('button', {name: 'Choose model', exact: true}).click();
+  await page.getByRole('menuitem', {name: /^Model/}).click();
+  await expect(page.getByRole('menuitem', {name: 'Fixture', exact: true})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const fixture = window as any, original = window.fetch.bind(window);
+    window.fetch = async (input: any, init: any) => {
+      const response = await original(input, init);
+      if (new URL(String(input), location.href).pathname === '/api/custom-connection' && init?.method === 'POST') {
+        fixture.review.models.providers.push({id: 'new-provider', name: 'New provider', baseUrl: 'http://localhost/new', hasSavedKey: true, hasApiKey: true, custom: true});
+        fixture.review.models.models.push({id: 'new-model', provider: 'new-provider', name: 'New model', thinkingLevels: ['off'], supportsImages: true});
+      }
+      return response;
+    };
+  });
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
+  await settings.getByRole('button', {name: 'Add independent model connection', exact: true}).click();
+  const connection = page.getByRole('dialog', {name: 'Add independent model connection', exact: true});
+  await connection.getByLabel('Connection name').fill('New provider');
+  await connection.getByLabel('API base URL').fill('http://localhost/new');
+  await connection.getByLabel('Model 1 ID', {exact: true}).fill('new-model');
+  await connection.getByRole('button', {name: 'Save connection', exact: true}).click();
+  await expect(connection).toHaveCount(0);
+  await settings.getByRole('button', {name: 'Close', exact: true}).click();
+  await page.getByRole('button', {name: 'Choose model', exact: true}).click();
+  await page.getByRole('menuitem', {name: /^Model/}).click();
+  await page.getByRole('menuitem', {name: 'New model', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => (window as any).review.requests.filter((entry: any) => entry.path === '/api/model-selection').at(-1)?.body)).toEqual({provider: 'new-provider', model: 'new-model', thinkingLevel: 'off'});
+});
+
 test('image viewer keeps its source focus and ignores internal clicks', async ({ page }) => {
   await page.evaluate(() => {
     const canvas = document.createElement('canvas'); canvas.width = 10; canvas.height = 10;

@@ -173,23 +173,29 @@ function ResourceRow({icon: Icon, title, detail, actions}: {icon: typeof FileTex
 export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>}) {
   const workspace = useDesk(store => store.state.workspaces.find(entry => entry.id === modal.workspaceId));
   const [loading, setLoading] = useState(!!modal.path);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [name, setName] = useState('');
-  const [content, setContent] = useState(defaultContent(modal.resourceKind));
+  // Starter text belongs only to new files. An unread existing file cannot be saved.
+  const [content, setContent] = useState<string | null>(() => modal.path ? null : defaultContent(modal.resourceKind));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!modal.path) return;
     let active = true;
+    setLoading(true);
+    setContent(null);
+    setError('');
     void loadResourceContent(modal.workspaceId, modal.path).then(result => {
       if (!active) return;
       setContent(result.content);
       setName(modal.path!.split('/').pop()?.replace(/\.md$/, '') || '');
     }).catch(failure => {if (active) setError(failure instanceof Error ? failure.message : String(failure));}).finally(() => {if (active) setLoading(false);});
     return () => {active = false;};
-  }, [modal.path, modal.workspaceId]);
+  }, [modal.path, modal.workspaceId, loadAttempt]);
 
   const save = async (remove = false) => {
+    if (loading || content === null || busy) return;
     setError('');
     setBusy(true);
     try {
@@ -214,10 +220,11 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
         <div className="scrollbar-quiet min-h-0 flex-1 space-y-2 overflow-y-auto px-5 py-4">
           {loading ? <p className="flex items-center gap-2 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading…</p> : null}
           {modal.resourceKind !== 'instructions' ? (
-            <label className="block space-y-1 text-[12px]"><span className="font-medium">Name</span><Input aria-label="Name" value={name} onChange={event => setName(event.target.value)} /></label>
+            <label className="block space-y-1 text-[12px]"><span className="font-medium">Name</span><Input aria-label="Name" value={name} readOnly={loading || content === null} onChange={event => setName(event.target.value)} /></label>
           ) : null}
-          <label className="block space-y-1 text-[12px]"><span className="font-medium">Markdown</span><Textarea aria-label="Markdown" value={content} onChange={event => setContent(event.target.value)} className="min-h-72 font-mono text-[12px]" /></label>
+          <label className="block space-y-1 text-[12px]"><span className="font-medium">Markdown</span><Textarea aria-label="Markdown" value={content ?? ''} readOnly={loading || content === null} onChange={event => setContent(event.target.value)} className="min-h-72 font-mono text-[12px]" /></label>
           {error ? <p className="text-[12px] text-destructive" role="alert">{error}</p> : null}
+          {!loading && content === null ? <Button size="sm" variant="secondary" onClick={() => setLoadAttempt(value => value + 1)}>Retry loading</Button> : null}
         </div>
         <DialogFooter className="mx-0 mb-0 border-t px-5 pt-3 pb-5">
           {modal.path ? (
@@ -230,7 +237,7 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
                   description: {before: 'Permanently delete ', subject: modal.path, after: ' from this workspace?'},
                   hint: 'The Markdown file will be removed from your computer.',
                   async run() {
-                    const ok = await saveResource({workspaceId: modal.workspaceId, kind: modal.resourceKind, path: modal.path || '', name, content, remove: true});
+                    const ok = await saveResource({workspaceId: modal.workspaceId, kind: modal.resourceKind, path: modal.path || '', name, content: content ?? '', remove: true});
                     if (!ok) {
                       desk().patchModal(confirmId, {error: desk().activity.error});
                       return false;
@@ -246,7 +253,7 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
             </Button>
           ) : null}
           <Button variant="ghost" onClick={() => closeModalId(modal.id)}>Cancel</Button>
-          <Button disabled={busy || loading || !content.trim()} onClick={() => {void save();}}>{busy ? <LoaderCircle className="size-3.5 animate-spin" /> : null}Save resource</Button>
+          <Button disabled={busy || loading || !content?.trim()} onClick={() => {void save();}}>{busy ? <LoaderCircle className="size-3.5 animate-spin" /> : null}Save resource</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

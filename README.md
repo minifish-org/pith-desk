@@ -108,6 +108,11 @@ Failures show guidance for credentials, unknown models, incompatible endpoints, 
 
 Run metadata is saved beside the sessions. After an interrupted shutdown, the conversation is marked for review when reopened. Settings and failure cards offer **Save diagnostics** through a native save dialog. The JSON contains version/platform information, counts, usage and failure category; it excludes prompts, transcript text, file contents, local paths, endpoint URLs, tool arguments and credentials.
 
+For newly admitted tasks, recovery also records where the conversation stood
+before admission. If shutdown happens before the new request reaches its history,
+**Review and continue** includes that saved text and its images. Requests already
+in history are not added twice; recovery still requires the user's explicit action.
+
 ### Conversations and files
 
 The sidebar groups conversations under their workspace folders. Expand or collapse a folder, or use its new-conversation button to start a chat in that workspace. Search conversation titles across workspaces. Each conversation's `…` menu can rename, export or permanently delete that conversation without opening it first. Desktop exports open a native save dialog so you can choose the destination. Titles are recorded through Pith's session API; the desktop catalog indexes them.
@@ -378,8 +383,9 @@ On macOS, the Dock shows **!** for pending approval or the number of conversatio
 Open **Workspace resources** to inspect the files discovered by Pith. Instructions
 include AGENTS.md and CLAUDE.md along the ancestor path; project skills live in
 `.pi/skills`, and prompt templates in `.pi/prompts`. View, create, edit or delete
-project resources in the Markdown editor. Inherited instructions are read-only
-here. Changes load on the next task. **Use** inserts `/skill:name` or `/name` into
+project resources in the Markdown editor. If an existing file cannot be read,
+the editor stays read-only until **Retry loading** succeeds. Inherited instructions
+are read-only here. Changes load on the next task. **Use** inserts `/skill:name` or `/name` into
 the composer; Pith expands the resource and template arguments when submitted.
 
 The application retains Pith's instruction and skill discovery. Skill references to the `read` tool are mapped in the desktop prompt to its guarded `read_file` tool. No separate skill engine or visual workflow builder is used.
@@ -397,8 +403,9 @@ Tokens and environment overrides are saved in the private local `mcp.json` file 
 **Code mode** is enabled alongside ordinary tools. The agent chooses whether to
 compose several tool calls, filter results or return a smaller answer through
 Pith's existing JavaScript/WASM runtime. Nested writes, commands and MCP calls
-use the same workspace checks and approval rules as direct calls. Code mode
-does not install Node.js and is not an OS sandbox for the tools it invokes.
+use the same workspace checks and approval rules as direct calls. Successful
+nested file writes and edits also appear in the edited-files card and its diffs.
+Code mode does not install Node.js and is not an OS sandbox for the tools it invokes.
 
 Use the branch action below a saved assistant reply to continue from that point,
 or **Conversation branches** in the conversation's sidebar menu to choose a
@@ -485,6 +492,9 @@ mapped to server folders. Server requires an absolute path, resolves symlinks,
 and checks that its OS account can read and traverse the directory. Read-only
 workspaces are allowed; individual write operations still check permissions.
 The private application data directory cannot be a workspace or sit inside one.
+Existing directory aliases, including case variants on macOS, share the same
+private-data boundary and task exclusivity. Adding an alias of an existing
+workspace reuses that workspace.
 
 ### Login, ownership and task lifetime
 

@@ -223,12 +223,13 @@ func globPattern(pattern string) (*regexp.Regexp, error) {
 	}
 	var out strings.Builder
 	out.WriteByte('^')
-	for i := 0; i < len(pattern); i++ {
-		switch pattern[i] {
+	runes := []rune(pattern)
+	for i := 0; i < len(runes); i++ {
+		switch runes[i] {
 		case '*':
-			if i+1 < len(pattern) && pattern[i+1] == '*' {
+			if i+1 < len(runes) && runes[i+1] == '*' {
 				i++
-				if i+1 < len(pattern) && pattern[i+1] == '/' {
+				if i+1 < len(runes) && runes[i+1] == '/' {
 					i++
 					out.WriteString("(?:.*/)?")
 				} else {
@@ -241,13 +242,17 @@ func globPattern(pattern string) (*regexp.Regexp, error) {
 			out.WriteString("[^/]")
 		case '[':
 			j := i + 1
-			for j < len(pattern) && pattern[j] != ']' {
+			for j < len(runes) && runes[j] != ']' {
 				j++
 			}
-			out.WriteString(pattern[i : j+1])
+			out.WriteString(string(runes[i : j+1]))
 			i = j
+		case '\\':
+			// filepath.Match already rejected an incomplete escape above.
+			i++
+			out.WriteString(regexp.QuoteMeta(string(runes[i])))
 		default:
-			out.WriteString(regexp.QuoteMeta(string(pattern[i])))
+			out.WriteString(regexp.QuoteMeta(string(runes[i])))
 		}
 	}
 	out.WriteByte('$')

@@ -52,9 +52,25 @@ func ReadableDirectory(path string) (string, error) {
 	return abs, nil
 }
 
+// Within accepts nonexistent descendants and compares existing ancestors by
+// filesystem identity. EvalSymlinks preserves case on case-insensitive volumes.
 func Within(parent, child string) bool {
 	rel, err := filepath.Rel(parent, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return true
+	}
+	parentInfo, err := os.Stat(parent)
+	if err != nil {
+		return false
+	}
+	for child = filepath.Clean(child); ; child = filepath.Dir(child) {
+		if info, err := os.Stat(child); err == nil && os.SameFile(parentInfo, info) {
+			return true
+		}
+		if filepath.Dir(child) == child {
+			return false
+		}
+	}
 }
 
 // Resolve the nearest existing ancestor, then append nonexistent components.

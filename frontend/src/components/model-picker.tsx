@@ -23,7 +23,10 @@ export function ModelPicker({disabled}: {disabled: boolean}) {
   useEffect(() => {
     if (!open) return;
     setDraft({provider: settings.provider, model: settings.model, thinkingLevel: settings.thinkingLevel || 'off'});
-    if (catalog) return;
+    // Connections can change while the menu is closed. Retire the old choices
+    // until this opening has read the current catalog.
+    setCatalog(null);
+    setError('');
     let active = true;
     void loadModels().then(result => {if (active) setCatalog(result);}).catch(failure => {if (active) setError(failure instanceof Error ? failure.message : String(failure));});
     return () => {active = false;};

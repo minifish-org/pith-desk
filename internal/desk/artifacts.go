@@ -88,10 +88,23 @@ func (s *Service) artifactRecordsLocked(id string) ([]artifactRecord, error) {
 	defer policy.root.Close()
 	type candidate struct{ path, name string }
 	calls := map[string]candidate{}
-	changes := map[string]fileChangeDetails{}
 	callCounts, resultCounts := map[string]int{}, map[string]int{}
-	successes := []string{}
+	type successfulChange struct {
+		callID, path string
+		change       fileChangeDetails
+	}
+	var successes []successfulChange
 	for _, entry := range manager.Context() {
+		if entry.Type == "custom" {
+			var custom struct {
+				Type string           `json:"customType"`
+				Data nestedFileChange `json:"data"`
+			}
+			if json.Unmarshal(entry.Payload, &custom) == nil && custom.Type == nestedFileChangeEntry && custom.Data.Path != "" {
+				successes = append(successes, successfulChange{path: custom.Data.Path, change: custom.Data.fileChangeDetails})
+			}
+			continue
+		}
 		if entry.Type != "message" {
 			continue
 		}
@@ -124,17 +137,16 @@ func (s *Service) artifactRecordsLocked(id string) ([]artifactRecord, error) {
 			resultCounts[result.ToolCallId]++
 			call, found := calls[result.ToolCallId]
 			if found && !result.IsError && call.name == result.ToolName {
-				successes = append(successes, result.ToolCallId)
-				changes[result.ToolCallId] = artifactSummary(call.name, result.Details)
+				successes = append(successes, successfulChange{callID: result.ToolCallId, path: call.path, change: artifactSummary(call.name, result.Details)})
 			}
 		}
 	}
-	for _, id := range successes {
+	for _, success := range successes {
 		// Reused/replayed IDs cannot identify one original successful operation.
-		if callCounts[id] != 1 || resultCounts[id] != 1 {
+		if id := success.callID; id != "" && (callCounts[id] != 1 || resultCounts[id] != 1) {
 			continue
 		}
-		path, err := policy.CanonicalPath(calls[id].path)
+		path, err := policy.CanonicalPath(success.path)
 		if err != nil {
 			continue
 		}
@@ -142,7 +154,7 @@ func (s *Service) artifactRecordsLocked(id string) ([]artifactRecord, error) {
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		change := changes[id]
+		change := success.change
 		records = append(records, artifactRecord{
 			path: path, additions: change.Additions, deletions: change.Deletions,
 			patch: change.Patch, patchTruncated: change.PatchTruncated,

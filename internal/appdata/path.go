@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/minifish-org/pith-desk/internal/workspacefs"
 )
 
 func Dir(requested string, development bool) (string, error) {
@@ -67,34 +69,14 @@ func canonicalDataPath(path string) (string, error) {
 }
 
 func dataPathsOverlap(a, b string) bool {
-	// Compare filesystem identity too: EvalSymlinks preserves spelling, while
-	// a case-insensitive volume can resolve another spelling to the same inode.
-	ancestor := func(parent, child string) bool {
-		parentInfo, err := os.Stat(parent)
-		if err != nil {
-			return false
-		}
-		for {
-			if info, err := os.Stat(child); err == nil && os.SameFile(parentInfo, info) {
-				return true
-			}
-			if filepath.Dir(child) == child {
-				return false
-			}
-			child = filepath.Dir(child)
-		}
-	}
-	if ancestor(a, b) || ancestor(b, a) {
+	if workspacefs.Within(a, b) || workspacefs.Within(b, a) {
 		return true
 	}
 	// Conservatively reserve the default app name across case variants on
 	// macOS, including when neither final directory has been created yet.
 	if runtime.GOOS == "darwin" {
 		a, b = strings.ToLower(a), strings.ToLower(b)
+		return workspacefs.Within(a, b) || workspacefs.Within(b, a)
 	}
-	within := func(parent, child string) bool {
-		rel, err := filepath.Rel(parent, child)
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-	}
-	return within(a, b) || within(b, a)
+	return false
 }

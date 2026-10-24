@@ -109,12 +109,20 @@ test('Server takeover retires terminal input while preserving unsent conversatio
 
 test('vim and top redraw across reconnect; unsaved editor state stays in the process',async ({page,host}) => {
   const root = host.state.workspaces[0].path;await writeFile(root+'/fullscreen.txt','Full-screen fixture 中文\n'+Array.from({length:40},(_,n)=>'Line '+n).join('\n'));
-  await startTerminal(page,host);await command(page,'vim -Nu NONE -n -i NONE fullscreen.txt');await expect(tools(page)).toContainText('Full-screen fixture');
+  await startTerminal(page,host);await command(page,'vim -Nu NONE -n -i NONE fullscreen.txt; echo vim-returned > vim-returned');await expect(tools(page)).toContainText('Full-screen fixture');
   await keyboard(page).press('i');await typeText(page,'UNSAVED 中文 ');await expect(tools(page)).toContainText('UNSAVED 中文');await page.reload();await showTerminal(page);
   // The unsaved editor state lives in the still-running vim process.
   await keyboard(page).press('Escape');await expect(tools(page)).toBeVisible();await typeKeys(page,':wq');await keyboard(page).press('Enter');
-  await expect.poll(() => file(root+'/fullscreen.txt')).toContain('UNSAVED 中文');await command(page,'top');await page.waitForTimeout(800);
-  await page.reload();await showTerminal(page);await keyboard(page).focus();await keyboard(page).press('q');await page.waitForTimeout(600);await keyboard(page).press('Control+c');await page.waitForTimeout(200);
+  await expect.poll(() => file(root+'/fullscreen.txt')).toContain('UNSAVED 中文');
+  // Saving precedes vim's terminal cleanup; only send another command after exit.
+  await expect.poll(() => file(root+'/vim-returned')).toBe('vim-returned\n');
+  await command(page,'top; echo top-returned > top-returned');
+  // top may spend seconds collecting its first sample under load. Wait for its
+  // full-screen output so q reaches top's input loop instead of the shell.
+  await expect(panel(page)).toContainText(/Processes:|Tasks:/,{timeout:10000});
+  await page.reload();await showTerminal(page);await expect(panel(page)).toContainText(/Processes:|Tasks:/);
+  await keyboard(page).focus();await keyboard(page).press('q');
+  await expect.poll(() => file(root+'/top-returned'),{timeout:10000}).toBe('top-returned\n');
   await command(page,'echo full-screen-returned > after-fullscreen');await expect.poll(() => file(root+'/after-fullscreen')).toBe('full-screen-returned\n');
 });
 

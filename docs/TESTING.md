@@ -74,6 +74,20 @@ These scenarios include delayed terminal closes across tab creation and workspac
 switches, a single close request from either control, and cost reads that refresh
 with their conversation/revision, retire late responses and retry after failure.
 
+For the resource, model-settings, Web lifetime and task-recovery regressions:
+
+```sh
+npm run test:ui -- frontend/e2e/settings-parity.spec.ts frontend/e2e/ui-consistency.spec.ts frontend/e2e/web-preview-lifecycle.spec.ts frontend/e2e/web-preview.spec.ts
+GOWORK=off CGO_ENABLED=0 go test ./internal/desk ./internal/workspacefs ./internal/appdata -run 'TestWorkspaceCase|TestWithinChecksCase|TestContinueRestoresOnlyUnrecorded|TestFindFilesMatchesUnicode|TestCodemodeFileChanges' -count=1
+```
+
+These cover failed resource reads and retry without replacement writes, refreshed
+model choices, retired provider-key results, workspace/drawer Web retention and
+closing during native page creation, workspace removal and delayed native placement.
+Go fixtures cover actual directory identity,
+admitted text/images before and after transcript persistence, Unicode file search,
+and approved nested file changes with diff, restart and branch projection.
+
 ## Required behavior
 
 | Responsibility | Maintained checks |
@@ -221,9 +235,11 @@ HTTP and WebSocket against IPv4-only and IPv6-only localhost projects, without
 changing their bind settings, default HTTP/HTTPS ports, project paths matching
 the bootstrap path and normal HTTPS certificate validation. The registered routes
 also participate in the all-endpoint anonymous/missing/revoked-lease regression.
-`frontend/tests/web-preview.test.ts` covers original workspace targets, late
-responses, independent new-tab completion after teardown, suspension, native
-viewport placement, explicit close and no automatic write replay.
+`frontend/e2e/web-preview-lifecycle.spec.ts` covers native page retention across
+workspace switches and narrow drawers, pending navigation after the view unmounts,
+explicit closure racing page creation, removed workspaces and ordered native
+visibility requests. Its native transport is mocked;
+the opt-in native test below verifies the actual page and retained JavaScript state.
 Workspace-tools tests retain old layouts and retain independent preview tabs without saving
 addresses or grants.
 
@@ -234,8 +250,8 @@ proxy, separate origins, blocked Desk API access, independent Server grants surv
 takeover, direct domain/public/private IP pages without Desk credentials,
 top-level X-Frame-Options pages and opening without an opener. Address submission uses Return. The opt-in
 `TestWebPreviewNativeIsolationAndSocket` covers the actual macOS WKWebView.
-It verifies a distinct native child page, retained hide/show, modal yielding and
-explicit destruction with no iframe. A bound native probe verifies localhost
+It verifies a distinct native child page, retained hide/show and workspace/drawer
+switches, modal yielding and explicit destruction with no iframe. A bound native probe verifies localhost
 project pages cannot call Go even in development builds. Its project binds only to IPv6 while the UI receives a localhost URL; the Vite
 browser scenario uses Vite's default bind settings to retain that real-world gap.
 Include `WebPreviewNative` in the native test filter; remote wildcard DNS/TLS and

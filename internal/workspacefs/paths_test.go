@@ -63,3 +63,40 @@ func TestRelativeGuardsSymlinksPrivateDataAndMissingPaths(t *testing.T) {
 		t.Fatal("private descendant allowed")
 	}
 }
+
+func TestWithinChecksCaseVariantsByFilesystemIdentity(t *testing.T) {
+	base, err := Directory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, variant := filepath.Join(base, "Project"), filepath.Join(base, "project")
+	for _, path := range []string{parent, variant} {
+		if err := os.MkdirAll(filepath.Join(path, "nested"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parentInfo, err := os.Stat(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	variantInfo, err := os.Stat(variant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	same := os.SameFile(parentInfo, variantInfo)
+	for _, child := range []string{variant, filepath.Join(variant, "nested"), filepath.Join(variant, "missing", "new.txt")} {
+		if got := Within(parent, child); got != same {
+			t.Errorf("Within(%q, %q) = %v; same directory identity = %v", parent, child, got, same)
+		}
+	}
+	if !Within(parent, filepath.Join(parent, "missing", "new.txt")) {
+		t.Fatal("a new file inside the workspace was rejected")
+	}
+	if Within(parent, parent+"-sibling/new.txt") || Within(filepath.Join(parent, "nested"), variant) {
+		t.Fatal("an unrelated or parent directory was treated as a descendant")
+	}
+	_, err = Relative(variant, parent, filepath.Join(variant, "missing", "new.txt"))
+	if (err != nil) != same {
+		t.Fatalf("private boundary for case variant: same=%v, error=%v", same, err)
+	}
+}

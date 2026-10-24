@@ -31,6 +31,9 @@ type durableInput struct {
 	Images        []aitypes.ImageContent `json:"images,omitempty"`
 	Compact       bool                   `json:"compact"`
 	EditMessageID string                 `json:"editMessageId,omitempty"`
+	// Nil identifies old journals. Empty identifies a newly empty transcript.
+	// Use the last stored entry, not the selected branch's possibly older leaf.
+	AfterEntryID *string `json:"afterEntryId,omitempty"`
 }
 
 type TaskJournal struct {
@@ -47,6 +50,21 @@ func (r *RunExecution) admitDurableLocked(id string, workspace Workspace, config
 
 func (r *RunExecution) admitDurableWithQueueLocked(id string, workspace Workspace, config savedConfig, model *aitypes.Model, input durableInput, pending []QueuedMessage) (*deskDurable, error) {
 	s := r.dependencies
+	if !input.Compact {
+		manager, err := (SessionAdapter{dataDir: s.dataDir}).read(id)
+		if err != nil {
+			return nil, err
+		}
+		last := ""
+		if manager != nil {
+			entries := manager.Entries()
+			if len(entries) > 0 {
+				last = entries[len(entries)-1].ID
+			}
+			_ = manager.Close()
+		}
+		input.AfterEntryID = &last
+	}
 	path := s.journals.dir(id)
 	if err := os.MkdirAll(path, 0700); err != nil {
 		return nil, err

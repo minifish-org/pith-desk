@@ -107,9 +107,19 @@ func (s *Service) ContinueTask(id string) error {
 	pending := append([]QueuedMessage(nil), s.active.QueuedMessages...)
 	instruction := "Review the previous conversation and inspect the current workspace before continuing the unfinished task. Successful actions may already have taken effect. Do not repeat completed writes, commands, or external actions. If an external action has an uncertain result, ask me to confirm it before proceeding."
 	var images []aitypes.ImageContent
-	if r.recoveredInput != nil && len(s.active.Messages) == 0 {
-		instruction += "\nThe admitted request was: " + r.recoveredInput.Text
-		images = r.recoveredInput.Images
+	if input := r.recoveredInput; input != nil && !input.Compact {
+		recorded := len(s.active.Messages) > 0 // Preserve conservative recovery for old journals.
+		if input.AfterEntryID != nil {
+			var err error
+			recorded, err = s.sessionAdapter().hasPromptAfter(id, *input.AfterEntryID)
+			if err != nil {
+				return fmt.Errorf("Check admitted task input before continuing: %w", err)
+			}
+		}
+		if !recorded {
+			instruction += "\nThe admitted request was: " + input.Text
+			images = input.Images
+		}
 	}
 	for index := range pending {
 		pending[index].ID = newID()

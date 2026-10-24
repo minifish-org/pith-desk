@@ -13,6 +13,7 @@ import {emitAppEvent} from '@/lib/events.ts';
 import {addImageFiles, disposeComposer, enableDraftRecovery, flushAllDrafts, loadComposerDraft, preserveTexts, setDropPending} from '@/actions/composer.ts';
 import {acknowledgeViewed, clearNotices, observeNotices} from '@/actions/notices.ts';
 import {clearFilePreview, loadArtifacts} from '@/actions/files.ts';
+import {pruneWorkspaceTools} from '@/actions/workspace-tools.ts';
 import {installAppLifecycle, installNativeDrop, installNativeMenu, installWorkspaceFileDrop} from '@/lib/native.ts';
 import {installBrowserFileDrop} from '@/lib/file-drop.ts';
 import {installVisualViewportTracking} from '@/lib/viewport.ts';
@@ -85,6 +86,7 @@ async function mountApplication(): Promise<void> {
 function snapshotChanged(next: State, previous: State, initialized: boolean): void {
   const store = desk();
   store.setSnapshot(next, appInstance?.connection ?? 'connecting', appInstance?.receivedAt ?? performance.now());
+  pruneWorkspaceTools(next.workspaces.map(workspace => workspace.id));
   const mode = appearanceMode(next.settings.appearance);
   if (mode !== store.appearance) {
     store.setAppearance(mode);

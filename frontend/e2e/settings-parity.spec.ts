@@ -178,3 +178,62 @@ test('removing a saved API key keeps Settings open', async ({page}) => {
   await expect(settings).toBeVisible();
   await expect(settings.getByText('API key removed.', {exact: true})).toBeVisible();
 });
+
+test('an existing resource stays read-only after a failed read and can retry without writing', async ({page}) => {
+  await page.evaluate(() => {
+    const fixture = window as any, original = window.fetch.bind(window);
+    fixture.review.resources = {instructions: [{name: 'AGENTS.md', path: '/tmp/pith-review/AGENTS.md'}], skills: [], templates: [], diagnostics: []};
+    fixture.resourceReads = 0;
+    window.fetch = async (input: any, init: any) => {
+      if (new URL(String(input), location.href).pathname === '/api/resource-content') {
+        fixture.resourceReads++;
+        if (fixture.resourceReads === 1) return Response.json({error: 'Temporary resource read failure'}, {status: 503});
+        await new Promise<void>(resolve => {fixture.releaseResourceRead = resolve;});
+      }
+      return original(input, init);
+    };
+  });
+  await page.getByRole('button', {name: 'Workspace resources', exact: true}).click();
+  await page.getByRole('dialog', {name: 'Workspace resources', exact: true}).getByRole('button', {name: 'Edit', exact: true}).click();
+  const editor = page.getByRole('dialog', {name: 'Edit resource', exact: true});
+  await expect(editor.getByRole('alert')).toHaveText('Temporary resource read failure');
+  await expect(editor.getByRole('button', {name: 'Save resource', exact: true})).toBeDisabled();
+  await expect(editor.getByLabel('Markdown', {exact: true})).not.toBeEditable();
+  await editor.getByRole('button', {name: 'Retry loading', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => (window as any).resourceReads)).toBe(2);
+  await expect(editor.getByRole('button', {name: 'Save resource', exact: true})).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).review.requests.filter((entry: any) => entry.path === '/api/resource'))).toHaveLength(0);
+  await page.evaluate(() => (window as any).releaseResourceRead());
+  await expect(editor.getByLabel('Markdown', {exact: true})).toHaveValue('# Saved instructions');
+  await editor.getByLabel('Markdown', {exact: true}).fill('# Revised saved instructions');
+  await editor.getByRole('button', {name: 'Save resource', exact: true}).click();
+  await expect(editor).toHaveCount(0);
+  const writes = await page.evaluate(() => (window as any).review.requests.filter((entry: any) => entry.path === '/api/resource'));
+  expect(writes).toHaveLength(1);
+  expect(writes[0].body).toMatchObject({workspaceId: 'w', path: '/tmp/pith-review/AGENTS.md', content: '# Revised saved instructions', remove: false});
+});
+
+for (const success of [false, true]) test(`an earlier key-removal ${success ? 'success' : 'failure'} preserves the next provider draft`, async ({page}) => {
+  await page.evaluate(success => {
+    const fixture = window as any, original = window.fetch.bind(window);
+    fixture.review.models.providers.push({...fixture.review.models.providers[0], id: 'second', name: 'Second provider', baseUrl: 'http://localhost/second'});
+    window.fetch = async (input: any, init: any) => {
+      if (new URL(String(input), location.href).pathname === '/api/provider-config' && JSON.parse(init?.body || '{}').clearApiKey) {
+        await new Promise<void>(resolve => {fixture.releaseKeyRemoval = resolve;});
+        if (!success) return Response.json({error: 'Earlier key removal rejected'}, {status: 503});
+      }
+      return original(input, init);
+    };
+  }, success);
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
+  await settings.getByRole('button', {name: 'Remove saved key', exact: true}).click();
+  await settings.getByRole('combobox', {name: 'Provider'}).click();
+  await page.getByRole('option', {name: /Second provider/}).click();
+  await settings.getByLabel('API key', {exact: true}).fill('second-key-draft');
+  await page.evaluate(() => (window as any).releaseKeyRemoval());
+  await expect(settings.getByRole('button', {name: 'Save settings', exact: true})).toBeEnabled();
+  await expect(settings.getByLabel('API key', {exact: true})).toHaveValue('second-key-draft');
+  await expect(settings.getByText('API key removed.', {exact: true})).toHaveCount(0);
+  await expect(settings.getByRole('alert')).toHaveCount(0);
+});

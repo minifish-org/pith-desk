@@ -74,7 +74,8 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.CreateConversation(workspace.ID); err != nil {
+	conversation, err := service.CreateConversation(workspace.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
 	server, err := startNativeSmokeHost(service)
@@ -196,7 +197,7 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	clickUntil(`document.querySelector('[data-slot="dialog-close"]')?.click();return true;`, `!document.querySelector('[role="dialog"]')`)
 	waitBrowser(true)
 	// A second native page must retain the first page and its live state.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	// A real Go binding must remain unreachable from localhost preview content,
 	// including a plain go run/go test development build.
@@ -207,6 +208,47 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 
 	if _, err := browser.Page().EvalContext(ctx, `window.retainedNativeState='kept'`); err != nil {
 		t.Fatal(err)
+	}
+	// Workspace views and narrow drawers may unmount. They must keep the same
+	// native page, including state that is deliberately absent from preferences.
+	other, err := service.AddWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateConversation(other.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitNativeDropCondition(t, win, `!document.querySelector('input[aria-label="Web address"]')`)
+	waitBrowser(false)
+	if browser.IsDestroyed() {
+		t.Fatal("switching workspace destroyed the native page")
+	}
+	if err := service.OpenConversation(conversation.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitNativeDropCondition(t, win, `document.querySelector('input[aria-label="Web address"]')?.value === `+strconv.Quote(projectURL))
+	if waitBrowser(true) != browser {
+		t.Fatal("returning to workspace replaced the native page")
+	}
+	win.SetSize(600, 760)
+	waitNativeDropCondition(t, win, `innerWidth < 900 && !!document.querySelector('button[aria-label="Toggle tools"]')`)
+	clickUntil(`document.querySelector('button[aria-label="Toggle tools"]')?.click();return true;`, `!!document.querySelector('[data-drawer-panel] input[aria-label="Web address"]')`)
+	if waitBrowser(true) != browser {
+		t.Fatal("narrow drawer replaced the native page")
+	}
+	clickUntil(`document.querySelector('button[aria-label="Close tools"]')?.click();return true;`, `!document.querySelector('[data-drawer-panel]')`)
+	waitBrowser(false)
+	clickUntil(`document.querySelector('button[aria-label="Toggle tools"]')?.click();return true;`, `!!document.querySelector('[data-drawer-panel] input[aria-label="Web address"]')`)
+	if waitBrowser(true) != browser {
+		t.Fatal("reopening the narrow drawer replaced the native page")
+	}
+	win.SetSize(1320, 860)
+	waitNativeDropCondition(t, win, `innerWidth >= 900 && !document.querySelector('[data-drawer-panel]')`)
+	if waitBrowser(true) != browser {
+		t.Fatal("restoring wide layout replaced the native page")
+	}
+	if value, err := browser.Page().EvalContext(ctx, `window.retainedNativeState`); err != nil || value != "kept" {
+		t.Fatalf("workspace/drawer navigation lost native page state: %v %v", value, err)
 	}
 	nativeDropEval(t, win, `const b=document.querySelector('button[aria-label="New tool tab"]');for(const type of ['pointerdown','pointerup'])b.dispatchEvent(new PointerEvent(type,{bubbles:true,button:0,pointerId:1}));return true;`)
 	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[role="menuitem"]')].some(b=>b.textContent==='New Web')`)
@@ -236,5 +278,15 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	}
 	if second.IsDestroyed() {
 		t.Fatal("closing one native tab destroyed another")
+	}
+	if err := service.RemoveWorkspace(workspace.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for !second.IsDestroyed() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !second.IsDestroyed() {
+		t.Fatal("removing the workspace left its native page alive")
 	}
 }
