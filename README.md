@@ -752,7 +752,7 @@ Read the frontend along its data flow:
 | `stores/desk.ts` | Project the latest Host snapshot and hold shared transient UI state. |
 | `actions/` | Own typed requests, business coordination, original operation targets and persistence, grouped by domain. Use the generated contract types rather than copying request shapes. |
 | `stores/workspace-tools.ts` + `actions/workspace-tools.ts` | Keep each workspace's tool layout and pending closes independent; preserve the saved tab format and apply async results to the original workspace's current layout. |
-| `App.tsx` → `components/workspace-layout.tsx` | Compose the shell, conversation, composer and tool rails. Dialogs are dispatched by `components/dialogs/registry.tsx`. |
+| `App.tsx` → `components/workspace-layout.tsx` | Compose the shell, conversation, composer and tool rails; own the shared narrow-screen drawer and its focus/close lifecycle. Dialogs are dispatched by `components/dialogs/registry.tsx`. |
 | `components/` + `hooks/` | Render state and emit intents; own local disclosure, focus and rendering lifetimes. A scoped async read must retire when its target or view changes. |
 | `lib/derive.ts`, `lib/permissions.ts`, `lib/events.ts` | Pure snapshot projections, permission metadata and typed page-local signals. |
 

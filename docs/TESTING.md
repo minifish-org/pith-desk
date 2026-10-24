@@ -88,6 +88,18 @@ Go fixtures cover actual directory identity,
 admitted text/images before and after transcript persistence, Unicode file search,
 and approved nested file changes with diff, restart and branch projection.
 
+For shared drawer, workspace draft and provider-editor ownership:
+
+```sh
+npm run test:ui -- frontend/e2e/sidebar-controls.spec.ts frontend/e2e/draft-scope.spec.ts frontend/e2e/settings-parity.spec.ts
+GOWORK=off CGO_ENABLED=0 go test ./internal/desk -run 'TestCompactionUsesSavedCredential|TestNativeProvidersUsedForAgentProbeAndCompaction|TestManualCompactionKeepsHistoryAndMetersSummary' -count=1
+```
+
+These cover 800px drawers and terminal/dialog focus, initial workspace drafts
+after deleting the active conversation in both modes, and retired provider-edit
+results. Compaction checks exercise the same summary stream used by real tasks,
+including saved credentials, provider protocols, history and metered usage.
+
 ## Required behavior
 
 | Responsibility | Maintained checks |

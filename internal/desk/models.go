@@ -417,22 +417,6 @@ func validatedConfig(input ConfigInput, current savedConfig) (savedConfig, error
 	return next, nil
 }
 
-// Probe and compaction use the same Pith provider implementation as the agent.
-// Explicit credentials prevent fallback to another app's ambient credentials.
-func providerStream(model *aitypes.Model, transcript *aitypes.TranscriptContext, options *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream {
-	runtime, err := modelRuntime()
-	if err == nil && model != nil {
-		if provider := runtime.GetProvider(string(model.Provider)); provider != nil {
-			return provider.StreamSimple(*model, transcript, options)
-		}
-	}
-	stream := aitypes.NewAssistantMessageEventStream()
-	message := "The selected Pith provider is unavailable"
-	terminal := aitypes.AssistantMessage{Role: aitypes.AssistantMessageRole, StopReason: aitypes.StopReasonError, ErrorMessage: &message}
-	stream.Push(aitypes.NewErrorEvent(aitypes.StopReasonError, terminal))
-	return stream
-}
-
 // SelectModel changes only the active selection, preserving the saved endpoint
 // and key for that provider. It cannot race an in-flight agent or probe.
 func (s *Service) SelectModel(provider, model, level string) error {

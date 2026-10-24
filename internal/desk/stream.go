@@ -29,10 +29,6 @@ func (r *RunExecution) appendAssistantText(event aitypes.AssistantMessageEvent) 
 // Forward SDK events unchanged, but commit request usage before publishing the
 // terminal event. Retries and summaries are separate ledger records, without
 // double-counting message/session totals or recalculating old prices.
-func (s *Service) meteredStream(ctx context.Context, id, runID string, config savedConfig, base agenttypes.StreamFn, purpose func() string, observe func(aitypes.AssistantMessageEvent)) agenttypes.StreamFn {
-	return meterStream(ctx, id, runID, config, base, purpose, observe, s.recordCost)
-}
-
 func meterStream(ctx context.Context, id, runID string, config savedConfig, base agenttypes.StreamFn, purpose func() string, observe func(aitypes.AssistantMessageEvent), recordCost func(string, string, string, *aitypes.Model, savedConfig, aitypes.AssistantMessage)) agenttypes.StreamFn {
 	return func(model *aitypes.Model, transcript *aitypes.TranscriptContext, options *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream {
 		requestPurpose := purpose()

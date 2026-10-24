@@ -120,6 +120,7 @@ for (const success of [false, true]) test(`an earlier provider ${success ? 'save
     fixture.review.models.providers.push({...provider, id: 'second', name: 'Second provider', baseUrl: 'http://localhost/second'});
     window.fetch = async (input: any, init: any) => {
       if (new URL(String(input), location.href).pathname === '/api/provider-config' && init?.method === 'POST') {
+        fixture.providerSaveTarget = JSON.parse(init.body);
         await new Promise<void>(resolve => {fixture.releaseProviderSave = resolve;});
         if (!success) return Response.json({error: 'Earlier provider rejected'}, {status: 409});
       }
@@ -141,7 +142,56 @@ for (const success of [false, true]) test(`an earlier provider ${success ? 'save
   await expect(settings.getByRole('combobox', {name: 'Provider'})).toContainText('Second provider');
   await expect(settings.getByLabel('API key')).toHaveValue('second-key-draft');
   await expect(settings.getByRole('alert')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).providerSaveTarget)).toEqual({provider: 'custom-test', baseUrl: 'http://localhost/v1', apiKey: 'first-key'});
+  expect(await page.evaluate(() => (window as any).reviewState.settings.provider)).toBe('custom-test');
 });
+
+for (const change of ['provider', 'key', 'endpoint', 'close']) test(`a connection test is retired when its ${change} changes`, async ({page}) => {
+  await page.evaluate(() => {
+    const fixture = window as any, original = window.fetch.bind(window);
+    fixture.review.models.providers.push({...fixture.review.models.providers[0], id: 'second', name: 'Second provider', baseUrl: 'http://localhost/second'});
+    let firstProbe = true;
+    window.fetch = async (input: any, init: any) => {
+      if (new URL(String(input), location.href).pathname === '/api/test-provider-connection' && firstProbe) {
+        firstProbe = false;
+        fixture.probeTarget = JSON.parse(init.body);
+        init.signal.addEventListener('abort', () => {fixture.probeAborted = true;});
+        // A late transport can still complete after cancellation.
+        await new Promise<void>(resolve => {fixture.releaseOldProbe = resolve;});
+        return Response.json({ok: false, message: 'Earlier connection failed'});
+      }
+      return original(input, init);
+    };
+  });
+  await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
+  await settings.getByLabel('API key', {exact: true}).fill('first-key');
+  await settings.getByRole('button', {name: 'Test connection', exact: true}).click();
+  await expect(settings.getByRole('button', {name: 'Cancel test', exact: true})).toBeVisible();
+  if (change === 'provider') {
+    await settings.getByRole('combobox', {name: 'Provider'}).click();
+    await page.getByRole('option', {name: /Second provider/}).click();
+  } else if (change === 'key') {
+    await settings.getByLabel('API key', {exact: true}).fill('new-key-draft');
+  } else if (change === 'endpoint') {
+    await settings.getByText('Advanced connection settings', {exact: true}).click();
+    await settings.getByLabel('API base URL', {exact: true}).fill('http://localhost/new-endpoint');
+  } else {
+    await page.keyboard.press('Escape');
+    await expect(settings).toHaveCount(0);
+    await page.getByRole('button', {name: 'Settings', exact: true}).click();
+  }
+  await expect.poll(() => page.evaluate(() => (window as any).probeAborted)).toBe(true);
+  await expect(settings.getByRole('status')).toHaveCount(0);
+  await settings.getByRole('button', {name: 'Test connection', exact: true}).click();
+  await expect(settings.getByRole('status')).toHaveText('Fixture connected');
+  await page.evaluate(() => (window as any).releaseOldProbe());
+  await expect(settings.getByRole('status')).toHaveText('Fixture connected');
+  expect(await page.evaluate(() => (window as any).probeTarget.provider)).toBe('custom-test');
+  if (change === 'key') await expect(settings.getByLabel('API key', {exact: true})).toHaveValue('new-key-draft');
+  if (change === 'endpoint') await expect(settings.getByLabel('API base URL', {exact: true})).toHaveValue('http://localhost/new-endpoint');
+});
+
 test('custom model connection editor returns to Settings', async ({page}) => {
   await page.getByRole('button', {name: 'Settings', exact: true}).click();
   const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
@@ -219,6 +269,7 @@ for (const success of [false, true]) test(`an earlier key-removal ${success ? 's
     fixture.review.models.providers.push({...fixture.review.models.providers[0], id: 'second', name: 'Second provider', baseUrl: 'http://localhost/second'});
     window.fetch = async (input: any, init: any) => {
       if (new URL(String(input), location.href).pathname === '/api/provider-config' && JSON.parse(init?.body || '{}').clearApiKey) {
+        fixture.keyRemovalTarget = JSON.parse(init.body);
         await new Promise<void>(resolve => {fixture.releaseKeyRemoval = resolve;});
         if (!success) return Response.json({error: 'Earlier key removal rejected'}, {status: 503});
       }
@@ -236,4 +287,6 @@ for (const success of [false, true]) test(`an earlier key-removal ${success ? 's
   await expect(settings.getByLabel('API key', {exact: true})).toHaveValue('second-key-draft');
   await expect(settings.getByText('API key removed.', {exact: true})).toHaveCount(0);
   await expect(settings.getByRole('alert')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).keyRemovalTarget)).toEqual({provider: 'custom-test', baseUrl: '', clearApiKey: true});
+  expect(await page.evaluate(() => (window as any).reviewState.settings.provider)).toBe('custom-test');
 });

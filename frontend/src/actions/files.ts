@@ -16,8 +16,7 @@ export async function downloadConversationFile(id: string, path: string): Promis
     const result = await request('/api/conversation-file', {id, path});
     // Native cancellation is a completed native action; it must not download.
     if (result.native) return;
-    const saved = await saveBlob(await app().download('/api/conversation-file', {id, path}), result.name);
-    if (!saved.ok) throw new Error(saved.error);
+    await saveBlob(await app().download('/api/conversation-file', {id, path}), result.name);
   } catch (error) {
     setError(error instanceof Error ? error.message : String(error));
   } finally {
@@ -41,8 +40,7 @@ export async function workspaceFileAction(action: 'open' | 'reveal' | 'copy' | '
     if (action === 'download' || (action === 'open' && (runtime.server || !runtime.nativeClipboard))) {
       const result = await request('/api/workspace-file', {workspaceId, path});
       if (result.native) return;
-      const saved = await saveBlob(await app().download('/api/workspace-file', {workspaceId, path}), result.name);
-      if (!saved.ok) throw new Error(saved.error);
+      await saveBlob(await app().download('/api/workspace-file', {workspaceId, path}), result.name);
       return;
     }
     if (action === 'copy') {

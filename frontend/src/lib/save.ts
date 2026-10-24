@@ -1,11 +1,6 @@
-export interface SaveResult {
-  ok: boolean;
-  error?: string;
-}
-
 // Use a browser download so the host/browser owns the destination prompt.
 // Cancellation is a native action and never triggers an automatic retry.
-export async function saveBlob(blob: Blob, name: string): Promise<SaveResult> {
+export async function saveBlob(blob: Blob, name: string): Promise<void> {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -19,5 +14,4 @@ export async function saveBlob(blob: Blob, name: string): Promise<SaveResult> {
     anchor.remove();
     URL.revokeObjectURL(url);
   }, 10_000);
-  return {ok: true};
 }

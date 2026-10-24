@@ -34,27 +34,6 @@ func (r *RunExecution) updateTimingLocked() {
 	}
 }
 
-func (r *RunExecution) observedCompactionPolicy(model *aitypes.Model, key string) codingagent.RunPolicy {
-	s := r.dependencies
-	policy := compactionPolicy(model, key)
-	summarize := policy.Summarize
-	policy.Summarize = func(ctx context.Context, messages []agenttypes.AgentMessage) (string, error) {
-		s.mu.Lock()
-		r.Runtime.Phase = "compacting"
-		s.changedLocked()
-		s.mu.Unlock()
-		result, err := summarize(ctx, messages)
-		if err == nil {
-			s.mu.Lock()
-			r.Runtime.Phase = "working"
-			s.changedLocked()
-			s.mu.Unlock()
-		}
-		return result, err
-	}
-	return policy
-}
-
 func (r *RunExecution) loadRuntimeLocked(id string) error {
 	s := r.dependencies
 	var receipt runReceipt
@@ -78,16 +57,15 @@ func (r *RunExecution) loadRuntimeLocked(id string) error {
 	return r.recoverDurableLocked(id)
 }
 
-// ContinueTask is a new explicit instruction, never a replay of the old request.
-// The SDK restores the canonical transcript, including completed tool results.
 func (r *RunExecution) compactionWithStream(model *aitypes.Model, key string, stream agenttypes.StreamFn) codingagent.RunPolicy {
 	s := r.dependencies
-	policy := r.observedCompactionPolicy(model, key)
+	policy := codingagent.RunPolicy{CompactReserveTokens: int(model.MaxTokens), KeepRecentMessages: 16}
 	policy.Summarize = func(ctx context.Context, messages []agenttypes.AgentMessage) (string, error) {
 		s.mu.Lock()
 		r.Runtime.Phase = "compacting"
 		s.changedLocked()
 		s.mu.Unlock()
+		// Summarization creates fresh options; keep the session's explicit credential.
 		bound := func(m *aitypes.Model, t *aitypes.TranscriptContext, o *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream {
 			request := aitypes.SimpleStreamOptions{}
 			if o != nil {

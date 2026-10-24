@@ -1,13 +1,13 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {Download, LoaderCircle, RefreshCw} from 'lucide-react';
 import {cn} from '@/lib/utils';
-import {closeModalId, desk, useDesk, type ModalOf} from '@/stores/desk.ts';
+import {closeModalId, useDesk, type ModalOf} from '@/stores/desk.ts';
 import {runtime} from '@/lib/runtime.ts';
 import {onAppEvent} from '@/lib/events.ts';
 import {applyAppearance} from '@/actions/core.ts';
 import {exportDiagnostics, saveAppearance, updateAction, updateStatus} from '@/actions/settings.ts';
 import {
-  loadModels, openCustomConnection, providerAction, removeProviderKey, saveProviderConfig, testProviderConnection,
+  createProviderEditor, emptyProviderEditor, loadModels, openCustomConnection, providerAction,
 } from '@/actions/models.ts';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -25,15 +25,14 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
   const [apiKey, setApiKey] = useState('');
   const [advanced, setAdvanced] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [test, setTest] = useState<{message: string; ok?: boolean}>({message: ''});
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState('');
+  const [edit, setEdit] = useState(emptyProviderEditor);
+  const [editor] = useState(() => createProviderEditor(setEdit, () => setApiKey('')));
   const [appearance, setAppearance] = useState(settings.appearance || 'system');
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
-  const providerGeneration = useRef(0);
-  const probe = useRef<AbortController | null>(null);
+  const {error, saved, test} = edit;
+  const saving = edit.pending === 'save';
+  const testing = edit.pending === 'test';
+  const providerDraft = {provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})};
 
   const provider = catalog?.providers?.find(entry => entry.id === providerId) || catalog?.providers?.[0];
   const keyStatus = useMemo(() => {
@@ -51,14 +50,22 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
       setCatalog(result);
       const next = (result.providers || []).find(entry => entry.id === settings.provider) || (result.providers || [])[0];
       if (next) {
+        editor.reset();
         setProviderId(next.id);
         setBaseUrl(next.baseUrl);
+        setApiKey('');
       }
-    }).catch(failure => {if (active) setError(failure instanceof Error ? failure.message : String(failure));});
+    }).catch(failure => {if (active) setEdit(current => ({...current, error: failure instanceof Error ? failure.message : String(failure)}));});
     return () => {active = false;};
-  }, [settings.provider]);
+  }, [settings.provider, editor]);
 
-  useEffect(() => onAppEvent('modelConnectionsChanged', () => {void loadModels().then(setCatalog).catch(() => {});}), []);
+  useEffect(() => {
+    let active = true;
+    const off = onAppEvent('modelConnectionsChanged', () => {void loadModels().then(result => {if (active) setCatalog(result);}).catch(() => {});});
+    return () => {active = false; off();};
+  }, []);
+
+  useEffect(() => () => editor.dispose(), [editor]);
 
   useEffect(() => {
     if (runtime.server) return;
@@ -78,45 +85,21 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
 
   useEffect(() => {
     // A signed-in provider never forwards a stale API-key draft.
-    if (provider?.signedIn) setApiKey('');
-  }, [provider?.signedIn]);
+    if (provider?.signedIn) {editor.reset(); setApiKey('');}
+  }, [provider?.signedIn, editor]);
 
   const choose = (id: string) => {
     const next = catalog?.providers?.find(entry => entry.id === id);
     if (!next) return;
-    providerGeneration.current++;
+    editor.reset();
     setProviderId(next.id);
     setBaseUrl(next.baseUrl);
     setApiKey('');
-    setTest({message: ''});
-    setError('');
-    setSaved('');
   };
 
   const disabled = busy || running;
-  // A pending save must not freeze the form: choosing another provider is how a
-  // user abandons that draft. The generation guard keeps the earlier result out.
+  // Edits abandon earlier results; a pending save must not freeze the form.
   const fieldsDisabled = running;
-
-  const runConnectionTest = async (): Promise<void> => {
-    if (!provider) return;
-    if (testing) {probe.current?.abort(); return;}
-    const controller = new AbortController();
-    probe.current = controller;
-    setTesting(true);
-    setTest({message: 'Testing streaming and tool calling…'});
-    try {
-      const result = await testProviderConnection({provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})}, controller.signal);
-      if (probe.current === controller) setTest({message: result.message, ok: result.ok});
-    } catch (failure) {
-      if (probe.current === controller) setTest({message: controller.signal.aborted ? 'Test cancelled.' : failure instanceof Error ? failure.message : String(failure), ok: false});
-    } finally {
-      if (probe.current === controller) {
-        probe.current = null;
-        setTesting(false);
-      }
-    }
-  };
 
   return (
     <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
@@ -203,7 +186,7 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
                         aria-label="Sign in with provider"
                         onClick={async () => {
                           const result = await providerAction(provider.signedIn ? 'logout' : 'login', provider);
-                          if (!result.ok) setError(result.error || '');
+                          if (!result.ok) setEdit(current => ({...current, error: result.error || ''}));
                         }}
                       >
                         {provider.signedIn ? `Sign out of ${provider.name}` : `Sign in with ${provider.name}`}
@@ -230,7 +213,7 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
                         aria-label="API key"
                         className={keyStatus.retained ? 'pr-20' : undefined}
                         placeholder={keyStatus.retained ? 'Leave blank to keep this provider’s key' : provider?.custom ? 'Optional API key for this endpoint' : 'Paste this provider’s API key'}
-                        value={apiKey} onChange={event => {setApiKey(event.target.value); setSaved('');}}
+                        value={apiKey} onChange={event => {editor.reset(); setApiKey(event.target.value);}}
                         disabled={fieldsDisabled}
                       />
                       {keyStatus.retained ? (
@@ -239,17 +222,7 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
                           className="absolute top-1/2 right-1 h-8 -translate-y-1/2 px-2 text-destructive hover:text-destructive"
                           aria-label="Remove saved key"
                           disabled={disabled || testing || saving}
-                          onClick={async () => {
-                            setSaved('');
-                            const generation = providerGeneration.current;
-                            const ok = await removeProviderKey({provider: providerId, baseUrl});
-                            if (generation !== providerGeneration.current) return;
-                            if (ok) {
-                              setApiKey('');
-                              setSaved('API key removed.');
-                              void loadModels().then(setCatalog).catch(() => {});
-                            } else setError(desk().activity.error);
-                          }}
+                          onClick={() => {void editor.run('remove', providerDraft);}}
                         >
                           Remove
                         </Button>
@@ -267,7 +240,7 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
                   <summary className="cursor-pointer text-[12px] text-muted-foreground">Advanced connection settings</summary>
                   <div className="mt-2 space-y-1.5">
                     <label className="text-[12px] font-medium" htmlFor="provider-url">API base URL</label>
-                    <Input id="provider-url" aria-label="API base URL" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} disabled={fieldsDisabled} />
+                    <Input id="provider-url" aria-label="API base URL" value={baseUrl} onChange={event => {editor.reset(); setBaseUrl(event.target.value);}} disabled={fieldsDisabled} />
                     <p className="text-[11px] text-muted-foreground">{runtime.server ? 'Model requests run on the server. localhost refers to the server, not this browser.' : 'Override the endpoint for proxies or compatible services that speak the selected provider’s protocol.'}</p>
                   </div>
                 </details>
@@ -276,26 +249,13 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
                   <Button
                     size="sm" variant="secondary" disabled={disabled || !provider}
                     title="Check streaming and tool calling without saving"
-                    onClick={() => {void runConnectionTest();}}
+                    onClick={() => {void editor.run('test', providerDraft);}}
                   >
                     {testing ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}{testing ? 'Cancel test' : 'Test connection'}
                   </Button>
                   <Button
                     size="sm" className={undefined} disabled={disabled || saving || testing || !provider}
-                    onClick={async () => {
-                      setSaving(true);
-                      setError('');
-                      const generation = providerGeneration.current;
-                      try {
-                        const ok = await saveProviderConfig({provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})});
-                        if (generation !== providerGeneration.current) return;
-                        if (ok) {
-                          setApiKey('');
-                          setSaved('Provider saved.');
-                          void loadModels().then(setCatalog).catch(() => {});
-                        } else setError(desk().activity.error);
-                      } finally {setSaving(false);}
-                    }}
+                    onClick={() => {void editor.run('save', providerDraft);}}
                   >
                     {saving ? <LoaderCircle className="size-3.5 animate-spin" /> : null}Save settings
                   </Button>

@@ -71,7 +71,7 @@ func TestContinueRestoresOnlyUnrecordedAdmittedInputInExistingConversation(t *te
 					s.mu.Unlock()
 					t.Fatalf("fixture: %v %v", err, modelErr)
 				}
-				journal, err := run.admitDurableLocked(id, run.workspace, s.connections.taskConfig(), model, durableInput{RunID: run.Runtime.RunID, Text: text, Images: []aitypes.ImageContent{attachment}})
+				journal, err := run.admitDurableWithQueueLocked(id, run.workspace, s.connections.taskConfig(), model, durableInput{RunID: run.Runtime.RunID, Text: text, Images: []aitypes.ImageContent{attachment}}, nil)
 				s.mu.Unlock()
 				if err != nil {
 					t.Fatal(err)

@@ -353,7 +353,7 @@ func permissionService(t *testing.T) (*Service, *codingagent.ToolRegistry, strin
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = policy.root.Close() })
-	registry, err := s.buildTools(policy)
+	registry, err := s.active.buildTools(policy)
 	if err != nil {
 		t.Fatal(err)
 	}

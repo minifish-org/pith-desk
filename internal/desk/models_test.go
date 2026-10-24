@@ -267,11 +267,16 @@ func TestNativeProvidersUsedForAgentProbeAndCompaction(t *testing.T) {
 			if st.Failure != nil || countText(st.Messages, "Native adapter works.") == 0 {
 				t.Fatalf("native agent failed: %+v", st)
 			}
-			model, err := resolveConfiguredModel(s.connections.config)
+			config := s.connections.taskConfig()
+			model, err := resolveConfiguredModel(config)
 			if err != nil {
 				t.Fatal(err)
 			}
-			summary, err := compactionPolicy(model, "native-fixture-key").Summarize(context.Background(), []agenttypes.AgentMessage{agenttypes.NewAgentMessageFromMessage(aitypes.NewUserMessageVariant(aitypes.NewUserMessage("Summarize", 1)))})
+			stream, err := s.connections.stream(context.Background(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			summary, err := s.active.compactionWithStream(model, config.APIKey, stream).Summarize(context.Background(), []agenttypes.AgentMessage{agenttypes.NewAgentMessageFromMessage(aitypes.NewUserMessageVariant(aitypes.NewUserMessage("Summarize", 1)))})
 			if err != nil || summary != "Native adapter works." || requests.Load() != 3 {
 				t.Fatalf("native summary %q: %v; requests %d", summary, err, requests.Load())
 			}

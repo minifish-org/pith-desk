@@ -27,7 +27,7 @@ func TestFindFilesMatchesUnicodeAndGlobSyntax(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer policy.root.Close()
-	registry, err := s.buildTools(policy)
+	registry, err := s.active.buildTools(policy)
 	if err != nil {
 		t.Fatal(err)
 	}

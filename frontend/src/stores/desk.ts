@@ -1,6 +1,6 @@
 import {create} from 'zustand';
 import {initialState, type ConnectionStatus, type State} from '@/app-state.ts';
-import type {AppearanceMode, Artifact, DraftScope} from '@/contract.generated.ts';
+import type {AppearanceMode, Artifact} from '@/contract.generated.ts';
 
 export type {ConnectionStatus};
 
@@ -144,8 +144,4 @@ export function closeModalId(id: string): void {
   const modal = useDesk.getState().modals.find(entry => entry.id === id);
   if (modal && 'onClose' in modal) modal.onClose?.();
   useDesk.getState().closeModal(id);
-}
-
-export function newDraftScope(state: State, selectedWorkspaceId: string): DraftScope {
-  return state.activeId ? {id: state.activeId} : {workspaceId: selectedWorkspaceId};
 }

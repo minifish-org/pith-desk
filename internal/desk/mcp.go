@@ -415,12 +415,6 @@ func (s *Service) releaseMCP() { <-s.connections.mcpGate }
 
 func (s *Service) redactMCPLocked(text string) string { return s.connections.redactMCP(text, s.files) }
 
-func (s *Service) mcpDefinitions() []codingagent.ToolDefinition { return s.mcpDefinitionsFor(nil) }
-
-func (s *Service) mcpDefinitionsFor(owner *RunExecution) []codingagent.ToolDefinition {
-	return mcpToolDefinitions(s.executionDependencies(), owner)
-}
-
 func (s *Service) loadMCPRuntime(ctx context.Context, configs []codingagent.MCPServerConfig) (*codingagent.MCPRuntime, []codingagent.MCPDiagnostic) {
 	return s.connections.loadMCPRuntime(ctx, configs, s.files)
 }

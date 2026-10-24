@@ -25,8 +25,7 @@ export async function exportDiagnostics(): Promise<void> {
   try {
     const result = await request('/api/diagnostics', {});
     if (result.native) return;
-    const saved = await saveBlob(await app().download('/api/diagnostics'), 'pith-desk-diagnostics.json');
-    if (!saved.ok) throw new Error(saved.error);
+    await saveBlob(await app().download('/api/diagnostics'), 'pith-desk-diagnostics.json');
   } catch (error) {
     setError(error instanceof Error ? error.message : String(error));
   } finally {

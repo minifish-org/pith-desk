@@ -88,6 +88,7 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 			&& tc.y>=0 && tc.y+tc.height<=52 && Math.abs(tc.y+tc.height/2-(header.y+header.height/2))<=1 && tc.x>=tools.x && tc.x+tc.width<=tools.x+tools.width && getComputedStyle(toolsClose).getPropertyValue('--app-region').trim()==='no-drag'
 			&& root.querySelectorAll('header button[aria-label^="Toggle "]').length===0;
 	})()`) != true {
+		t.Fatal("native sidebar close controls left the titlebar row or its non-draggable regions")
 	}
 	nativeDropEval(t, win, `for(const [name,key] of [['Resize navigation','ArrowRight'],['Resize tools','ArrowLeft']]) {
 		const handle=document.querySelector('[role="separator"][aria-label="'+name+'"]');handle.focus();

@@ -285,7 +285,7 @@ func TestDeferredMCPDiscoveryAndCodemodeShareExternalApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer policy.root.Close()
-	registry, err := s.buildTools(policy)
+	registry, err := s.active.buildTools(policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +475,7 @@ func TestDurableAdmissionQueueRecoveryPaginationAndDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	journal, err := s.active.admitDurableLocked(c.ID, w, s.connections.config, model, durableInput{Text: "Admitted but not started", RunID: "fixture"})
+	journal, err := s.active.admitDurableWithQueueLocked(c.ID, w, s.connections.config, model, durableInput{Text: "Admitted but not started", RunID: "fixture"}, nil)
 	if err == nil {
 		s.active.durable = journal
 	}

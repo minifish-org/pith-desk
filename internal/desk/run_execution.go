@@ -222,25 +222,6 @@ The user can change permissions during a task; tools enforce the current selecti
 ` + permission
 }
 
-func compactionPolicy(model *aitypes.Model, apiKey string) codingagent.RunPolicy {
-	return codingagent.RunPolicy{
-		CompactReserveTokens: int(model.MaxTokens), KeepRecentMessages: 16,
-		Summarize: func(ctx context.Context, messages []agenttypes.AgentMessage) (string, error) {
-			// Summarization constructs fresh request options, so explicitly bind
-			// the same credential used by the session without ambient env state.
-			stream := func(m *aitypes.Model, transcript *aitypes.TranscriptContext, options *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream {
-				request := aitypes.SimpleStreamOptions{}
-				if options != nil {
-					request = *options
-				}
-				request.APIKey = &apiKey
-				return providerStream(m, transcript, &request)
-			}
-			return codingagent.GenerateSummary(ctx, messages, model, codingagent.DefaultCompactionPolicy.ReserveTokens, stream, nil, nil)
-		},
-	}
-}
-
 func (r *RunExecution) observe(event codingagent.SessionEvent, manager *codingagent.SessionManager) {
 	s := r.dependencies
 	s.mu.Lock()

@@ -1,15 +1,15 @@
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {Group, Panel, Separator, usePanelRef} from 'react-resizable-panels';
 import {desk, useDesk} from '@/stores/desk.ts';
 import {request} from '@/actions/core.ts';
 import {useMediaQuery} from '@/hooks/use-media';
 import {Header} from '@/components/header';
-import {Sidebar, SidebarDrawer} from '@/components/sidebar';
+import {Sidebar} from '@/components/sidebar';
 import {Conversation} from '@/components/conversation';
 import {Composer} from '@/components/composer';
 import {ComposerPanels} from '@/components/composer-panels';
 import {RuntimeBar} from '@/components/runtime-bar';
-import {ToolsRail, WorkspaceToolsDrawer} from '@/components/tools-rail';
+import {ToolsRail} from '@/components/tools-rail';
 
 type Rail = 'navigation' | 'tools';
 
@@ -30,10 +30,31 @@ export function WorkspaceLayout() {
   const toolsIntent = useRef(false);
   const [drawer, setDrawer] = useState<Rail | null>(null);
   const drawerTrigger = useRef<HTMLElement | null>(null);
+  const drawerPanel = useRef<HTMLDivElement>(null);
   const sizes = useRef({navigation: width, tools: toolsWidth});
   const saveTimer = useRef<number | undefined>(undefined);
   const measured = useRef(false);
   const restored = useRef(false);
+
+  const closeDrawer = useCallback(() => {
+    const trigger = drawerTrigger.current;
+    setDrawer(null);
+    // When navigation opens a dialog, that dialog owns focus.
+    requestAnimationFrame(() => {if (!document.querySelector('[role="dialog"]')) trigger?.focus();});
+  }, []);
+
+  useEffect(() => {
+    if (desktop || !drawer) return;
+    const frame = requestAnimationFrame(() => drawerPanel.current?.querySelector<HTMLButtonElement>(`[aria-label="Close ${drawer}"]`)?.focus());
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('[role="dialog"]')) return;
+      if (document.activeElement?.closest('.xterm')) return;
+      event.preventDefault();
+      closeDrawer();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {cancelAnimationFrame(frame); window.removeEventListener('keydown', onKey);};
+  }, [desktop, drawer, closeDrawer]);
 
   const firstLayout = useRef(true);
   useEffect(() => {
@@ -115,13 +136,6 @@ export function WorkspaceLayout() {
     (which === 'navigation' ? navRef : toolsRef).current?.collapse();
     focusWhenAvailable(`[aria-label="Toggle ${which}"]`);
   };
-  const closeDrawer = () => {
-    const trigger = drawerTrigger.current;
-    setDrawer(null);
-    // When the drawer closed because it opened a dialog, the dialog owns focus.
-    requestAnimationFrame(() => {if (!document.querySelector('[role="dialog"]')) trigger?.focus();});
-  };
-
   const main = (
     <main className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <Header
@@ -176,8 +190,16 @@ export function WorkspaceLayout() {
           </Panel>
         </Group>
       ) : main}
-      {!desktop ? <SidebarDrawer open={drawer === 'navigation'} onClose={closeDrawer} /> : null}
-      {!desktop ? <WorkspaceToolsDrawer open={drawer === 'tools'} onClose={closeDrawer} /> : null}
+      {!desktop && drawer ? (
+        <div className="fixed inset-0 z-40">
+          <button type="button" aria-label={`Close ${drawer} overlay`} className="absolute inset-0 bg-black/25" onClick={closeDrawer} />
+          <div ref={drawerPanel} data-drawer-panel="" className={`absolute inset-y-0 shadow-xl ${drawer === 'navigation' ? 'left-0 bg-sidebar' : 'right-0 w-[min(340px,90vw)]'}`}>
+            {drawer === 'navigation'
+              ? <Sidebar overlay onCollapse={closeDrawer} onNavigate={closeDrawer} />
+              : <ToolsRail onClose={closeDrawer} />}
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

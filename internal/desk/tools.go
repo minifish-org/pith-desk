@@ -258,7 +258,3 @@ func globPattern(pattern string) (*regexp.Regexp, error) {
 	out.WriteByte('$')
 	return regexp.Compile(out.String())
 }
-
-func (s *Service) buildTools(policy *filePolicy) (*codingagent.ToolRegistry, error) {
-	return s.active.buildTools(policy)
-}

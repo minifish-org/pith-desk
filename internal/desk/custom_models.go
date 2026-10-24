@@ -128,10 +128,6 @@ func (s *Service) RemoveModelConnection(id string) error {
 	return s.saveConfigLocked(next)
 }
 
-func streamForConfig(ctx context.Context, config savedConfig) (func(*aitypes.Model, *aitypes.TranscriptContext, *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream, error) {
-	return streamForConfigWithAuthGate(ctx, config, nil)
-}
-
 // Serialize credential refresh against the shared auth file, releasing the
 // gate before streaming. Independent model requests continue concurrently.
 func streamForConfigWithAuthGate(ctx context.Context, config savedConfig, gate chan struct{}) (func(*aitypes.Model, *aitypes.TranscriptContext, *aitypes.SimpleStreamOptions) *aitypes.AssistantMessageEventStream, error) {

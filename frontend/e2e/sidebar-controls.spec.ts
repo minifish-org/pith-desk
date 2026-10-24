@@ -73,6 +73,47 @@ for(const mode of ['desktop','server']) test.describe(mode+' sidebar controls',(
     await expect(draft).toHaveValue('Sidebar draft 中文');
     expect(await draft.evaluate((node:HTMLTextAreaElement)=>[node.selectionStart,node.selectionEnd])).toEqual([2,7]);
   });
+
+  test('800px drawers retain their widths, dialog focus and terminal Escape', async ({page, host}) => {
+    await page.setViewportSize({width: 800, height: 840});
+    await page.goto(host.url);
+    const draft = page.getByRole('textbox', {name: 'Message Pith', exact: true});
+    await expect(draft).toBeEditable();
+    await draft.fill('Mid-size drawer draft 中文');
+    const openNavigation = page.getByRole('button', {name: 'Toggle navigation', exact: true});
+    const navigation = page.getByRole('complementary', {name: 'Navigation', exact: true});
+    await openNavigation.click();
+    await expect(navigation.getByRole('button', {name: 'Close navigation', exact: true})).toBeFocused();
+    expect(Math.round((await navigation.boundingBox())!.width)).toBe(280);
+    await navigation.getByRole('button', {name: 'Settings', exact: true}).click();
+    const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
+    await expect(navigation).toHaveCount(0);
+    await expect(settings).toBeVisible();
+    await expect.poll(() => settings.evaluate(node => node.contains(document.activeElement))).toBe(true);
+    await settings.getByRole('button', {name: 'Close', exact: true}).click();
+    await expect(settings).toHaveCount(0);
+
+    const openTools = page.getByRole('button', {name: 'Toggle tools', exact: true});
+    const tools = page.getByRole('complementary', {name: 'Workspace tools', exact: true});
+    const closeTools = tools.getByRole('button', {name: 'Close tools', exact: true});
+    await openTools.click();
+    await expect(closeTools).toBeFocused();
+    const bounds = (await tools.boundingBox())!;
+    expect(Math.round(bounds.width)).toBe(340);
+    expect(Math.round(bounds.x + bounds.width)).toBe(800);
+    await tools.getByRole('button', {name: 'Open terminal', exact: true}).click();
+    await expect(tools.getByLabel('Interactive terminal', {exact: true})).toHaveAttribute('aria-disabled', 'false');
+    const input = tools.getByRole('textbox', {name: 'Terminal input', exact: true});
+    await input.focus();
+    await input.press('Escape');
+    await expect(tools).toBeVisible();
+    await expect(input).toBeFocused();
+    await closeTools.focus();
+    await closeTools.press('Escape');
+    await expect(tools).toHaveCount(0);
+    await expect(openTools).toBeFocused();
+    await expect(draft).toHaveValue('Mid-size drawer draft 中文');
+  });
 });
 
 test.describe('phone panel controls',()=>{

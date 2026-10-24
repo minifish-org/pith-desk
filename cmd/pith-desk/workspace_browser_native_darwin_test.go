@@ -113,7 +113,14 @@ func TestWorkspaceBrowserNativeSidebarPreviewReferenceAndSave(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("narrow navigation did not collapse")
+			t.Fatalf("navigation did not collapse before narrow resize: %v", nativeDropEval(t, win, `({
+				width: innerWidth, height: innerHeight, focused: document.hasFocus(), visibility: document.visibilityState,
+				active: document.activeElement?.getAttribute('aria-label'),
+				controls: [...document.querySelectorAll('button[aria-label="Close navigation"],button[aria-label="Toggle navigation"]')].map(node=>({label:node.getAttribute('aria-label'),disabled:node.disabled,rect:node.getBoundingClientRect().toJSON()})),
+				panels: [...document.querySelectorAll('[data-panel]')].map(node=>({id:node.id,style:node.getAttribute('style'),rect:node.getBoundingClientRect().toJSON()})),
+				menu: !!document.querySelector('[role="menu"]'), dialog: !!document.querySelector('[role="dialog"]'),
+				error: document.querySelector('[data-inline-error]')?.textContent
+			})`))
 		}
 		time.Sleep(30 * time.Millisecond)
 	}

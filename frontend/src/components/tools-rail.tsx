@@ -1,6 +1,6 @@
-// Workspace tool tabs and their narrow-screen drawer. The action/store pair
-// owns workspace layouts, persistence and explicit terminal closing.
-import {memo, useEffect, useRef, useState} from 'react';
+// Workspace tool tabs. The action/store pair owns workspace layouts,
+// persistence and explicit terminal closing.
+import {memo, useEffect, useState} from 'react';
 import {Folder, FolderOpen, Globe, PanelRightClose, Plus, TerminalSquare, X} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {useDesk} from '@/stores/desk.ts';
@@ -111,27 +111,3 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
 }
 
 export const ToolsRail = memo(ToolsRailView);
-
-export function WorkspaceToolsDrawer({open, onClose}: {open: boolean; onClose: () => void}) {
-  const panel = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const frame = requestAnimationFrame(() => panel.current?.querySelector<HTMLButtonElement>('[aria-label="Close tools"]')?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || document.querySelector('[role="dialog"]')) return;
-      const active = document.activeElement as HTMLElement | null;
-      if (active?.closest('.xterm')) return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {cancelAnimationFrame(frame); window.removeEventListener('keydown', onKey);};
-  }, [open, onClose]);
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-40 md:hidden">
-      <button type="button" aria-label="Close tools overlay" className="absolute inset-0 bg-black/25" onClick={onClose} />
-      <div ref={panel} data-drawer-panel="" className="absolute inset-y-0 right-0 w-[min(340px,90vw)] shadow-xl"><ToolsRail onClose={onClose} /></div>
-    </div>
-  );
-}

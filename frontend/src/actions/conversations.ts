@@ -105,8 +105,7 @@ export async function exportConversation(id = desk().state.activeId): Promise<vo
     const delivery = await request('/api/export', {id: conversation.id});
     if (delivery?.native === true) return;
     if (delivery?.native !== false) throw new Error('The local service returned an invalid export response.');
-    const result = await saveBlob(await download('/api/export', {id: conversation.id}), `${(conversation.title || 'Conversation').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim() || 'Conversation'}.md`);
-    if (!result.ok) throw new Error(result.error);
+    await saveBlob(await download('/api/export', {id: conversation.id}), `${(conversation.title || 'Conversation').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim() || 'Conversation'}.md`);
   } catch (error) {
     setError(error instanceof Error ? error.message : String(error));
   } finally {

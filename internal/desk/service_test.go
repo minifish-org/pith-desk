@@ -200,11 +200,20 @@ func TestCompactionUsesSavedCredential(t *testing.T) {
 		finishSSE(w, "stop")
 	}))
 	defer server.Close()
-	model, err := resolveModel("deepseek-flash", server.URL+"/v1")
+	s, _, _ := configuredService(t, server.URL)
+	if err := s.Configure(ConfigInput{BaseURL: server.URL + "/v1", Model: "deepseek-flash", APIKey: "private-summary-key"}); err != nil {
+		t.Fatal(err)
+	}
+	config := s.connections.taskConfig()
+	model, err := resolveConfiguredModel(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := compactionPolicy(model, "private-summary-key")
+	stream, err := s.connections.stream(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := s.active.compactionWithStream(model, config.APIKey, stream)
 	summary, err := policy.Summarize(context.Background(), []agenttypes.AgentMessage{
 		agenttypes.NewAgentMessageFromMessage(aitypes.NewUserMessageVariant(aitypes.NewUserMessage("Create a note", 1))),
 	})
@@ -411,7 +420,7 @@ func TestWorkspacePolicyRejectsEscapeAndSanitizesApprovedShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = policy.root.Close() })
-	registry, err := s.buildTools(policy)
+	registry, err := s.active.buildTools(policy)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-import {memo, useEffect, useMemo, useRef, useState} from 'react';
+import {memo, useEffect, useMemo, useState} from 'react';
 import {
   ChevronRight, FileText, Folder, LoaderCircle, LogOut, MoreHorizontal, Plug, Plus, Search,
   Settings, ShieldAlert, SquarePen, PanelLeftClose,
@@ -264,30 +264,4 @@ export const Sidebar = memo(SidebarView);
 
 function runtimeLabel(): string {
   return runtime.server ? 'Server' : 'Local';
-}
-
-export function SidebarDrawer({open, onClose}: {open: boolean; onClose: () => void}) {
-  const panel = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const frame = requestAnimationFrame(() => panel.current?.querySelector<HTMLButtonElement>('[aria-label="Close navigation"]')?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || document.querySelector('[role="dialog"]')) return;
-      const active = document.activeElement as HTMLElement | null;
-      if (active?.closest('.xterm')) return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {cancelAnimationFrame(frame); window.removeEventListener('keydown', onKey);};
-  }, [open, onClose]);
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-40 md:hidden">
-      <button type="button" aria-label="Close navigation overlay" className="absolute inset-0 bg-black/25" onClick={onClose} />
-      <div ref={panel} data-drawer-panel="" className="absolute inset-y-0 left-0 bg-sidebar shadow-xl">
-        <Sidebar overlay onCollapse={onClose} onNavigate={onClose} />
-      </div>
-    </div>
-  );
 }

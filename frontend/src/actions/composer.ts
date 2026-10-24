@@ -2,7 +2,7 @@
 // queueing and draft recovery. Transport and shared mutation policy live in
 // `core.ts`; conversation lifecycle lives in `conversations.ts`.
 import {mutate, request, setError} from './core.ts';
-import {desk, newDraftScope, type DraftImage} from '@/stores/desk.ts';
+import {desk, type DraftImage} from '@/stores/desk.ts';
 import {currentWorkspace, blockedWorkspace, openWorkspace} from './conversations.ts';
 import {openSettings} from './settings.ts';
 import {unsentEditorText} from './message-edits.ts';
@@ -89,7 +89,7 @@ export async function loadComposerDraft(): Promise<void> {
   // transferred. The send path owns the scope during that handoff.
   if (draftHandoff) return;
   const state = desk().state;
-  const next = newDraftScope(state, desk().selectedWorkspaceId);
+  const next: DraftScope = state.activeId ? {id: state.activeId} : {workspaceId: currentWorkspace()?.id};
   if (draftKey(next) === draftKey(scope)) return;
   const previous = scope;
   const exists = previous.id ? state.conversations.some(entry => entry.id === previous.id) : state.workspaces.some(entry => entry.id === previous.workspaceId);

@@ -1,6 +1,7 @@
 import {busy, mutate, request} from './core.ts';
 import {desk, modalId} from '@/stores/desk.ts';
-import type {CustomConnectionInput, ModelCatalog, ModelSelectionInput, ProviderChoice} from '@/contract.generated.ts';
+import {emitAppEvent} from '@/lib/events.ts';
+import type {CustomConnectionInput, ModelCatalog, ModelSelectionInput, ProviderChoice, ProviderConnectionInput} from '@/contract.generated.ts';
 
 // Model catalog, the shared model selection and provider connections.
 
@@ -17,17 +18,62 @@ export async function saveModelSelection(selection: ModelSelectionInput): Promis
   return mutate('/api/model-selection', selection);
 }
 
-export async function saveProviderConfig(draft: {provider: string; baseUrl: string; apiKey?: string}): Promise<boolean> {
-  return mutate('/api/provider-config', draft);
+export interface ProviderEditorState {
+  pending: '' | 'save' | 'remove' | 'test';
+  error: string;
+  saved: string;
+  test: {message: string; ok?: boolean};
 }
 
-export async function removeProviderKey(draft: {provider: string; baseUrl: string}): Promise<boolean> {
-  if (busy()) return false;
-  return mutate('/api/provider-config', {...draft, clearApiKey: true});
-}
+export const emptyProviderEditor: ProviderEditorState = {pending: '', error: '', saved: '', test: {message: ''}};
 
-export async function testProviderConnection(draft: {provider: string; baseUrl: string; apiKey?: string}, signal?: AbortSignal): Promise<{ok: boolean; message: string}> {
-  return request('/api/test-provider-connection', draft, {signal});
+// One form revision owns saves, key removal and probes. Editing or closing the
+// form retires their UI results without replaying or undoing a committed write.
+export function createProviderEditor(publish: (state: ProviderEditorState) => void, clearKey: () => void) {
+  let revision = 0;
+  let probe: AbortController | undefined;
+  function invalidate() {
+    revision++;
+    probe?.abort();
+    probe = undefined;
+  }
+  return {
+    reset() {invalidate(); publish(emptyProviderEditor);},
+    dispose: invalidate,
+    async run(action: 'save' | 'remove' | 'test', draft: ProviderConnectionInput): Promise<void> {
+      if (action === 'test' && probe) {
+        invalidate();
+        publish({...emptyProviderEditor, test: {message: 'Test cancelled.', ok: false}});
+        return;
+      }
+      if (busy() || desk().state.runs.length > 0 || probe) return;
+      const current = ++revision;
+      const controller = action === 'test' ? new AbortController() : undefined;
+      probe = controller;
+      publish({...emptyProviderEditor, pending: action, test: {message: action === 'test' ? 'Testing streaming and tool calling…' : ''}});
+      try {
+        if (action === 'test') {
+          const result = await request('/api/test-provider-connection', draft, {signal: controller!.signal});
+          if (current === revision) publish({...emptyProviderEditor, test: result});
+        } else {
+          const payload = action === 'remove' ? {provider: draft.provider, baseUrl: draft.baseUrl, clearApiKey: true} : draft;
+          const ok = await mutate('/api/provider-config', payload);
+          if (ok) emitAppEvent('modelConnectionsChanged');
+          if (current !== revision) return;
+          if (ok) {
+            clearKey();
+            publish({...emptyProviderEditor, saved: action === 'remove' ? 'API key removed.' : 'Provider saved.'});
+          } else publish({...emptyProviderEditor, error: desk().activity.error});
+        }
+      } catch (failure) {
+        if (current !== revision) return;
+        const message = failure instanceof Error ? failure.message : String(failure);
+        publish({...emptyProviderEditor, ...(action === 'test' ? {test: {message, ok: false}} : {error: message})});
+      } finally {
+        if (current === revision) probe = undefined;
+      }
+    },
+  };
 }
 
 // Provider account actions keep request ownership outside the settings view.

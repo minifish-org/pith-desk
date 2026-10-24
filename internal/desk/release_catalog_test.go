@@ -84,7 +84,7 @@ func TestGPT61CodexUsesSavedOAuthAndNativeAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := streamForConfig(ctx, config)
+	stream, err := streamForConfigWithAuthGate(ctx, config, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
