@@ -205,7 +205,7 @@ installation; existing tasks continue until shutdown. Data and workspace files
 are outside the bundle. There are no unattended installs or scheduled restarts.
 
 The updater reuses MyGo 0.6.2. It needs a writable app location; development and
-browser previews do not install updates. Users of releases without the updater
+Server mode do not install updates. Users of releases without the updater
 must manually replace their app once. Native shutdown releases Desk's data lock
 before starting the new process. Interrupted tasks require review after restart.
 

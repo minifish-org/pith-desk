@@ -9,16 +9,16 @@ import (
 	"github.com/minifish-org/pith-desk/internal/wire"
 )
 
-// SetTitlebarOverlay describes the native window chrome. Browser previews
-// leave it disabled and retain their ordinary application header.
+// SetTitlebarOverlay describes the native window chrome. Server pages leave it
+// disabled and retain their ordinary application header.
 func (s *Server) SetTitlebarOverlay(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.titlebarOverlay = enabled
 }
 
-// SetFileActions connects verified local paths to the native shell. Browser
-// previews keep these callbacks unset; the HTTP host never executes commands.
+// SetFileActions connects verified local paths to the native shell. Server
+// pages keep these callbacks unset; the HTTP host never executes commands.
 func (s *Server) SetFileActions(open, reveal func(string) error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -34,7 +34,7 @@ func (s *Server) SetClipboardActions(text, file func(string) error) {
 }
 
 // SetExportAction lets the desktop choose a destination with its native save
-// dialog. Browser preview leaves this unset and uses the authenticated download.
+// dialog. Server pages leave this unset and use the authenticated download.
 func (s *Server) SetExportAction(save func(string) error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -270,7 +270,7 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 			copy := s.copyText
 			s.mu.Unlock()
 			if copy == nil {
-				err = errors.New("Copy text directly in browser preview")
+				err = errors.New("Copy text in the browser")
 			} else if in.Text == "" {
 				err = errors.New("Choose a response to copy")
 			} else {
@@ -342,16 +342,6 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		var in wire.ModelSelectionInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.SelectModel(in.Provider, in.Model, in.ThinkingLevel)
-		}
-	case "/api/test-connection":
-		var in desk.ConfigInput
-		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
-			var result desk.ConnectionTest
-			result, err = s.service.TestConnection(r.Context(), in)
-			if err == nil {
-				wire.WriteJSON(w, r.Method, r.URL.Path, result)
-				return true
-			}
 		}
 	case "/api/continue":
 		var in wire.IDInput
@@ -476,19 +466,19 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 				switch in.Action {
 				case "open":
 					if open == nil {
-						err = errors.New("Open files in the desktop app; use the displayed path in browser preview")
+						err = errors.New("Open files in the desktop app; use the displayed path in Server mode")
 					} else {
 						err = open(path)
 					}
 				case "reveal":
 					if reveal == nil {
-						err = errors.New("Reveal files in the desktop app; use the displayed path in browser preview")
+						err = errors.New("Reveal files in the desktop app; use the displayed path in Server mode")
 					} else {
 						err = reveal(path)
 					}
 				case "copy":
 					if copy == nil {
-						err = errors.New("Copy files in the desktop app; use Copy path in browser preview")
+						err = errors.New("Copy files in the desktop app; use Copy path in Server mode")
 					} else {
 						err = copy(path)
 					}
@@ -520,10 +510,6 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.service.RemoveMCP(in.Name)
 		}
-	case "/api/mcp/connect":
-		err = s.service.ConnectMCP(r.Context())
-	case "/api/mcp/disconnect":
-		err = s.service.DisconnectMCP()
 	default:
 		return false
 	}

@@ -68,7 +68,7 @@ func droppedFilePath(raw string) (string, error) {
 		}
 	}
 	if !filepath.IsAbs(path) || strings.IndexFunc(path, unicode.IsControl) >= 0 {
-		return "", errors.New("A complete local file path is required; type its workspace-relative path in browser preview")
+		return "", errors.New("A complete local file path is required; type its workspace-relative path instead")
 	}
 	return path, nil
 }

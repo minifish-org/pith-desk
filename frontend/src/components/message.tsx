@@ -3,6 +3,7 @@ import {
   Check, ChevronRight, Copy, FilePen, FolderOpen, GitBranch, Pencil, Search, TerminalSquare, Wrench,
 } from 'lucide-react';
 import {cn} from '@/lib/utils';
+import {app} from '@/lib/runtime.ts';
 import {desk, useDesk} from '@/stores/desk.ts';
 import type {Message as WireMessage} from '@/contract.generated.ts';
 import {Markdown} from '@/lib/markdown';
@@ -139,8 +140,7 @@ function MessageImage({index, messageId, conversationId, mimeType}: {index: numb
   useEffect(() => {
     let active = true;
     let objectUrl = '';
-    void import('@/lib/runtime.ts')
-      .then(({app}) => app().download('/api/image', {id: conversationId, message: messageId, index}))
+    void app().download('/api/image', {id: conversationId, message: messageId, index})
       .then(blob => {
         if (!active) return;
         if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type)) throw new Error('Invalid image attachment.');

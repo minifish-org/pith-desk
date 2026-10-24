@@ -28,7 +28,7 @@ test('generated client routes retain the fixed public method/path manifest', () 
   }
 });
 
-test('fixed JSON literals compile against HTTP, both streams and typed request contracts', () => {
+test('fixed JSON literals compile against HTTP, the state stream and typed request contracts', () => {
   // Contextual typing of literal JSON retains enum checks; JSON.parse casts or
   // importing JSON directly would lose them. The source exists only in memory.
   const virtualFile = fileURLToPath(new URL('./contract-fixtures.virtual.ts', import.meta.url));
@@ -40,7 +40,6 @@ test('fixed JSON literals compile against HTTP, both streams and typed request c
     ...stateJSON.flatMap((json, index) => [
       `const http${index}: ReadContracts['/api/state']['output'] = ${json};`,
       `const socket${index}: StreamContracts['/api/socket'] = ${json};`,
-      `const events${index}: StreamContracts['/api/events'] = ${json};`,
     ]),
     ...requests.map((fixture) => fixture.format === 'blob'
       ? `void download(${JSON.stringify(fixture.path)}, ${JSON.stringify(fixture.input)});`
@@ -63,7 +62,7 @@ test('fixed JSON literals compile against HTTP, both streams and typed request c
 });
 
 for (const [index, name] of stateNames.entries()) {
-  test(`fixed ${name} State retains the same JSON through HTTP and both streams`, async (t) => {
+  test(`fixed ${name} State retains the same JSON through HTTP and the state stream`, async (t) => {
     const fixed = JSON.parse(stateJSON[index]);
     t.mock.method(globalThis, 'fetch', async (path, options) => {
       assert.equal(path, '/api/state');
@@ -73,7 +72,7 @@ for (const [index, name] of stateNames.entries()) {
       return new Response(stateJSON[index], { headers: { 'Content-Type': 'application/json' } });
     });
     assert.deepEqual(await createAPI(headers).request('/api/state'), fixed);
-    for (const path of ['/api/socket', '/api/events']) assert.deepEqual(parseStream(path, stateJSON[index]), fixed);
+    assert.deepEqual(parseStream('/api/socket', stateJSON[index]), fixed);
     // This verifies decoding compatibility, not runtime schema validation or
     // a real socket/reconnection flow (the separate G06 work covers those).
   });

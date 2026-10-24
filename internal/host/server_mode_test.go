@@ -1,7 +1,6 @@
 package host
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -264,7 +263,7 @@ func TestServerNeverBootstrapsDesktopCredentialsAndProtectsEveryRoute(t *testing
 			}
 		}
 	}
-	// A token in the old Preview's header or URL is never a Server login.
+	// The desktop bearer token is never a Server login, in a header or URL.
 	for _, path := range []string{"/api/state", "/api/state?token=" + fixtureServerToken} {
 		req, _ := http.NewRequest("GET", s.URL+path, nil)
 		req.Header.Set("Authorization", "Bearer "+fixtureServerToken)
@@ -279,7 +278,7 @@ func TestServerNeverBootstrapsDesktopCredentialsAndProtectsEveryRoute(t *testing
 	}
 }
 
-func TestServerLeaseRefreshTakeoverExpiryAndStreams(t *testing.T) {
+func TestServerLeaseRefreshTakeoverExpiryAndSocket(t *testing.T) {
 	s := testServerMode(t, "")
 	b := &serverBrowser{s: s}
 	b.login(t)
@@ -303,20 +302,6 @@ func TestServerLeaseRefreshTakeoverExpiryAndStreams(t *testing.T) {
 	if _, _, err := conn.Read(ctx); err != nil {
 		t.Fatal(err)
 	}
-	req, _ := http.NewRequestWithContext(ctx, "GET", s.URL+"/api/events", nil)
-	req.AddCookie(b.cookie)
-	req.Header.Set("X-Desk-Lease", old)
-	stream, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stream.Body.Close()
-	reader := bufio.NewReader(stream.Body)
-	for range 3 {
-		if _, err := reader.ReadString('\n'); err != nil {
-			t.Fatal(err)
-		}
-	}
 	other := &serverBrowser{s: s, cookie: b.cookie}
 	resp, _ := other.request(t, "POST", "/api/server/lease", wire.ServerLeaseInput{}, "")
 	if resp.StatusCode != 409 {
@@ -328,9 +313,6 @@ func TestServerLeaseRefreshTakeoverExpiryAndStreams(t *testing.T) {
 	}
 	if _, _, err := conn.Read(ctx); err == nil {
 		t.Fatal("old websocket survived refresh")
-	}
-	if _, err := reader.ReadString('\n'); err != io.EOF {
-		t.Fatalf("old SSE survived refresh: %v", err)
 	}
 	other.acquire(t, "", true)
 	resp, _ = b.request(t, "POST", "/api/server/heartbeat", wire.EmptyInput{}, "")

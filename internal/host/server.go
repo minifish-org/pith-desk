@@ -315,10 +315,6 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if r.URL.Path == "/api/events" && r.Method == http.MethodGet {
-		s.events(w, r)
-		return
-	}
 	s.serveAPI(w, r)
 }
 
@@ -367,11 +363,6 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		var in NativeMenuStateInput
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			err = s.SetNativeMenuState(in)
-		}
-	case "/api/config":
-		var in desk.ConfigInput
-		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
-			err = s.service.Configure(in)
 		}
 	case "/api/appearance":
 		var in wire.AppearanceInput
@@ -520,44 +511,4 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fail(w http.ResponseWriter, message string, status int) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(wire.ErrorResponse{Error: message})
-}
-
-func (s *Server) events(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		s.fail(w, "Streaming unavailable", 500)
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("X-Accel-Buffering", "no")
-	ch := make(chan []byte, 1)
-	s.mu.Lock()
-	s.clients[ch] = struct{}{}
-	initial := s.snapshot()
-	s.mu.Unlock()
-	defer func() { s.mu.Lock(); delete(s.clients, ch); s.mu.Unlock() }()
-	if _, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", initial); err != nil {
-		return
-	}
-	flusher.Flush()
-	ticker := time.NewTicker(20 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-s.ctx.Done():
-			return
-		case data := <-ch:
-			if _, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", data); err != nil {
-				return
-			}
-			flusher.Flush()
-		case <-ticker.C:
-			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
-		}
-	}
 }

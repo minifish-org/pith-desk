@@ -265,8 +265,6 @@ var Endpoints = []Endpoint{
 	{Method: "GET", Path: "/api/conversation-file", Query: reflect.TypeFor[ConversationFileInput](), Format: "blob"},
 	{Method: "GET", Path: "/api/workspace-file", Query: reflect.TypeFor[ResourceQuery](), Format: "blob"},
 	{Method: "GET", Path: "/api/socket", Output: reflect.TypeFor[desk.State](), Format: "stream"},
-	{Method: "GET", Path: "/api/events", Output: reflect.TypeFor[desk.State](), Format: "stream"},
-	post[desk.ConfigInput, OKResponse]("/api/config"),
 	post[AppearanceInput, OKResponse]("/api/appearance"),
 	post[desk.SidebarWidths, OKResponse]("/api/sidebar-widths"),
 	post[PathInput, WorkspaceResponse]("/api/workspaces"),
@@ -294,7 +292,6 @@ var Endpoints = []Endpoint{
 	post[desk.ProviderConnectionInput, OKResponse]("/api/provider-config"),
 	post[desk.ProviderConnectionInput, desk.ConnectionTest]("/api/test-provider-connection"),
 	post[ModelSelectionInput, OKResponse]("/api/model-selection"),
-	post[desk.ConfigInput, desk.ConnectionTest]("/api/test-connection"),
 	post[IDInput, OKResponse]("/api/continue"),
 	post[EmptyInput, NativeResponse]("/api/diagnostics"),
 	post[IDInput, NativeResponse]("/api/export"),
@@ -313,8 +310,6 @@ var Endpoints = []Endpoint{
 	post[NameInput, OKResponse]("/api/mcp/oauth/logout"),
 	post[desk.MCPInput, OKResponse]("/api/mcp/save"),
 	post[NameInput, OKResponse]("/api/mcp/remove"),
-	post[EmptyInput, OKResponse]("/api/mcp/connect"),
-	post[EmptyInput, OKResponse]("/api/mcp/disconnect"),
 	post[NativeMenuStateInput, OKResponse]("/api/native-menu-state"),
 }
 

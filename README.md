@@ -377,7 +377,7 @@ through the same workspace checks as the existing file actions.
 
 *Preview a generated file without leaving the conversation.*
 
-Drop existing files from the selected workspace into the message area to insert editable, workspace-relative paths. Multiple files, spaces and Chinese names are supported. These are plain Markdown path references; dropping them does not import or read their contents. Images keep their existing attachment behavior. Browser preview can validate complete local file URIs; when the browser hides the path, type the relative path or use the desktop app.
+Drop existing files from the selected workspace into the message area to insert editable, workspace-relative paths. Multiple files, spaces and Chinese names are supported. These are plain Markdown path references; dropping them does not import or read their contents. Images keep their existing attachment behavior. The browser can validate complete local file URIs; when it hides the path, type the relative path or use the desktop app.
 
 On macOS, the Dock shows **!** for pending approval or the number of conversations with completed unread results across all workspaces. Approval takes priority over unread results. Ordinary running tasks do not add a Dock badge. Unread counts remain until the corresponding results are viewed, survive app restarts, and show **99+** above 99 conversations. With no approvals or unread results, the Dock badge stays empty. Other platforms retain the in-app task indicators.
 
@@ -395,11 +395,11 @@ The application retains Pith's instruction and skill discovery. Skill references
 
 ### MCP connections
 
-Open **Connections** to configure an HTTP endpoint or an installed local MCP server command. HTTP connections accept an optional bearer token; an empty token field preserves the saved token. Local commands accept an argument array and optional environment overrides as a JSON object of string values. Blank overrides preserve saved values; use the clear checkbox to remove them. Only saved variable names are displayed. Enable only the connections you want available, then connect explicitly or let the next task connect them. Connection status and tool counts appear in the dialog.
+Open **Connections** to configure an HTTP endpoint or an installed local MCP server command. HTTP connections accept an optional bearer token; an empty token field preserves the saved token. Local commands accept an argument array and optional environment overrides as a JSON object of string values. Blank overrides preserve saved values; use the clear checkbox to remove them. Only saved variable names are displayed. Enable only the connections you want available; enabled connections connect automatically when a task starts. Disable one to stop using it in tasks. Connection status and tool counts appear in the dialog.
 
 Pith provides the MCP transports, discovery, OAuth and calls. Desk saves connection settings, supplies sign-in UI and applies approvals. Enabled MCP tools are registered as deferred: the model starts with `tool_search`, and selected schemas become available on demand. Connecting still discovers the server catalog; deferred exposure saves model context rather than avoiding that initial catalog request. **Ask before changes** and **Allow workspace changes** both require approval for external MCP calls. **Full access** also authorizes tools from enabled connections. Connection changes and disconnects require all running tasks to finish or stop first.
 
-Tokens and environment overrides are saved in the private local `mcp.json` file and their values are never returned in public configuration responses. This client does not install MCP servers or bundle their Node/Python runtimes. HTTP MCP connections can use the SDK OAuth flow instead of a bearer token, with optional client ID and scope. Sign in, then connect or reconnect to load tools. The temporary callback uses `127.0.0.1:54819`; the port must be available. External servers decide whether they support discovery and dynamic client registration. A connector marketplace is outside this version's scope.
+Tokens and environment overrides are saved in the private local `mcp.json` file and their values are never returned in public configuration responses. This client does not install MCP servers or bundle their Node/Python runtimes. HTTP MCP connections can use the SDK OAuth flow instead of a bearer token, with optional client ID and scope. Sign in; the next task connects and loads tools. The temporary callback uses `127.0.0.1:54819`; the port must be available. External servers decide whether they support discovery and dynamic client registration. A connector marketplace is outside this version's scope.
 
 ### Code mode, history and recovery
 
@@ -726,7 +726,7 @@ npm run check:ui
 ```
 
 Run the relevant behavior checks for the change, for example
-`npm run test:ui -- frontend/e2e/refactor-smoke.spec.ts`. Browser and native
+`npm run test:ui -- frontend/e2e/workspace-tools.spec.ts`. Browser and native
 acceptance are separate facts from a successful build.
 
 For an embedded browser check after `npm run build:ui`, run

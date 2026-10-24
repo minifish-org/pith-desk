@@ -1,7 +1,6 @@
 package host
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -146,62 +145,6 @@ func TestBrowserIconIsServedFromEmbeddedAssets(t *testing.T) {
 	config, err := png.DecodeConfig(bytes.NewReader(data))
 	if err != nil || config.Width != 1024 || config.Height != 1024 {
 		t.Fatalf("favicon is not the 1024-pixel application icon: %+v, %v", config, err)
-	}
-}
-
-func TestSnapshotsStreamAndPrivateCredentials(t *testing.T) {
-	s := testServer(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", s.URL+"/api/events", nil)
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	scanner := bufio.NewScanner(resp.Body)
-	readState := func() string {
-		t.Helper()
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.HasPrefix(line, "data: ") {
-				return strings.TrimPrefix(line, "data: ")
-			}
-		}
-		t.Fatalf("stream ended: %v", scanner.Err())
-		return ""
-	}
-	var initial map[string]any
-	if err = json.Unmarshal([]byte(readState()), &initial); err != nil {
-		t.Fatal(err)
-	}
-	body := `{"baseUrl":"https://api.deepseek.com/v1","model":"deepseek-flash","apiKey":"private-test-secret"}`
-	req, _ = http.NewRequestWithContext(ctx, "POST", s.URL+"/api/config", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	updated, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer updated.Body.Close()
-	if updated.StatusCode != 200 {
-		b, _ := io.ReadAll(updated.Body)
-		t.Fatalf("configure: %s", b)
-	}
-	next := readState()
-	if strings.Contains(next, "private-test-secret") {
-		t.Fatal("credential exposed in public stream")
-	}
-	var state struct {
-		Settings struct {
-			HasAPIKey bool `json:"hasApiKey"`
-		} `json:"settings"`
-	}
-	if err = json.Unmarshal([]byte(next), &state); err != nil {
-		t.Fatal(err)
-	}
-	if !state.Settings.HasAPIKey {
-		t.Fatal("missing settings change snapshot")
 	}
 }
 

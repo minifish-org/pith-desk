@@ -17,7 +17,7 @@ export function contractTypeChecks(request: ApiRequest, download: ApiDownload): 
   // @ts-expect-error Query field types come from Go.
   void request('/api/history', { query: { id: 123 } });
   // @ts-expect-error Empty mutations do not accept invented fields.
-  void request('/api/mcp/disconnect', { invented: true });
+  void request('/api/oauth/cancel', { invented: true });
   // @ts-expect-error Response fields cannot be invented by a caller-supplied T.
   void request('/api/state').then((state) => state.invented);
   // @ts-expect-error Binary paths have their own typed query.

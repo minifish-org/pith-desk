@@ -31,8 +31,8 @@ func TestClipboardTextRequiresAuthenticationAndReportsNativeErrors(t *testing.T)
 		t.Fatalf("native failure was hidden: %d %s", status, body)
 	}
 	s.SetClipboardActions(nil, nil)
-	if status, body, _ := featureRequest(t, s, http.MethodPost, "/api/copy-text", map[string]string{"text": text}, true); status != http.StatusBadRequest || !strings.Contains(body, "browser preview") {
-		t.Fatalf("preview pretended to copy: %d %s", status, body)
+	if status, body, _ := featureRequest(t, s, http.MethodPost, "/api/copy-text", map[string]string{"text": text}, true); status != http.StatusBadRequest || !strings.Contains(body, "Copy text in the browser") {
+		t.Fatalf("host without a native clipboard pretended to copy: %d %s", status, body)
 	}
 }
 

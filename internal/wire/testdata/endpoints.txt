@@ -25,8 +25,6 @@ GET blob /api/conversation-file
 GET blob /api/workspace-file
 GET stream /api/socket
 GET stream /api/terminal/socket
-GET stream /api/events
-POST json /api/config
 POST json /api/appearance
 POST json /api/sidebar-widths
 POST json /api/workspaces
@@ -54,7 +52,6 @@ POST json /api/oauth/logout
 POST json /api/provider-config
 POST json /api/test-provider-connection
 POST json /api/model-selection
-POST json /api/test-connection
 POST json /api/continue
 POST json /api/diagnostics
 POST json /api/export
@@ -73,8 +70,6 @@ POST json /api/mcp/oauth/start
 POST json /api/mcp/oauth/logout
 POST json /api/mcp/save
 POST json /api/mcp/remove
-POST json /api/mcp/connect
-POST json /api/mcp/disconnect
 POST json /api/native-menu-state
 POST json /api/server/session
 POST json /api/terminal

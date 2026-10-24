@@ -87,15 +87,6 @@ export interface CommandDetails {
   exitCode?: number;
 }
 
-export interface ConfigInput {
-  provider: string;
-  thinkingLevel: string;
-  baseUrl: string;
-  model: string;
-  apiKey?: string;
-  clearApiKey?: boolean;
-}
-
 export interface ConnectionTest {
   ok: boolean;
   kind: string;
@@ -825,7 +816,6 @@ export interface MutationContracts {
   "/api/server/heartbeat": { input: EmptyInput; output: OKResponse };
   "/api/server/logout": { input: EmptyInput; output: OKResponse };
   "/api/update": { input: UpdateInput; output: OKResponse };
-  "/api/config": { input: ConfigInput; output: OKResponse };
   "/api/appearance": { input: AppearanceInput; output: OKResponse };
   "/api/sidebar-widths": { input: SidebarWidths; output: OKResponse };
   "/api/workspaces": { input: PathInput; output: WorkspaceResponse };
@@ -853,7 +843,6 @@ export interface MutationContracts {
   "/api/provider-config": { input: ProviderConnectionInput; output: OKResponse };
   "/api/test-provider-connection": { input: ProviderConnectionInput; output: ConnectionTest };
   "/api/model-selection": { input: ModelSelectionInput; output: OKResponse };
-  "/api/test-connection": { input: ConfigInput; output: ConnectionTest };
   "/api/continue": { input: IDInput; output: OKResponse };
   "/api/diagnostics": { input: EmptyInput; output: NativeResponse };
   "/api/export": { input: IDInput; output: NativeResponse };
@@ -872,8 +861,6 @@ export interface MutationContracts {
   "/api/mcp/oauth/logout": { input: NameInput; output: OKResponse };
   "/api/mcp/save": { input: MCPInput; output: OKResponse };
   "/api/mcp/remove": { input: NameInput; output: OKResponse };
-  "/api/mcp/connect": { input: EmptyInput; output: OKResponse };
-  "/api/mcp/disconnect": { input: EmptyInput; output: OKResponse };
   "/api/native-menu-state": { input: NativeMenuStateInput; output: OKResponse };
 }
 
@@ -888,8 +875,7 @@ export interface DownloadContracts {
 export interface StreamContracts {
   "/api/terminal/socket": TerminalEvent;
   "/api/socket": State;
-  "/api/events": State;
 }
 
 export const readPaths = ["/api/terminal", "/api/update", "/api/state", "/api/history", "/api/costs", "/api/resource-content", "/api/custom-connection", "/api/models", "/api/resources", "/api/artifacts", "/api/artifact-preview", "/api/artifact-diff", "/api/workspace-files", "/api/workspace-preview", "/api/draft", "/api/mcp"] as const;
-export const mutationPaths = ["/api/web-preview", "/api/web-preview/view", "/api/web-preview/close", "/api/terminal", "/api/terminal/close", "/api/server/session", "/api/server/login", "/api/server/lease", "/api/server/heartbeat", "/api/server/logout", "/api/update", "/api/config", "/api/appearance", "/api/sidebar-widths", "/api/workspaces", "/api/conversations", "/api/open", "/api/read", "/api/send", "/api/edit-message", "/api/abort", "/api/approval", "/api/permissions", "/api/pick-workspace", "/api/workspace-references", "/api/copy-text", "/api/draft", "/api/custom-connection", "/api/remove-model-connection", "/api/resource", "/api/branch", "/api/compact", "/api/oauth/start", "/api/oauth/answer", "/api/oauth/cancel", "/api/oauth/logout", "/api/provider-config", "/api/test-provider-connection", "/api/model-selection", "/api/test-connection", "/api/continue", "/api/diagnostics", "/api/export", "/api/conversation-file", "/api/workspace-file", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/oauth/start", "/api/mcp/oauth/logout", "/api/mcp/save", "/api/mcp/remove", "/api/mcp/connect", "/api/mcp/disconnect", "/api/native-menu-state"] as const;
+export const mutationPaths = ["/api/web-preview", "/api/web-preview/view", "/api/web-preview/close", "/api/terminal", "/api/terminal/close", "/api/server/session", "/api/server/login", "/api/server/lease", "/api/server/heartbeat", "/api/server/logout", "/api/update", "/api/appearance", "/api/sidebar-widths", "/api/workspaces", "/api/conversations", "/api/open", "/api/read", "/api/send", "/api/edit-message", "/api/abort", "/api/approval", "/api/permissions", "/api/pick-workspace", "/api/workspace-references", "/api/copy-text", "/api/draft", "/api/custom-connection", "/api/remove-model-connection", "/api/resource", "/api/branch", "/api/compact", "/api/oauth/start", "/api/oauth/answer", "/api/oauth/cancel", "/api/oauth/logout", "/api/provider-config", "/api/test-provider-connection", "/api/model-selection", "/api/continue", "/api/diagnostics", "/api/export", "/api/conversation-file", "/api/workspace-file", "/api/queue", "/api/queue/edit", "/api/queue/delete", "/api/queue/steer", "/api/rename", "/api/delete-conversation", "/api/remove-workspace", "/api/create-instructions", "/api/file", "/api/mcp/oauth/start", "/api/mcp/oauth/logout", "/api/mcp/save", "/api/mcp/remove", "/api/native-menu-state"] as const;

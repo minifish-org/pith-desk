@@ -8,7 +8,7 @@ import (
 	"github.com/minifish-org/pith-desk/internal/wire"
 )
 
-func TestUpdatesRequireAuthenticationAndStayDisabledInBrowserPreview(t *testing.T) {
+func TestUpdatesRequireAuthenticationAndStayDisabledWithoutNativeActions(t *testing.T) {
 	s := testServer(t)
 	for _, method := range []string{"GET", "POST"} {
 		req, _ := http.NewRequest(method, s.URL+"/api/update", strings.NewReader(`{"action":"install"}`))
@@ -48,6 +48,6 @@ func TestUpdatesRequireAuthenticationAndStayDisabledInBrowserPreview(t *testing.
 	}
 	response.Body.Close()
 	if response.StatusCode != 400 {
-		t.Fatal("browser preview installed an update")
+		t.Fatal("host without native update actions installed an update")
 	}
 }

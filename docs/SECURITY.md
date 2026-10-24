@@ -48,7 +48,7 @@ JSON requests for login/session/lease control. Forwarded headers never change
 that policy. Remote HTTP origins and remote Vite development are rejected.
 
 A session alone cannot read or change application state. Every business API,
-workspace/image/export download, WebSocket and SSE stream requires the active
+workspace/image/export download and WebSocket stream require the active
 page's secret lease. The browser stores only that renewable lease in
 sessionStorage and uses headers or a non-echoed WebSocket subprotocol. Refresh
 rotates the credential. Takeover cancels the previous lease context, immediately
@@ -126,7 +126,7 @@ an older delayed request from restoring cleared text. Draft scope identifiers
 must refer to an existing conversation or workspace; their data is removed
 with that conversation or workspace.
 
-Copy controls write to the clipboard only when clicked by the user. Desktop **Copy response** writes the reply's original text and Markdown through the authenticated native clipboard action. **Copy file** writes a native file reference after the generated-file checks above; it leaves the source file in place. Browser preview uses the browser clipboard for response text and **Copy path**, rather than copying a native file reference.
+Copy controls write to the clipboard only when clicked by the user. Desktop **Copy response** writes the reply's original text and Markdown through the authenticated native clipboard action. **Copy file** writes a native file reference after the generated-file checks above; it leaves the source file in place. Server mode uses the browser clipboard for response text and **Copy path**, rather than copying a native file reference.
 
 Dropped workspace files become plain, editable relative-path text. The authenticated reference endpoint uses the existing canonical workspace/private-data policy and rooted file checks, rejects directories, missing files and paths outside the selected workspace, and validates the whole batch before returning references. It does not copy or read file contents. The native window forwards only the file-drop event; it does not expose MyGo bound methods or trust browser file basenames. Later agent file tools reapply the workspace policy.
 

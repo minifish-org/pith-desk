@@ -127,5 +127,3 @@ export function createServerSession(options: {recoveryText?: () => string; onRea
     dispose() {stopped = true; active = false; if (timer) clearInterval(timer); hide();},
   };
 }
-
-export type ServerSession = ReturnType<typeof createServerSession>;

@@ -125,16 +125,14 @@ func TestFixedStateHTTPAndStreamContracts(t *testing.T) {
 			if recorder.Code != 200 || !reflect.DeepEqual(fixtureJSON(t, recorder.Body.Bytes()), fixtureJSON(t, fixed)) {
 				t.Fatalf("fixed HTTP State changed: %d %s", recorder.Code, recorder.Body.String())
 			}
-			for _, path := range []string{"/api/socket", "/api/events"} {
-				found := false
-				for _, endpoint := range Endpoints {
-					if endpoint.Method == "GET" && endpoint.Path == path && endpoint.Format == "stream" && endpoint.Output == reflect.TypeFor[desk.State]() {
-						found = true
-					}
+			found := false
+			for _, endpoint := range Endpoints {
+				if endpoint.Method == "GET" && endpoint.Path == "/api/socket" && endpoint.Format == "stream" && endpoint.Output == reflect.TypeFor[desk.State]() {
+					found = true
 				}
-				if !found {
-					t.Fatalf("%s no longer uses the HTTP State contract", path)
-				}
+			}
+			if !found {
+				t.Fatal("/api/socket no longer uses the HTTP State contract")
 			}
 		})
 	}

@@ -12,7 +12,7 @@ frontend types, without a bundle or Go test run. Use `npm run dev` or
 `npm run dev:server` for live frontend preview through the authenticated Host.
 
 Run the relevant browser spec, for example
-`npm run test:ui -- frontend/e2e/refactor-smoke.spec.ts`. The full product
+`npm run test:ui -- frontend/e2e/ui-consistency.spec.ts`. The full product
 sequence remains:
 
 ```sh
@@ -60,9 +60,9 @@ The tag workflow extracts and verifies both Server archives and runs the
 packaged amd64 executable's `--help` on Ubuntu. ARM64 is built, packaged and
 inspected; this workflow does not establish ARM64 runtime acceptance.
 
-The former Pith UI consumption checker was removed with the package. Frontend
-types, generated contracts and the behavior suites are the remaining boundaries.
-Native ingress is validated in `native-protocol.ts` and forwarded as data.
+Frontend types, generated contracts and the behavior suites are the UI
+boundaries. Native ingress is validated in `native-protocol.ts` and forwarded
+as data.
 
 For workspace tool ownership and runtime-ledger changes, run:
 
@@ -225,12 +225,12 @@ mutating tests. Local Server checks and native builds do not constitute a Desk r
 
 `internal/host/server_mode_test.go` checks every registered business endpoint
 without login, without a lease and after takeover; Host/Origin/CSRF and HTTPS
-cookies; refresh/expiry/logout; immediate WS/SSE revocation; mutation deduplication
+cookies; refresh/expiry/logout; immediate WebSocket revocation; mutation deduplication
 and downloads; and actual SDK task completion without a connected page. The
 Server entry regression accepts top-level GET document navigation to `/` after
 an identity proxy redirect while retaining cross-site rejection for APIs,
 login writes, assets, fetches, foreign Origins and the Desktop entry.
-The real-host browser fixture now runs Server with Vite, not Preview.
+The real-host browser fixture runs Server with the Vite development frontend.
 `frontend/e2e/server.spec.ts` covers Token login, refresh, two-tab takeover,
 sign-out, authenticated Vite HMR, server workspace paths, background task completion
 and pending file approval across takeover.
@@ -283,7 +283,7 @@ workspace switches and narrow drawers, pending navigation after the view unmount
 explicit closure racing page creation, removed workspaces and ordered native
 visibility requests. Its native transport is mocked;
 the opt-in native test below verifies the actual page and retained JavaScript state.
-Workspace-tools tests retain old layouts and retain independent preview tabs without saving
+Workspace-tools tests retain saved layouts and independent preview tabs without saving
 addresses or grants.
 
 `frontend/e2e/web-preview.spec.ts` runs both Desktop and Server transports in
@@ -332,6 +332,6 @@ the current terminal display.
 For explicit local source browser acceptance, the shared host fixture accepts
 `hostFrontend` and `hostUISource` test options; select the development runner's
 printed frontend origin and absolute UI checkout in a local Playwright config.
-These are test-only options; default formal suites still use the locked registry
-package and ordinary frontend origin. Do not change installed dependencies,
-lockfiles or production resolution to simulate a package release.
+These are test-only options; default suites use the embedded frontend build.
+Do not change installed dependencies, lockfiles or production resolution to
+simulate a release.
