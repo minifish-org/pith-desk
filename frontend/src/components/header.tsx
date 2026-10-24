@@ -1,6 +1,7 @@
 import {ChevronRight, Folder, PanelLeft, PanelRight} from 'lucide-react';
 import {useDesk} from '@/stores/desk.ts';
-import {selected, currentConversation, workspaceAction} from '@/actions/conversations.ts';
+import {workspaceAction} from '@/actions/conversations.ts';
+import {activeConversation, selectedWorkspace} from '@/lib/derive.ts';
 import {Button} from '@/components/ui/button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 
@@ -15,8 +16,8 @@ function CompressIcon({className}: {className?: string}) {
 export function Header({onOpenNavigation, onOpenTools, showNavigationToggle, showToolsToggle}: {onOpenNavigation: (trigger?: HTMLElement) => void; onOpenTools: (trigger?: HTMLElement) => void; showNavigationToggle: boolean; showToolsToggle: boolean}) {
   const state = useDesk(store => store.state);
   const busy = useDesk(store => store.activity.busy);
-  const workspace = selected();
-  const conversation = currentConversation();
+  const workspace = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId));
+  const conversation = useDesk(store => activeConversation(store.state));
   const canCompact = !busy && !state.running && !!state.activeId && state.messages.length > 0;
 
   return (

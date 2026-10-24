@@ -6,7 +6,7 @@ marked.setOptions({gfm: true, breaks: true});
 
 /** Render model Markdown once per text revision, then sanitize the result.
  * Raw HTML in model output is never trusted. */
-export function markdownHTML(text: string): string {
+function markdownHTML(text: string): string {
   const html = marked.parse(text, {async: false}) as string;
   return DOMPurify.sanitize(html, {USE_PROFILES: {html: true}, FORBID_TAGS: ['style', 'form', 'input', 'iframe', 'object', 'embed', 'img'], ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|file):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i});
 }
@@ -44,7 +44,7 @@ function decorate(container: HTMLElement, onCopyCode: (text: string) => void): v
   }
 }
 
-export function useMarkdown(container: React.RefObject<HTMLDivElement | null>, text: string, onCopyCode: (text: string) => void, resolveLocalFile: (href: string) => string | null, onLocalFile: (path: string) => void): void {
+function useMarkdown(container: React.RefObject<HTMLDivElement | null>, text: string, onCopyCode: (text: string) => void, resolveLocalFile: (href: string) => string | null, onLocalFile: (path: string) => void): void {
   const handlers = useRef({onCopyCode, resolveLocalFile, onLocalFile});
   handlers.current = {onCopyCode, resolveLocalFile, onLocalFile};
   useEffect(() => {

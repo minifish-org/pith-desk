@@ -1,16 +1,13 @@
 import type {ApiRequest} from '@/api.ts';
 import {readDraftFlushCallback, readNativeDrop, readNativeMenuAction, type NativeMenuAction} from '@/native-protocol.ts';
 import {desk, useDesk} from '@/stores/desk.ts';
-import {selected, exportConversation, newConversation, openWorkspace, selectConversation} from '@/actions/conversations.ts';
+import {currentWorkspace, exportConversation, newConversation, openWorkspace} from '@/actions/conversations.ts';
 import {openSettings} from '@/actions/settings.ts';
-import {insertReferences, setDropPending, flushAllDrafts, preserveTexts, composerScope} from '@/actions/composer.ts';
+import {insertReferences, setDropPending} from '@/actions/composer.ts';
 import {isImagePath, localFileURIs} from '@/workspace-files.ts';
 import {setError} from '@/actions/core.ts';
 import {runtime} from '@/lib/runtime.ts';
 
-export function isForeground(): boolean {
-  return document.visibilityState === 'visible' && document.hasFocus();
-}
 
 // Native coordinates are data; only the page decides what a drop targets.
 export function installNativeDrop(enabled: boolean, receive: (paths: string[], x: number, y: number) => void): () => void {
@@ -38,7 +35,7 @@ export function installNativeMenu(request: ApiRequest, native: boolean): () => v
       ready: desk().loaded && !disposed,
       busy: busy(),
       modal: desk().modals.length > 0,
-      workspaceId: selected()?.id || '',
+      workspaceId: currentWorkspace()?.id || '',
       activeId: desk().state.activeId || '',
     };
   }
@@ -122,7 +119,7 @@ export function installWorkspaceFileDrop(options: {
   let destroyed = false;
   const addPaths = async (paths: string[]) => {
     if (destroyed || !paths.length || options.busy() || pending) return;
-    const workspaceId = selected()?.id;
+    const workspaceId = currentWorkspace()?.id;
     if (!workspaceId) {setError('Choose a workspace before dropping files.'); return;}
     const context = options.context();
     pending = true;
@@ -196,18 +193,4 @@ export function installAppLifecycle(options: {acknowledge: () => void; saveOnLea
     window.removeEventListener('pith:flush-drafts', onFlush);
     window.removeEventListener('beforeunload', onUnload);
   };
-}
-
-export function saveDraftsOnLeave(): void {
-  preserveTexts();
-  void flushAllDrafts({keepalive: true});
-}
-
-export function draftScopeKey(): string {
-  const scope = composerScope();
-  return scope.id ? `conversation:${scope.id}` : scope.workspaceId ? `workspace:${scope.workspaceId}` : '';
-}
-
-export function openRunningConversation(id: string): void {
-  void selectConversation(id);
 }

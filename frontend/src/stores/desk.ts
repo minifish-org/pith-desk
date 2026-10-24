@@ -1,8 +1,8 @@
 import {create} from 'zustand';
-import {initialState, type State} from '@/app-state.ts';
+import {initialState, type ConnectionStatus, type State} from '@/app-state.ts';
 import type {AppearanceMode, Artifact, DraftScope} from '@/contract.generated.ts';
 
-export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting';
+export type {ConnectionStatus};
 
 export interface DraftImage {
   id: string;
@@ -19,14 +19,6 @@ export interface Notice {
   runID: string;
   title: string;
   workspace: string;
-}
-
-export interface ToolTab {
-  id: string;
-  kind: 'files' | 'terminal' | 'preview';
-  label: string;
-  detail?: string;
-  pending?: boolean;
 }
 
 export interface Description {
@@ -55,7 +47,6 @@ export type Modal =
   | {kind: 'recovered'; id: string; text: string}
   | {kind: 'settings'; id: string}
   | {kind: 'connections'; id: string}
-  | {kind: 'models'; id: string}
   | {kind: 'resources'; id: string}
   | {kind: 'custom-connection'; id: string; connectionId?: string}
   | {kind: 'provider-login'; id: string; provider: string}
@@ -65,6 +56,8 @@ export type Modal =
 
 export type ModalOf<Kind extends Modal['kind']> = Extract<Modal, {kind: Kind}>;
 
+// The store has two layers: `state` is the latest host snapshot, while the
+// remaining fields are page-local UI state. Actions mutate it; components read.
 interface DeskStore {
   state: State;
   loaded: boolean;
@@ -76,8 +69,6 @@ interface DeskStore {
   search: string;
   navigationWidth: number;
   toolsWidth: number;
-  navigationOpen: boolean;
-  toolsOpen: boolean;
   modals: Modal[];
   composer: {
     text: string;
@@ -88,7 +79,6 @@ interface DeskStore {
     dropPending: boolean;
     generation: number;
   };
-  tools: {tabs: ToolTab[]; activeId: string; location: string; detail: string};
   artifacts: {files: Artifact[]; loading: boolean; error: string};
   notices: Notice[];
 
@@ -101,10 +91,7 @@ interface DeskStore {
   selectWorkspaceId(id: string): void;
   setSearch(search: string): void;
   setWidths(widths: {navigation?: number; tools?: number}): void;
-  setNavigationOpen(open: boolean): void;
-  setToolsOpen(open: boolean): void;
   setComposer(patch: Partial<DeskStore['composer']>): void;
-  setTools(patch: Partial<DeskStore['tools']>): void;
   setArtifacts(patch: Partial<DeskStore['artifacts']>): void;
   setNotices(notices: Notice[]): void;
   openModal(modal: Modal): void;
@@ -123,11 +110,8 @@ export const useDesk = create<DeskStore>((set) => ({
   search: '',
   navigationWidth: 260,
   toolsWidth: 300,
-  navigationOpen: false,
-  toolsOpen: false,
   modals: [],
   composer: {text: '', images: [], loading: false, reading: false, resolving: false, dropPending: false, generation: 0},
-  tools: {tabs: [], activeId: '', location: '', detail: ''},
   artifacts: {files: [], loading: false, error: ''},
   notices: [],
   setSnapshot: (state, connection, receivedAt) => set({state, connection, receivedAt, loaded: true}),
@@ -142,10 +126,7 @@ export const useDesk = create<DeskStore>((set) => ({
     navigationWidth: widths.navigation ?? previous.navigationWidth,
     toolsWidth: widths.tools ?? previous.toolsWidth,
   })),
-  setNavigationOpen: navigationOpen => set({navigationOpen}),
-  setToolsOpen: toolsOpen => set({toolsOpen}),
   setComposer: patch => set(previous => ({composer: {...previous.composer, ...patch}})),
-  setTools: patch => set(previous => ({tools: {...previous.tools, ...patch}})),
   setArtifacts: patch => set(previous => ({artifacts: {...previous.artifacts, ...patch}})),
   setNotices: notices => set({notices}),
   openModal: modal => set(previous => ({modals: [...previous.modals.filter(entry => entry.id !== modal.id), modal]})),
@@ -154,12 +135,6 @@ export const useDesk = create<DeskStore>((set) => ({
 }));
 
 export const desk = () => useDesk.getState();
-
-export function activeModal<Kind extends Modal['kind']>(kind: Kind): ModalOf<Kind> | undefined {
-  const modals = useDesk.getState().modals;
-  for (let index = modals.length - 1; index >= 0; index--) if (modals[index].kind === kind) return modals[index] as ModalOf<Kind>;
-  return undefined;
-}
 
 export function modalId(kind: Modal['kind']): string {
   return `${kind}-${Math.random().toString(36).slice(2, 9)}`;

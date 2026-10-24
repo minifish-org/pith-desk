@@ -1,47 +1,44 @@
 import {mutate, request, setError, copyText, download} from './core.ts';
 import {closeModalId, desk, modalId, type Modal} from '@/stores/desk.ts';
-import {selectedWorkspace, workspaceRun, conversationRunning} from '@/lib/derive.ts';
+import {activeConversation, blockingWorkspaceRun, conversationRunning, selectedWorkspace} from '@/lib/derive.ts';
+import {permissionModeOf} from '@/lib/permissions.ts';
+import {emitAppEvent} from '@/lib/events.ts';
 import {saveBlob} from '@/lib/save.ts';
-import {openSettings} from './settings.ts';
-import {openResources, loadArtifacts, clearFilePreview} from './files.ts';
-import {acknowledgeViewed, dismissNotice} from './notices.ts';
-import type {Conversation, RunSummary} from '@/contract.generated.ts';
+import {exportDiagnostics, openSettings} from './settings.ts';
+import {openConnections} from './connections.ts';
+import {openResources} from './resources.ts';
+import {clearFilePreview, downloadConversationFile} from './files.ts';
+import {acknowledgeViewed} from './notices.ts';
+import type {PermissionMode, RunSummary} from '@/contract.generated.ts';
 
-export function selected(): ReturnType<typeof selectedWorkspace> {
+// Conversation and workspace lifecycle: open, create, rename, remove, export,
+// permissions and the commands offered beside a conversation.
+
+/** The workspace the shell currently presents. */
+export function currentWorkspace(): ReturnType<typeof selectedWorkspace> {
   const state = desk().state;
   return selectedWorkspace(state, desk().selectedWorkspaceId);
 }
 
+/** The run that currently prevents changes in this workspace tree. */
 export function blockedWorkspace(id?: string): RunSummary | undefined {
-  return workspaceRun(desk().state, id);
+  return blockingWorkspaceRun(desk().state, id);
 }
 
 export function isConversationRunning(id: string | null): boolean {
   return conversationRunning(desk().state, id);
 }
 
-export function closeNavigation(): void {
-  desk().setNavigationOpen(false);
-}
-
 export async function selectConversation(id: string): Promise<void> {
   if (await mutate('/api/open', {id})) acknowledgeViewed();
-  closeNavigation();
 }
 
-export async function newConversation(workspaceId = selected()?.id): Promise<void> {
+export async function newConversation(workspaceId = currentWorkspace()?.id): Promise<void> {
   if (!workspaceId) {
     openWorkspace();
     return;
   }
-  if (await mutate('/api/conversations', {workspaceId})) {
-    closeNavigation();
-    focusComposer();
-  }
-}
-
-export function focusComposer(): void {
-  window.dispatchEvent(new CustomEvent('pith:focus-composer'));
+  if (await mutate('/api/conversations', {workspaceId})) emitAppEvent('focusComposer');
 }
 
 export function openRename(id = desk().state.activeId): void {
@@ -65,7 +62,7 @@ export async function submitRename(modalIdValue: string, id: string, title: stri
 
 export function openDeletion(kind: 'conversation' | 'workspace', id: string): void {
   const state = desk().state;
-  const isBusy = () => (kind === 'workspace' ? !!workspaceRun(state, id) : isConversationRunning(id)) || desk().activity.busy;
+  const isBusy = () => (kind === 'workspace' ? !!blockingWorkspaceRun(state, id) : isConversationRunning(id)) || desk().activity.busy;
   if (isBusy()) return;
   const item = kind === 'workspace' ? state.workspaces.find(entry => entry.id === id) : state.conversations.find(entry => entry.id === id);
   if (!item) return;
@@ -85,29 +82,18 @@ export function openDeletion(kind: 'conversation' | 'workspace', id: string): vo
     disabled: isBusy(),
     error: '',
     async run() {
-      const activeWorkspace = selected()?.id, activeID = desk().state.activeId;
+      const activeWorkspace = currentWorkspace()?.id, activeID = desk().state.activeId;
       const ok = await mutate(kind === 'workspace' ? '/api/remove-workspace' : '/api/delete-conversation', {id, ...(kind === 'workspace' ? {conversationCount: count} : {})});
       if (!ok) {
         desk().patchModal(modal.id, {error: desk().activity.error});
         return false;
       }
-      if (kind === 'workspace') {
-        if (desk().selectedWorkspaceId === id) desk().selectWorkspaceId('');
-        clearWorkspaceFiles(id);
-      }
-      if (activeID !== desk().state.activeId || activeWorkspace !== selected()?.id) {
-        clearFilePreview();
-      }
+      if (kind === 'workspace' && desk().selectedWorkspaceId === id) desk().selectWorkspaceId('');
+      if (activeID !== desk().state.activeId || activeWorkspace !== currentWorkspace()?.id) clearFilePreview();
       return true;
     },
   };
   desk().openModal(modal);
-}
-
-// Filled by the tools controller; declared narrowly to avoid a cycle.
-let clearWorkspaceFiles: (id: string) => void = () => {};
-export function registerWorkspaceRemoval(handler: (id: string) => void): void {
-  clearWorkspaceFiles = handler;
 }
 
 export async function exportConversation(id = desk().state.activeId): Promise<void> {
@@ -129,7 +115,6 @@ export async function exportConversation(id = desk().state.activeId): Promise<vo
 }
 
 export function openWorkspace(): void {
-  closeNavigation();
   desk().openModal({kind: 'workspace', id: modalId('workspace'), error: ''});
 }
 
@@ -170,23 +155,16 @@ export async function selectWorkspace(id: string): Promise<void> {
   const latest = state.conversations.filter(entry => entry.workspaceId === id).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
   if (latest) await mutate('/api/open', {id: latest.id});
   else await newConversation(id);
-  closeNavigation();
 }
 
-export async function changePermission(value: string): Promise<void> {
-  const mode = value;
+export async function changePermission(mode: PermissionMode): Promise<void> {
   const id = desk().state.activeId;
-  if (!id || desk().activity.busy || mode === activeMode()) return;
+  if (!id || desk().activity.busy || mode === permissionModeOf(activeConversation(desk().state))) return;
   if (mode === 'full-access') openFullAccess(id);
-  else await mutate('/api/permissions', {id, mode: mode as 'ask' | 'workspace-write'});
+  else await mutate('/api/permissions', {id, mode});
 }
 
-export function activeMode(): 'ask' | 'workspace-write' | 'full-access' {
-  const mode = desk().state.conversations.find(entry => entry.id === desk().state.activeId)?.permissionMode;
-  return mode === 'workspace-write' || mode === 'full-access' ? mode : 'ask';
-}
-
-export function openFullAccess(id: string): void {
+function openFullAccess(id: string): void {
   const conversation = desk().state.conversations.find(entry => entry.id === id);
   desk().openModal({kind: 'full-access', id: modalId('full-access'), conversationId: id, title: conversation?.title || 'this conversation', disabled: desk().activity.busy});
 }
@@ -228,7 +206,7 @@ export async function messageAction(action: 'copy' | 'edit' | 'branch', messageI
     });
   }
   if (action === 'branch' && branchKey && message.role === 'assistant' && branchKey === message.branchNodeId) {
-    if (await mutate('/api/branch', {id: desk().state.activeId, nodeId: branchKey})) focusComposer();
+    if (await mutate('/api/branch', {id: desk().state.activeId, nodeId: branchKey})) emitAppEvent('focusComposer');
   }
 }
 
@@ -247,38 +225,14 @@ export async function queueAction(action: 'edit' | 'delete' | 'steer', id: strin
   await mutate(`/api/queue/${action}`, {id: desk().state.activeId, messageId: entry.id});
 }
 
-export async function submitEditor(modalValue: string, value: string, targetId: string): Promise<boolean> {
-  const modal = desk().modals.find(entry => entry.id === modalValue);
-  if (!modal || modal.kind !== 'editor') return false;
-  if (modal.slot === 'queue') {
-    const entry = desk().state.queuedMessages.find(message => message.id === targetId);
-    if (!entry || modal.conversationId !== desk().state.activeId || (!value.trim() && !entry.imageCount) || desk().activity.busy) {
-      desk().patchModal(modalValue, {error: 'This message is no longer pending. Your draft is kept here so you can copy it.'});
-      return false;
-    }
-    const ok = await mutate('/api/queue/edit', {id: desk().state.activeId, messageId: targetId, text: value});
-    if (ok) closeModalId(modalValue);
-    else desk().patchModal(modalValue, {error: desk().activity.error});
-    return ok;
-  }
-  return false;
-}
-
-export async function workspaceAction(action: 'workspace' | 'resources' | 'connections' | 'settings' | 'model' | 'compact' | 'continue' | 'diagnostics'): Promise<void> {
+export async function workspaceAction(action: 'workspace' | 'resources' | 'connections' | 'settings' | 'compact' | 'continue' | 'diagnostics'): Promise<void> {
   const state = desk().state;
   if (action === 'settings') openSettings();
-  else if (action === 'model') {
-    const {openModels} = await import('./settings.ts');
-    openModels();
-  } else if (action === 'workspace') openWorkspace();
+  else if (action === 'workspace') openWorkspace();
   else if (action === 'resources') openResources();
-  else if (action === 'connections') {
-    const {openConnections} = await import('./settings.ts');
-    openConnections();
-  } else if (action === 'diagnostics') {
-    const {exportDiagnostics} = await import('./settings.ts');
-    await exportDiagnostics();
-  } else if (action === 'compact') {
+  else if (action === 'connections') openConnections();
+  else if (action === 'diagnostics') await exportDiagnostics();
+  else if (action === 'compact') {
     if (!desk().activity.busy && !state.running && state.activeId && state.messages.length) await mutate('/api/compact', {id: state.activeId});
   } else if (!state.running && state.activeId && state.failure?.canContinue) {
     await mutate('/api/continue', {id: state.activeId});
@@ -287,12 +241,5 @@ export async function workspaceAction(action: 'workspace' | 'resources' | 'conne
 
 export async function openConversationFile(id: string, path: string): Promise<void> {
   if (desk().activity.busy || isConversationRunning(id) || id !== desk().state.activeId) return;
-  await import('./files.ts').then(module => module.downloadConversationFile(id, path));
+  await downloadConversationFile(id, path);
 }
-
-export function currentConversation(): Conversation | undefined {
-  const state = desk().state;
-  return state.conversations.find(entry => entry.id === state.activeId);
-}
-
-export {loadArtifacts, dismissNotice};

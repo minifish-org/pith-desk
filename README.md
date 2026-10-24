@@ -734,36 +734,22 @@ HTTP requests, queries, responses and streamed State types come from Go's
 `internal/wire` registry and JSON tags. Run `npm run generate:contract` after a
 schema change; `npm run check:contract` rejects stale generated TypeScript or
 host route drift. `build:ui` and the CI check run this check automatically.
-Desktop retains the authenticated loopback transport; Server uses its cookie and page lease for HTTP/WebSocket access.
-Opaque SDK JSON remains `unknown`; business validation stays in the service.
-
-The generated transport contract comes from Go; run `npm run generate:contract`
-after a schema change. `npm run check:contract` rejects stale generated TypeScript
-or host route drift, and `build:ui` runs it automatically.
-Desktop retains the authenticated loopback transport; Server uses its cookie and page lease for HTTP/WebSocket access.
-Opaque SDK JSON remains `unknown`; business validation stays in the service.
-
-HTTP requests, queries, responses and streamed State types come from Go's
-`internal/wire` registry and JSON tags. Run `npm run generate:contract` after a
-schema change; `npm run check:contract` rejects stale generated TypeScript or
-host route drift. `build:ui` and the CI check run this check automatically.
 Desktop retains the authenticated loopback transport; Server uses its cookie and
 page lease for HTTP/WebSocket access. Opaque SDK JSON remains `unknown`; business
 validation stays in the service.
 
 `frontend/src/stores/desk.ts` owns the single application snapshot projection and
 transient UI state. `frontend/src/actions` owns requests, business coordination and
-persistence calls. `frontend/src/components` owns composition only. Native adapters
-under `frontend/src/lib` validate events and forward data without finding or
-changing UI nodes. The titlebar overlay follows `--mygo-titlebar-height` and
-`--mygo-titlebar-inset-*`, and marks only drag regions with `--app-region`.
-
-For an embedded browser check after `npm run build:ui`, run
-`GOWORK=off CGO_ENABLED=0 go run ./cmd/pith-desk-server --data-dir /path/to/separate/test-data`.
-There are exactly two modes: Desktop and Server. The old `--preview` flag and
-`npm run preview` entry have been removed. Packaged executables use embedded
-assets and never start Vite. `--dev-url` is loopback-only and must not be used for
-remote deployments.
+persistence calls, grouped by domain (`conversations`, `composer`, `models`,
+`connections`, `resources`, `files`, `settings`). `frontend/src/components` owns
+composition only; the shell lives in `workspace-layout.tsx`, inline composer
+surfaces in `composer-panels.tsx` and `runtime-bar.tsx`, and dialogs in
+`components/dialogs` with `registry.tsx` as the modal stack. Pure snapshot
+projections live in `lib/derive.ts`, permission metadata in `lib/permissions.ts`,
+and page-local signals in `lib/events.ts`. Native adapters under `frontend/src/lib`
+validate events and forward data without finding or changing UI nodes. The titlebar
+overlay follows `--mygo-titlebar-height` and `--mygo-titlebar-inset-*`, and marks
+only drag regions with `--app-region`.
 
 ### CI checks and caches
 

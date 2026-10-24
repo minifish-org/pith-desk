@@ -1,14 +1,12 @@
 import {useEffect, useRef, useState} from 'react';
 import {Download, FilePlus2, FileText, LoaderCircle, Pencil, RefreshCw, Sparkles, Trash2} from 'lucide-react';
-import {cn} from '@/lib/utils';
 import {closeModalId, desk, modalId, useDesk, type ModalOf} from '@/stores/desk.ts';
-import {request, mutate} from '@/actions/core.ts';
 import {runtime} from '@/lib/runtime.ts';
-import {workspaceRun} from '@/lib/derive.ts';
-import {selected} from '@/actions/conversations.ts';
-import {createInstructions, saveResource} from '@/actions/settings.ts';
-import {resourceFileAction} from '@/actions/files.ts';
-import {insertReferences} from '@/actions/composer.ts';
+import {blockingWorkspaceRun} from '@/lib/derive.ts';
+import {onAppEvent, emitAppEvent} from '@/lib/events.ts';
+import {currentWorkspace} from '@/actions/conversations.ts';
+import {createInstructions, loadResourceContent, loadResources, resourceFileAction, saveResource} from '@/actions/resources.ts';
+import {setComposerText} from '@/actions/composer.ts';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
@@ -22,9 +20,9 @@ function defaultContent(kind: 'skill' | 'template' | 'instructions'): string {
 }
 
 export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
-  const [workspaceId] = useState(() => selected()?.id || '');
+  const [workspaceId] = useState(() => currentWorkspace()?.id || '');
   const workspace = useDesk(store => store.state.workspaces.find(entry => entry.id === workspaceId));
-  const blocked = useDesk(store => !!workspaceRun(store.state, workspaceId));
+  const blocked = useDesk(store => !!blockingWorkspaceRun(store.state, workspaceId));
   const busy = useDesk(store => store.activity.busy);
   const unavailable = blocked || busy;
   const [inventory, setInventory] = useState<ResourceInventory | null>(null);
@@ -32,7 +30,6 @@ export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
   const [loading, setLoading] = useState(false);
   const mounted = useRef(true);
   const generation = useRef(0);
-  useEffect(() => () => {mounted.current = false;}, []);
 
   const refresh = async () => {
     if (!workspace) return;
@@ -40,7 +37,7 @@ export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
     setLoading(true);
     setError('');
     try {
-      const result = await request('/api/resources', {query: {workspaceId}});
+      const result = await loadResources(workspaceId);
       if (mounted.current && sequence === generation.current) setInventory(result);
     }
     catch (failure) {
@@ -51,7 +48,8 @@ export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
   useEffect(() => {
     mounted.current = true;
     void refresh();
-    return () => {mounted.current = false;};
+    const off = onAppEvent('resourcesChanged', () => {void refresh();});
+    return () => {mounted.current = false; off();};
   }, [workspaceId]);
 
   const hasInstructions = (inventory?.instructions || []).some(entry => entry.path.replace(/\\/g, '/').endsWith('/AGENTS.md') || entry.path === 'AGENTS.md');
@@ -59,12 +57,11 @@ export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
     if (!workspace || unavailable) return;
     desk().openModal({kind: 'resource-editor', id: modalId('resource-editor'), workspaceId: workspace.id, resourceKind, path});
   };
-  const use = (entry: SkillResource, kind: 'skill' | 'template') => {
+  const insertResource = (entry: SkillResource, kind: 'skill' | 'template') => {
     if (!workspace) return;
-    insertReferences([]);
-    desk().setComposer({text: `${kind === 'skill' ? `/skill:${entry.name}` : `/${entry.name}`} `});
+    setComposerText(`${kind === 'skill' ? `/skill:${entry.name}` : `/${entry.name}`} `);
     closeModalId(modal.id);
-    window.dispatchEvent(new CustomEvent('pith:focus-composer'));
+    emitAppEvent('focusComposer');
   };
 
   return (
@@ -120,7 +117,7 @@ export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
                   <ResourceRow
                     key={entry.path} icon={Sparkles} title={entry.name} detail={entry.description || entry.path}
                     actions={<>
-                      <Button size="xs" variant="secondary" onClick={() => use(entry, 'skill')}>Use</Button>
+                      <Button size="xs" variant="secondary" onClick={() => insertResource(entry, 'skill')}>Use</Button>
                       <Button size="xs" variant="ghost" onClick={() => openEditor('skill', entry.path)}><Pencil className="size-3" />Edit</Button>
                     </>}
                   />
@@ -131,7 +128,7 @@ export function ResourcesDialog({modal}: {modal: ModalOf<'resources'>}) {
                   <ResourceRow
                     key={entry.path} icon={FileText} title={entry.name} detail={entry.description || entry.path}
                     actions={<>
-                      <Button size="xs" variant="secondary" onClick={() => use(entry, 'template')}>Use</Button>
+                      <Button size="xs" variant="secondary" onClick={() => insertResource(entry, 'template')}>Use</Button>
                       <Button size="xs" variant="ghost" onClick={() => openEditor('template', entry.path)}><Pencil className="size-3" />Edit</Button>
                     </>}
                   />
@@ -184,7 +181,7 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
   useEffect(() => {
     if (!modal.path) return;
     let active = true;
-    void request('/api/resource-content', {query: {workspaceId: modal.workspaceId, path: modal.path}}).then(result => {
+    void loadResourceContent(modal.workspaceId, modal.path).then(result => {
       if (!active) return;
       setContent(result.content);
       setName(modal.path!.split('/').pop()?.replace(/\.md$/, '') || '');
@@ -201,7 +198,7 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
       const ok = await saveResource({workspaceId: modal.workspaceId, kind: modal.resourceKind, path: modal.path || '', name, content: body, remove});
       if (ok) {
         closeModalId(modal.id);
-        window.dispatchEvent(new CustomEvent('pith:resources-changed'));
+        emitAppEvent('resourcesChanged');
       } else setError(desk().activity.error);
     } finally {setBusy(false);}
   };
@@ -239,7 +236,7 @@ export function ResourceEditorDialog({modal}: {modal: ModalOf<'resource-editor'>
                       return false;
                     }
                     closeModalId(modal.id);
-                    window.dispatchEvent(new CustomEvent('pith:resources-changed'));
+                    emitAppEvent('resourcesChanged');
                     return true;
                   },
                 });

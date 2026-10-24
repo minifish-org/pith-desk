@@ -1,6 +1,9 @@
 import type { State as WireState, Workspace, Conversation, QueuedMessage, AppearanceMode } from './contract.generated';
 export type { ProviderChoice } from './contract.generated';
 
+/** The page's transport connection to the local service or server host. */
+export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting';
+
 // The Go snapshot normalizes these collections; retain a defensive boundary
 // for an interrupted connection while using the generated wire State type.
 export type State = Omit<WireState, 'workspaces' | 'conversations' | 'messages' | 'queuedMessages' | 'runs'> & {

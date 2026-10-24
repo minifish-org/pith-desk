@@ -4,7 +4,7 @@ const smallCurrency = new Intl.NumberFormat('en-US', {style: 'currency', currenc
 
 export const compactNumber = (value: number) => compactNumbers.format(value || 0).replace('K', 'k');
 
-export function money(value: number): string {
+function money(value: number): string {
   return (value !== 0 && Math.abs(value) < 0.01 ? smallCurrency : currency).format(value);
 }
 
@@ -28,28 +28,6 @@ export function duration(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${seconds % 60}s`;
-}
-
-export function clockTime(timestamp?: number): string {
-  if (!timestamp) return '';
-  return new Date(timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-}
-
-export function relativeDay(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  const today = new Date();
-  const days = Math.floor((today.setHours(0, 0, 0, 0) - new Date(date).setHours(0, 0, 0, 0)) / 86_400_000);
-  if (days <= 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return 'Previous 7 days';
-  return 'Earlier';
-}
-
-export function bytes(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /** Display a workspace file the way the workspace lists it. Paths arrive from

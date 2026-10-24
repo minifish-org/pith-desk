@@ -1,8 +1,6 @@
 import { createAPI, parseStream } from './api.ts';
-import { initialState, normalizeState, type State } from './app-state.ts';
+import { initialState, normalizeState, type ConnectionStatus, type State } from './app-state.ts';
 import type { AppearanceMode, State as WireState } from './contract.generated.ts';
-
-export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting';
 
 interface AppOptions {
   token: string;

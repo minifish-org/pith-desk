@@ -1,21 +1,19 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {Check, ChevronDown, Download, LoaderCircle, RefreshCw, Search, ShieldCheck, Sparkles, TriangleAlert} from 'lucide-react';
+import {Download, LoaderCircle, RefreshCw} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {closeModalId, desk, useDesk, type ModalOf} from '@/stores/desk.ts';
 import {runtime} from '@/lib/runtime.ts';
+import {onAppEvent} from '@/lib/events.ts';
 import {applyAppearance} from '@/actions/core.ts';
+import {exportDiagnostics, saveAppearance, updateAction, updateStatus} from '@/actions/settings.ts';
 import {
-  createInstructions, exportDiagnostics, loadModels, openCustomConnection, openSettings,
-  providerAction, removeProviderKey, saveAppearance, saveModelSelection, saveProviderConfig,
-  testProviderConnection, updateAction, updateStatus,
-} from '@/actions/settings.ts';
-import {thinkingLabel} from '@/lib/format';
+  loadModels, openCustomConnection, providerAction, removeProviderKey, saveProviderConfig, testProviderConnection,
+} from '@/actions/models.ts';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
+import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
-import {Switch} from '@/components/ui/switch';
-import type {ModelCatalog, ProviderChoice, UpdateStatus} from '@/contract.generated.ts';
+import type {ModelCatalog, UpdateStatus} from '@/contract.generated.ts';
 
 export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
   const settings = useDesk(store => store.state.settings);
@@ -60,11 +58,7 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
     return () => {active = false;};
   }, [settings.provider]);
 
-  useEffect(() => {
-    const onConnectionsChanged = () => {void loadModels().then(setCatalog).catch(() => {});};
-    window.addEventListener('pith:model-connections-changed', onConnectionsChanged);
-    return () => window.removeEventListener('pith:model-connections-changed', onConnectionsChanged);
-  }, []);
+  useEffect(() => onAppEvent('modelConnectionsChanged', () => {void loadModels().then(setCatalog).catch(() => {});}), []);
 
   useEffect(() => {
     if (runtime.server) return;
@@ -290,9 +284,9 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
                       setError('');
                       const generation = providerGeneration.current;
                       try {
-                        const saved = await saveProviderConfig({provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})});
+                        const ok = await saveProviderConfig({provider: providerId, baseUrl, ...(apiKey ? {apiKey} : {})});
                         if (generation !== providerGeneration.current) return;
-                        if (saved) {
+                        if (ok) {
                           setApiKey('');
                           setSaved('Provider saved.');
                           void loadModels().then(setCatalog).catch(() => {});
@@ -317,105 +311,6 @@ export function SettingsDialog({modal}: {modal: ModalOf<'settings'>}) {
             </Button>
           </section>
                 </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export function ModelsDialog({modal}: {modal: ModalOf<'models'>}) {
-  const settings = useDesk(store => store.state.settings);
-  const login = useDesk(store => store.state.login);
-  const running = useDesk(store => store.state.runs.length > 0);
-  const busy = useDesk(store => store.activity.busy);
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
-  const [provider, setProvider] = useState(settings.provider);
-  const [model, setModel] = useState(settings.model);
-  const [thinking, setThinking] = useState(settings.thinkingLevel || 'off');
-  const [search, setSearch] = useState('');
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void loadModels().then(result => {
-      if (!active) return;
-      setCatalog(result);
-      if (!(result.providers || []).some(entry => entry.hasApiKey)) {
-        closeModalId(modal.id);
-        openSettings();
-      }
-    }).catch(failure => {if (active) setError(failure instanceof Error ? failure.message : String(failure));});
-    return () => {active = false;};
-  }, []);
-
-  const providers = (catalog?.providers || []).filter(entry => entry.hasApiKey);
-  const models = (catalog?.models || []).filter(entry => entry.provider === provider && (!search.trim() || `${entry.name} ${entry.id}`.toLowerCase().includes(search.trim().toLowerCase())));
-  const selectedModel = (catalog?.models || []).find(entry => entry.provider === provider && entry.id === model);
-  const levels = selectedModel?.thinkingLevels?.length ? selectedModel.thinkingLevels : ['off'];
-  const currentProvider = providers.find(entry => entry.id === provider) || providers[0];
-
-  return (
-    <Dialog open onOpenChange={open => {if (!open) closeModalId(modal.id);}}>
-      <DialogContent className="flex max-h-[80dvh] w-full sm:max-w-[500px] flex-col overflow-hidden p-0">
-        <DialogHeader className="border-b px-4 py-3">
-          <DialogTitle>Choose model</DialogTitle>
-          <DialogDescription>Applies to the next task. Stop running tasks before changing the shared model.</DialogDescription>
-        </DialogHeader>
-        <div className="flex items-center gap-2 border-b px-4 py-2">
-          <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-            {providers.map(entry => (
-              <Button
-                key={entry.id} size="sm" variant={entry.id === currentProvider?.id ? 'secondary' : 'ghost'}
-                className="h-7 shrink-0 text-[12px]"
-                onClick={() => {setProvider(entry.id); setModel('');}}
-              >
-                {entry.name}
-              </Button>
-            ))}
-          </div>
-          <div className="relative w-40 shrink-0">
-            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input aria-label="Search models" placeholder="Search models" value={search} onChange={event => setSearch(event.target.value)} className="h-7 pl-7 text-[12px]" />
-          </div>
-        </div>
-        <div className="scrollbar-quiet min-h-0 flex-1 overflow-y-auto p-2">
-          {!catalog ? <p className="flex items-center gap-2 p-3 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading models…</p> : null}
-          {catalog && !models.length ? <p className="p-3 text-[12px] text-muted-foreground">No models match this provider and search.</p> : null}
-          {models.map(entry => (
-            <button
-              key={`${entry.provider}/${entry.id}`}
-              type="button"
-              className={cn('flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left hover:bg-accent', entry.id === model && entry.provider === provider && 'bg-accent')}
-              onClick={() => {setModel(entry.id); if (!entry.thinkingLevels?.includes(thinking)) setThinking(entry.thinkingLevels?.[0] || 'off');}}
-            >
-              <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px]">{entry.name}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{entry.id} · {Math.round((entry.contextWindow || 0) / 1000)}k context{entry.supportsImages ? ' · images' : ''}</span>
-              </span>
-              {entry.id === model && entry.provider === provider ? <Check className="size-4 shrink-0" /> : null}
-            </button>
-          ))}
-        </div>
-        {error ? <p className="border-t px-4 py-2 text-[12px] text-destructive">{error}</p> : null}
-        <DialogFooter className="mx-0 mb-0 items-center border-t px-4 pt-3 pb-5 sm:justify-between">
-          <Select value={thinking} onValueChange={setThinking} disabled={levels.length < 2 || running || busy}>
-            <SelectTrigger aria-label="Thinking effort" title="Thinking effort" className="h-7 w-32 text-[12px]"><SelectValue /></SelectTrigger>
-            <SelectContent>{levels.map(level => <SelectItem key={level} value={level}>{thinkingLabel(level)}</SelectItem>)}</SelectContent>
-          </Select>
-          <Button
-            size="sm" disabled={!selectedModel || saving || running || busy}
-            onClick={async () => {
-              setSaving(true);
-              try {
-                if (await saveModelSelection({provider, model, thinkingLevel: thinking})) closeModalId(modal.id);
-                else setError(desk().activity.error);
-              } finally {setSaving(false);}
-            }}
-          >
-            {saving ? <LoaderCircle className="size-3.5 animate-spin" /> : null}Use this model
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -2,7 +2,9 @@ import {busy, copyText, mutate, request, setError} from './core.ts';
 import {closeModalId, desk, modalId} from '@/stores/desk.ts';
 import {saveBlob} from '@/lib/save.ts';
 import {app, runtime} from '@/lib/runtime.ts';
-import {selected, isConversationRunning} from './conversations.ts';
+import {conversationRunning, selectedWorkspace} from '@/lib/derive.ts';
+
+// File previews, downloads and native file actions.
 
 export async function downloadConversationFile(id: string, path: string): Promise<void> {
   // Native saves are serialized by the host; repeated clicks must stay usable
@@ -24,7 +26,8 @@ export async function downloadConversationFile(id: string, path: string): Promis
 }
 
 export async function workspaceFileAction(action: 'open' | 'reveal' | 'copy' | 'copy-path' | 'download' | 'preview', target: {workspaceId: string; path: string}): Promise<void> {
-  if (busy() || target.workspaceId !== selected()?.id) return;
+  const workspace = selectedWorkspace(desk().state, desk().selectedWorkspaceId);
+  if (busy() || target.workspaceId !== workspace?.id) return;
   const {workspaceId, path} = target;
   if (action === 'preview') {
     desk().openModal({kind: 'preview', id: modalId('preview'), owner: {kind: 'workspace', id: workspaceId}, path});
@@ -32,7 +35,7 @@ export async function workspaceFileAction(action: 'open' | 'reveal' | 'copy' | '
   }
   try {
     if (action === 'copy-path') {
-      await copyText(`${selected()!.path.replace(/[\\/]$/, '')}/${path}`);
+      await copyText(`${workspace!.path.replace(/[\\/]$/, '')}/${path}`);
       return;
     }
     if (action === 'download' || (action === 'open' && (runtime.server || !runtime.nativeClipboard))) {
@@ -54,7 +57,7 @@ export async function workspaceFileAction(action: 'open' | 'reveal' | 'copy' | '
 
 export async function artifactAction(action: 'open' | 'reveal' | 'copy' | 'copy-path', target: {ownerId: string; path: string}): Promise<void> {
   const id = target.ownerId;
-  if (busy() || isConversationRunning(id) || id !== desk().state.activeId) return;
+  if (busy() || conversationRunning(desk().state, id) || id !== desk().state.activeId) return;
   if (runtime.server && action === 'open') {
     await downloadConversationFile(id, target.path);
     return;
@@ -90,30 +93,4 @@ export async function loadArtifacts(id: string): Promise<void> {
 
 export function clearFilePreview(): void {
   for (const modal of desk().modals) if (modal.kind === 'preview') closeModalId(modal.id);
-}
-
-export function openResources(): void {
-  if (!selected()) {
-    desk().openModal({kind: 'workspace', id: modalId('workspace'), error: ''});
-    return;
-  }
-  desk().openModal({kind: 'resources', id: 'resources'});
-}
-
-export function openHistory(): void {
-  if (!desk().state.activeId) return;
-  desk().openModal({kind: 'history', id: 'history'});
-}
-
-export async function resourceFileAction(action: 'open' | 'reveal', target: {workspaceId: string; path: string}): Promise<void> {
-  if (busy() || target.workspaceId !== selected()?.id) return;
-  if (runtime.server) {
-    await copyText(target.path);
-    return;
-  }
-  if (!await mutate('/api/file', {kind: 'resource', workspaceId: target.workspaceId, path: target.path, action})) throw new Error(desk().activity.error);
-}
-
-export function copyPath(path: string): Promise<void> {
-  return copyText(path);
 }

@@ -114,3 +114,13 @@ test('the workspace Change control opens the picker without changing the logo ac
   await expect(page.getByRole('dialog', {name: 'Workspaces', exact: true})).toBeVisible();
   expect(await page.locator('[data-brand]').evaluate(element => element.getAttribute('tabindex'))).toBeNull();
 });
+
+test('phone navigation closes its drawer when an action opens a surface', async ({ page }) => {
+  await page.setViewportSize({width: 390, height: 844});
+  await page.getByRole('button', {name: 'Toggle navigation', exact: true}).click();
+  const navigation = page.getByRole('complementary', {name: 'Navigation', exact: true});
+  await expect(navigation).toBeVisible();
+  await navigation.getByRole('button', {name: 'Settings', exact: true}).click();
+  await expect(page.getByRole('dialog', {name: 'Settings', exact: true})).toBeVisible();
+  await expect(navigation).toHaveCount(0);
+});

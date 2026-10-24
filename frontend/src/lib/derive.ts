@@ -1,18 +1,37 @@
 import type {State} from '@/app-state.ts';
-import type {Conversation, PermissionMode, RunSummary, Workspace} from '@/contract.generated.ts';
+import type {Conversation, RunSummary, Workspace} from '@/contract.generated.ts';
+
+// Pure projections of the host snapshot. These helpers never request, persist
+// or mutate; actions and components use them so the same question always has
+// one answer.
 
 export type RunStatus = 'approval' | 'running' | 'unread' | 'idle';
 
+export function activeConversation(state: State): Conversation | undefined {
+  return state.conversations.find(entry => entry.id === state.activeId);
+}
+
+/** The workspace the active conversation belongs to, or the selected one when
+ * no conversation is open. Returns `undefined` rather than guessing so callers
+ * can decide whether a fallback workspace is appropriate. */
+export function activeWorkspace(state: State, selectedId: string): Workspace | undefined {
+  const id = activeConversation(state)?.workspaceId || selectedId;
+  return state.workspaces.find(entry => entry.id === id);
+}
+
+/** The workspace shown by the shell and used for new conversations. */
 export function selectedWorkspace(state: State, selectedId: string): Workspace | undefined {
-  const conversation = state.conversations.find(entry => entry.id === state.activeId);
-  return state.workspaces.find(entry => entry.id === (conversation?.workspaceId || selectedId)) ?? state.workspaces[0];
+  return activeWorkspace(state, selectedId) ?? state.workspaces[0];
 }
 
 export function conversationRunning(state: State, id: string | null): boolean {
   return state.runs.some(run => run.conversationId === id);
 }
 
-export function workspaceRun(state: State, id?: string): RunSummary | undefined {
+/** A run that overlaps this workspace, including one in a nested workspace.
+ * The host allows one task per physical tree, so this is the run that currently
+ * blocks changes here. */
+export function blockingWorkspaceRun(state: State, id?: string): RunSummary | undefined {
   const workspace = state.workspaces.find(entry => entry.id === id);
   if (!workspace) return undefined;
   const contains = (a: string, b: string) => a === b || b.startsWith(a.replace(/\/$/, '') + '/');
@@ -29,17 +48,6 @@ export function runStatus(state: State, conversation: Conversation): RunStatus {
   if (conversation.unread) return 'unread';
   return 'idle';
 }
-
-export function activePermissionMode(state: State): PermissionMode {
-  const mode = state.conversations.find(entry => entry.id === state.activeId)?.permissionMode;
-  return mode === 'workspace-write' || mode === 'full-access' ? mode : 'ask';
-}
-
-export const permissionDescription: Record<PermissionMode, string> = {
-  ask: 'Pith can read workspace files. Changes, commands, and external connection tools require approval.',
-  'workspace-write': 'Workspace file changes are allowed. Commands and external connection tools still require approval.',
-  'full-access': 'Full access: all enabled tools, including external connections, run without asking. There is no OS sandbox.',
-};
 
 const activeRunPhases = new Set(['starting', 'working', 'tool', 'retrying', 'compacting']);
 

@@ -1,10 +1,19 @@
 import {useDesk} from '@/stores/desk.ts';
-import {ConfirmDialog, EditorDialog, FullAccessDialog, ImageDialog, RecoveredDialog, RenameDialog, ServerDialog, WorkspaceDialog} from './simple.tsx';
-import {SettingsDialog, ModelsDialog} from './settings.tsx';
-import {ConnectionsDialog, CustomConnectionDialog, ProviderLoginDialog} from './providers.tsx';
+import {ConfirmDialog, FullAccessDialog, RenameDialog} from './confirm.tsx';
+import {WorkspaceDialog} from './workspace.tsx';
+import {EditorDialog, RecoveredDialog} from './editor.tsx';
+import {ServerDialog} from './server.tsx';
+import {ImageDialog} from './image.tsx';
+import {SettingsDialog} from './settings.tsx';
+import {ConnectionsDialog} from './connections.tsx';
+import {CustomConnectionDialog} from './custom-connection.tsx';
+import {ProviderLoginDialog} from './provider-login.tsx';
 import {ResourcesDialog, ResourceEditorDialog} from './resources.tsx';
-import {HistoryDialog, PreviewDialog} from './preview.tsx';
+import {HistoryDialog} from './history.tsx';
+import {PreviewDialog} from './preview.tsx';
 
+/** Renders the modal stack. Store order is paint order, so a dialog opened from
+ * another dialog sits above it. */
 export function Dialogs() {
   const modals = useDesk(store => store.modals);
   return (
@@ -20,7 +29,6 @@ export function Dialogs() {
           case 'server': return <ServerDialog key={modal.id} modal={modal} />;
           case 'recovered': return <RecoveredDialog key={modal.id} modal={modal} />;
           case 'settings': return <SettingsDialog key={modal.id} modal={modal} />;
-          case 'models': return <ModelsDialog key={modal.id} modal={modal} />;
           case 'connections': return <ConnectionsDialog key={modal.id} modal={modal} />;
           case 'custom-connection': return <CustomConnectionDialog key={modal.id} modal={modal} />;
           case 'provider-login': return <ProviderLoginDialog key={modal.id} modal={modal} />;

@@ -330,7 +330,9 @@ html.visual-viewport-short .app-root {
   height: var(--desk-vv-height, 100dvh);
 }
 
-html.visual-viewport-short [data-navigation-rail],
+/* Railed and scrolling surfaces are paint boundaries so a streaming transcript
+   never invalidates the rails beside it. */
+[data-navigation-rail],
 [data-tools-rail] {
   contain: layout paint;
 }
@@ -341,6 +343,10 @@ html.visual-viewport-short [data-navigation-rail],
 
 [data-composer-panels] {
   max-height: calc(var(--desk-vv-height, 100dvh) * 0.4);
+  scrollbar-width: none;
+}
+[data-composer-panels]::-webkit-scrollbar {
+  display: none;
 }
 
 html.visual-viewport-short [data-drawer-panel] {
@@ -354,22 +360,6 @@ html.visual-viewport-short [data-slot="dialog-content"] {
   translate: -50% 0;
   max-height: calc(var(--desk-vv-height, 100dvh) - 24px);
   overflow-y: auto;
-}
-
-[data-navigation-rail],
-[data-tools-rail] {
-  contain: layout paint;
-}
-[data-conversation-scroll] {
-  contain: layout paint;
-  overflow-anchor: none;
-}
-
-[data-composer-panels] {
-  scrollbar-width: none;
-}
-[data-composer-panels]::-webkit-scrollbar {
-  display: none;
 }
 
 /* Conversation, runtime panels and composer share one measured column. */

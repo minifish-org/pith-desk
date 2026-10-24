@@ -9,10 +9,13 @@ import {desk, modalId} from '@/stores/desk.ts';
 import {createServerSession} from '@/lib/session.ts';
 import {createDraftRecovery} from '@/draft-recovery.ts';
 import {applyAppearance, request, setError} from '@/actions/core.ts';
+import {emitAppEvent} from '@/lib/events.ts';
 import {addImageFiles, disposeComposer, enableDraftRecovery, flushAllDrafts, loadComposerDraft, preserveTexts, setDropPending} from '@/actions/composer.ts';
 import {acknowledgeViewed, clearNotices, observeNotices} from '@/actions/notices.ts';
 import {clearFilePreview, loadArtifacts} from '@/actions/files.ts';
 import {installAppLifecycle, installNativeDrop, installNativeMenu, installWorkspaceFileDrop} from '@/lib/native.ts';
+import {installBrowserFileDrop} from '@/lib/file-drop.ts';
+import {installVisualViewportTracking} from '@/lib/viewport.ts';
 import type {AppearanceMode} from '@/contract.generated.ts';
 
 const bootstrap = readAppBootstrap();
@@ -46,20 +49,7 @@ window.addEventListener('beforeunload', markUnloading);
 window.addEventListener('pageshow', markActive);
 window.addEventListener('focus', markActive);
 
-// The on-screen keyboard shrinks the visual viewport without changing the
-// layout viewport. Dialogs and tool panels follow it so controls stay reachable.
-const syncVisualViewport = () => {
-  const viewport = window.visualViewport;
-  const height = viewport?.height || window.innerHeight;
-  const rootStyle = document.documentElement.style;
-  rootStyle.setProperty('--desk-vv-height', `${height}px`);
-  rootStyle.setProperty('--desk-vv-top', `${viewport?.offsetTop || 0}px`);
-  document.documentElement.classList.toggle('visual-viewport-short', height < window.innerHeight - 1);
-};
-syncVisualViewport();
-window.visualViewport?.addEventListener('resize', syncVisualViewport);
-window.visualViewport?.addEventListener('scroll', syncVisualViewport);
-window.addEventListener('resize', syncVisualViewport);
+installVisualViewportTracking();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
   if (desk().appearance === 'system') applyAppearance('system');
 });
@@ -113,7 +103,7 @@ function snapshotChanged(next: State, previous: State, initialized: boolean): vo
   void loadComposerDraft();
   observeNotices(initialized);
   if (next.activeId && !next.running && (!initialized || activeChanged || previous.running)) void loadArtifacts(next.activeId);
-  if (runFinished) window.dispatchEvent(new Event('pith:mcp-refresh'));
+  if (runFinished) emitAppEvent('mcpRefresh');
 }
 
 const session = bootstrap.server ? createServerSession({
@@ -154,6 +144,12 @@ const removeNativeDrop = installNativeDrop(bootstrap.nativeFileDrop, (paths, x, 
   fileDrop.references({paths, uris: '', hasUnidentifiedFiles: false});
 });
 
+const removeBrowserDrop = installBrowserFileDrop({
+  pending: setDropPending,
+  images: files => {void addImageFiles(files);},
+  references: input => fileDrop.references({paths: [], ...input}),
+});
+
 const removeLifecycle = installAppLifecycle({
   acknowledge: acknowledgeViewed,
   saveOnLeave: () => {preserveTexts(); void flushAllDrafts({keepalive: true});},
@@ -170,39 +166,12 @@ const removeLifecycle = installAppLifecycle({
     removeLifecycle();
     removeNativeMenu();
     removeNativeDrop();
+    removeBrowserDrop();
     fileDrop.destroy();
     disposeComposer();
     clearNotices();
   },
 });
-
-// Browser file drop reads images locally; other files must resolve to
-// workspace-relative paths through the host.
-const onDragOver = (event: DragEvent) => {
-  if (!event.dataTransfer?.types.includes('Files')) return;
-  event.preventDefault();
-  setDropPending(true);
-};
-const onDragLeave = (event: DragEvent) => {
-  if (event.relatedTarget) return;
-  setDropPending(false);
-};
-const onDrop = (event: DragEvent) => {
-  if (!event.dataTransfer) return;
-  const files = [...event.dataTransfer.files];
-  const uris = event.dataTransfer.getData('text/uri-list');
-  if (!files.length && !uris) return;
-  event.preventDefault();
-  setDropPending(false);
-  const images = files.filter(file => file.type.startsWith('image/'));
-  if (images.length) void addImageFiles(images);
-  const nonImages = files.filter(file => !file.type.startsWith('image/'));
-  fileDrop.references({paths: [], uris, hasUnidentifiedFiles: nonImages.length > 0});
-};
-window.addEventListener('dragover', onDragOver);
-window.addEventListener('dragleave', onDragLeave);
-window.addEventListener('drop', onDrop);
-window.addEventListener('dragend', () => setDropPending(false));
 
 if (!session) {
   runtime.protocols = () => bootstrap.token ? ['pith-desk', `bearer.${bootstrap.token}`] : ['pith-desk'];

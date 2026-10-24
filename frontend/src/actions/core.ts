@@ -34,9 +34,6 @@ export function busy(): boolean {
   return desk().activity.busy;
 }
 
-export function anyRunning(): boolean {
-  return desk().state.runs.length > 0;
-}
 
 export function applyAppearance(appearance: 'system' | 'light' | 'dark'): void {
   const root = document.documentElement;

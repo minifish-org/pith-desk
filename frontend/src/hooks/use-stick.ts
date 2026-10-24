@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
+import {onAppEvent} from '@/lib/events.ts';
 
 interface ReadingPosition {
   top: number;
@@ -66,11 +67,7 @@ export function useStickToBottom(dependency: unknown, conversationKey?: string) 
     return () => cancelAnimationFrame(frame);
   }, [conversationKey]);
 
-  useEffect(() => {
-    const onFollow = () => jump('smooth');
-    window.addEventListener('pith:follow-latest', onFollow);
-    return () => window.removeEventListener('pith:follow-latest', onFollow);
-  }, [jump]);
+  useEffect(() => onAppEvent('followLatest', () => jump('smooth')), [jump]);
 
   return {ref, onScroll, showJump, jump};
 }

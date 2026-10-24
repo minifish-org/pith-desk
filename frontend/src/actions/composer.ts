@@ -1,11 +1,18 @@
-import {mutate, request, setError, copyText} from './core.ts';
+// Composer state: draft scope and persistence, image attachments, submission,
+// queueing and draft recovery. Transport and shared mutation policy live in
+// `core.ts`; conversation lifecycle lives in `conversations.ts`.
+import {mutate, request, setError} from './core.ts';
 import {desk, newDraftScope, type DraftImage} from '@/stores/desk.ts';
-import {selected, blockedWorkspace, focusComposer, isConversationRunning} from './conversations.ts';
+import {currentWorkspace, blockedWorkspace, openWorkspace} from './conversations.ts';
+import {openSettings} from './settings.ts';
+import {unsentEditorText} from './message-edits.ts';
 import {createDrafts, draftKey} from '@/drafts.ts';
 import {createDraftRecovery, type DraftRecovery} from '@/draft-recovery.ts';
 import {imagePreviewBlob} from '@/image-data.ts';
-import {app, runtime} from '@/lib/runtime.ts';
-import type {DraftScope, DraftImage as WireDraftImage, ImageContent, QueuedMessage} from '@/contract.generated.ts';
+import {app} from '@/lib/runtime.ts';
+import {emitAppEvent} from '@/lib/events.ts';
+import type {ComposerAction} from '@/lib/derive.ts';
+import type {DraftScope, DraftImage as WireDraftImage, ImageContent} from '@/contract.generated.ts';
 
 type Draft = ReturnType<typeof createDrafts>;
 type ImageInput = ImageContent;
@@ -17,13 +24,8 @@ let scope: DraftScope = {};
 let draftReady: Promise<void> = Promise.resolve();
 let loadGeneration = 0;
 let imageGeneration = 0;
-let submittingMessageEdit = '';
 let draftHandoff = false;
 let composerElement: HTMLTextAreaElement | null = null;
-
-export function composerRecovery(): DraftRecovery | undefined {
-  return recoveryInstance;
-}
 
 export function enableDraftRecovery(recovery?: DraftRecovery): void {
   recoveryEnabled = true;
@@ -42,14 +44,6 @@ function drafts(): Draft {
   return draftsInstance;
 }
 
-export function composerScope(): DraftScope {
-  return scope;
-}
-
-export function composerText(): string {
-  return desk().composer.text;
-}
-
 export function rememberDraft(): void {
   const composer = desk().composer;
   if (composer.loading) return;
@@ -65,23 +59,9 @@ export function attachComposerElement(element: HTMLTextAreaElement | null): void
   composerElement = element;
 }
 
-/** Insert an inline Markdown reference at the caret, replacing a selection. */
+/** Insert inline Markdown references at the caret, replacing a selection. */
 export function insertReference(path: string): void {
-  const text = desk().composer.text;
-  const element = composerElement && document.contains(composerElement) ? composerElement : null;
-  const start = element?.selectionStart ?? text.length;
-  const end = element?.selectionEnd ?? text.length;
-  const trailing = !text[end] || /\s/.test(text[end]) ? '' : ' ';
-  const insert = `\`${path}\`` + trailing;
-  const next = text.slice(0, start) + insert + text.slice(end);
-  desk().setComposer({text: next});
-  rememberDraft();
-  requestAnimationFrame(() => {
-    if (!composerElement) return;
-    composerElement.focus();
-    const caret = start + insert.length;
-    composerElement.setSelectionRange(caret, caret);
-  });
+  insertReferences([path]);
 }
 
 export function insertReferences(paths: string[]): void {
@@ -147,7 +127,7 @@ export async function loadComposerDraft(): Promise<void> {
   });
 }
 
-export function clearImages(ids?: Set<string>): void {
+function clearImages(ids?: Set<string>): void {
   const composer = desk().composer;
   if (!ids) imageGeneration++;
   const kept: DraftImage[] = [];
@@ -213,14 +193,14 @@ export function removeAttachment(id: string): void {
   rememberDraft();
 }
 
-export function canSubmit(): boolean {
+function canSubmit(): boolean {
   const composer = desk().composer;
   return (!!composer.text.trim() || composer.images.length > 0)
     && !desk().activity.busy && !composer.loading && !composer.reading && !composer.resolving
     && (composer.images.length === 0 || desk().state.settings.supportsImages);
 }
 
-export function composerAction(): 'send' | 'queue' | 'stop' {
+export function composerAction(): ComposerAction {
   const state = desk().state;
   const hasDraft = !!desk().composer.text.trim() || desk().composer.images.length > 0;
   return state.running && !hasDraft ? 'stop' : state.running ? 'queue' : 'send';
@@ -230,7 +210,7 @@ export function composerDisabled(): boolean {
   const state = desk().state;
   const composer = desk().composer;
   const stopping = composerAction() === 'stop';
-  const workspace = selected();
+  const workspace = currentWorkspace();
   return stopping
     ? desk().activity.busy
     : !desk().loaded || desk().activity.busy || composer.loading || composer.reading || composer.resolving || !canSubmit()
@@ -255,13 +235,11 @@ export async function send(): Promise<void> {
     return;
   }
   if (!desk().state.settings.hasApiKey) {
-    const {openSettings} = await import('./settings.ts');
     openSettings();
     return;
   }
-  const workspace = selected();
+  const workspace = currentWorkspace();
   if (!workspace) {
-    const {openWorkspace} = await import('./conversations.ts');
     openWorkspace();
     return;
   }
@@ -302,7 +280,7 @@ export async function send(): Promise<void> {
   });
   if (ok) {
     await drafts().flushAll();
-    followLatest();
+    emitAppEvent('followLatest');
   }
 }
 
@@ -331,57 +309,11 @@ async function queueMessage(text: string, draft: string, images: ImageInput[], s
   }
 }
 
-export function followLatest(): void {
-  window.dispatchEvent(new CustomEvent('pith:follow-latest'));
-}
-
 export async function stop(): Promise<void> {
   if (desk().state.running && !desk().activity.busy) await mutate('/api/abort', {id: desk().state.activeId});
 }
 
-export function startMessageEdit(messageId: string): void {
-  const state = desk().state;
-  const message = state.messages.find(entry => entry.id === messageId);
-  if (!message || message.role !== 'user' || desk().activity.busy || state.running) return;
-  submittingMessageEdit = state.messages.at(-1)?.id || '';
-  desk().openModal({
-    kind: 'editor', id: `edit-${messageId}`, slot: 'message', targetId: messageId, title: 'Edit message', submitLabel: 'Send again',
-    value: message.text, note: 'Send again to replace this message and its following replies.' + (message.images?.length ? ` ${message.images.length} attached image${message.images.length === 1 ? '' : 's'} will be kept.` : ''),
-    error: '', disabled: desk().activity.busy,
-  });
-}
-
-export async function submitMessageEdit(modalValue: string, messageId: string, text: string): Promise<boolean> {
-  const state = desk().state;
-  const modal = desk().modals.find(entry => entry.id === modalValue);
-  if (!modal || modal.kind !== 'editor') return false;
-  const message = state.messages.find(entry => entry.id === messageId);
-  const expected = modal.expectedLastMessageId || submittingMessageEdit;
-  if (!message || message.role !== 'user' || modal.conversationId !== state.activeId || desk().activity.busy || state.running || expected !== (state.messages.at(-1)?.id || '') || (!text.trim() && !message.images?.length)) {
-    desk().patchModal(modalValue, {error: 'The conversation changed. Reopen the message to send this edit. Your text is kept here so you can copy it.'});
-    return false;
-  }
-  const ok = await mutate('/api/edit-message', {id: state.activeId, messageId, expectedLastMessageId: expected, text});
-  if (ok) {
-    desk().closeModal(modalValue);
-    followLatest();
-  } else desk().patchModal(modalValue, {error: desk().activity.error});
-  return ok;
-}
-
-export function unsentEditorText(slot: 'message' | 'queue'): string {
-  const modal = desk().modals.find(entry => entry.kind === 'editor' && entry.slot === slot);
-  if (!modal || modal.kind !== 'editor') return '';
-  const original = slot === 'queue'
-    ? desk().state.queuedMessages.find(entry => entry.id === modal.targetId)?.text || ''
-    : desk().state.messages.find(entry => entry.id === modal.targetId)?.text || '';
-  const value = editorValues.get(modal.id) ?? modal.value;
-  return value !== original ? value : '';
-}
-
-// The dialog keeps its unsaved text here so lifecycle saves can read it.
-export const editorValues = new Map<string, string>();
-
+/** Copy unsaved text into the page's recovery store before the page goes away. */
 export function preserveTexts(): void {
   rememberDraft();
   recoveryInstance?.keepText('Unassigned message', !scope.id && !scope.workspaceId ? desk().composer.text : '');
@@ -393,26 +325,8 @@ export async function flushAllDrafts(options?: {keepalive?: boolean}): Promise<P
   return drafts().flushAll(options);
 }
 
-export function queuedEntry(id: string): QueuedMessage | undefined {
-  return desk().state.queuedMessages.find(entry => entry.id === id);
-}
-
-export function draftImages(): DraftImage[] {
-  return desk().composer.images;
-}
-
-export function copyComposerText(): Promise<void> {
-  return copyText(desk().composer.text);
-}
-
-export function isDraftLoading(): boolean {
-  return desk().composer.loading;
-}
-
 export function disposeComposer(): void {
   drafts().suspend();
   loadGeneration++;
   imageGeneration++;
 }
-
-export {runtime};
