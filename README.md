@@ -706,13 +706,6 @@ a second icon set, animation library, panel implementation, drag library or stat
 container. shadcn components are checked in under `frontend/src/components/ui`;
 restyle them there instead of layering presentation overrides elsewhere.
 
-`npm run dev` and `npm run dev:server` build embedded assets when missing, then
-serve frontend edits and Vite HMR through the shared Host. Server development uses
-the same token login and exclusive lease checks as the embedded UI. Restart after
-Go changes. Use different `--data-dir` values when running both commands together.
-Development rejects paths overlapping the default production profiles, including
-symlink aliases. Use disposable workspaces for mutating tests.
-
 For a fast type check without bundling or the Go/browser suites:
 
 ```sh
@@ -738,16 +731,20 @@ Desktop retains the authenticated loopback transport; Server uses its cookie and
 page lease for HTTP/WebSocket access. Opaque SDK JSON remains `unknown`; business
 validation stays in the service.
 
-`frontend/src/stores/desk.ts` owns the single application snapshot projection and
-transient UI state. `frontend/src/actions` owns requests, business coordination and
-persistence calls, grouped by domain (`conversations`, `composer`, `models`,
-`connections`, `resources`, `files`, `settings`). `frontend/src/components` owns
-composition only; the shell lives in `workspace-layout.tsx`, inline composer
-surfaces in `composer-panels.tsx` and `runtime-bar.tsx`, and dialogs in
-`components/dialogs` with `registry.tsx` as the modal stack. Pure snapshot
-projections live in `lib/derive.ts`, permission metadata in `lib/permissions.ts`,
-and page-local signals in `lib/events.ts`. Native adapters under `frontend/src/lib`
-validate events and forward data without finding or changing UI nodes. The titlebar
+Read the frontend along its data flow:
+
+| Entry | Responsibility |
+|---|---|
+| `main.tsx` → `app.ts` | Start the page, attach Desktop/Server lifecycle adapters, and receive ordered HTTP/WebSocket snapshots. |
+| `stores/desk.ts` | Project the latest Host snapshot and hold shared transient UI state. |
+| `actions/` | Own typed requests, business coordination, original operation targets and persistence, grouped by domain. Use the generated contract types rather than copying request shapes. |
+| `stores/workspace-tools.ts` + `actions/workspace-tools.ts` | Keep each workspace's tool layout and pending closes independent; preserve the saved tab format and apply async results to the original workspace's current layout. |
+| `App.tsx` → `components/workspace-layout.tsx` | Compose the shell, conversation, composer and tool rails. Dialogs are dispatched by `components/dialogs/registry.tsx`. |
+| `components/` + `hooks/` | Render state and emit intents; own local disclosure, focus and rendering lifetimes. A scoped async read must retire when its target or view changes. |
+| `lib/derive.ts`, `lib/permissions.ts`, `lib/events.ts` | Pure snapshot projections, permission metadata and typed page-local signals. |
+
+Native adapters under `frontend/src/lib` validate events and forward data without
+finding or changing UI nodes. The titlebar
 overlay follows `--mygo-titlebar-height` and `--mygo-titlebar-inset-*`, and marks
 only drag regions with `--app-region`.
 

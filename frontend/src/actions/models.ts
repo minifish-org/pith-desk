@@ -1,6 +1,6 @@
 import {busy, mutate, request} from './core.ts';
 import {desk, modalId} from '@/stores/desk.ts';
-import type {ModelCatalog, ModelSelectionInput, ProviderChoice} from '@/contract.generated.ts';
+import type {CustomConnectionInput, ModelCatalog, ModelSelectionInput, ProviderChoice} from '@/contract.generated.ts';
 
 // Model catalog, the shared model selection and provider connections.
 
@@ -71,10 +71,8 @@ export async function loadCustomConnection(id: string) {
   return request('/api/custom-connection', {query: {id}});
 }
 
-export async function saveCustomConnection(payload: {
-  id: string; name: string; baseUrl: string; api: string; apiKey?: string; models: unknown[];
-}): Promise<boolean> {
-  return mutate('/api/custom-connection', payload as never);
+export async function saveCustomConnection(payload: CustomConnectionInput): Promise<boolean> {
+  return mutate('/api/custom-connection', payload);
 }
 
 export async function oauthAnswer(id: string, answer: string): Promise<boolean> {

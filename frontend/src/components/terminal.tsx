@@ -12,16 +12,15 @@ interface Props {
   tabId: string;
   active: boolean;
   disabled: boolean;
-  onSessionClosed: () => void;
+  onClose: () => void;
 }
 
-export function TerminalView({workspaceId, tabId, active, disabled, onSessionClosed}: Props) {
+export function TerminalView({workspaceId, tabId, active, disabled, onClose}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState('Connecting…');
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [info, setInfo] = useState<Info | undefined>();
   const [connected, setConnected] = useState(false);
   const infoRef = useRef<Info | undefined>(undefined);
   const session = useRef<{socket?: WebSocket; generation: number; timer?: ReturnType<typeof setTimeout>}>({generation: 0});
@@ -92,7 +91,6 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
     void lookup().then(async result => {
       if (cancelled) return;
       if (result?.session) {
-        setInfo(result.session);
         connect();
         return;
       }
@@ -101,7 +99,6 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
         const started = await request('/api/terminal', {workspaceId, id: tabId, cols: size.cols, rows: size.rows});
         if (cancelled) return;
         if (started.session && (started.session.id !== tabId || started.session.workspaceId !== workspaceId)) throw new Error('Terminal session changed');
-        setInfo(started.session ?? undefined);
         if (started.session) connect(true);
         else setStatus('Terminal session ended. Close this tab and create a new terminal.');
       } catch (failure) {
@@ -193,7 +190,6 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
           if (ready || data.session?.id !== tabId || data.session?.workspaceId !== workspaceId) throw new Error('Terminal session changed');
           ready = true;
           infoRef.current = data.session;
-          setInfo(data.session);
           terminal.current?.reset();
           terminal.current?.resize(data.session.cols, data.session.rows);
           cursor.current = 0;
@@ -220,7 +216,6 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
           delay = 500;
           const current = data.session ?? infoRef.current;
           if (data.session) infoRef.current = data.session;
-          setInfo(current);
           setConnected(true);
           setError('');
           setStatus(current?.running === false ? `Shell exited (${current.exitCode ?? -1}). Close it to start another.` : 'Connected · manual shell');
@@ -232,7 +227,6 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
           });
         } else if (data.type === 'exit') {
           if (data.session) infoRef.current = data.session;
-          setInfo(data.session);
           connectedRef.current = false;
           setConnected(false);
           setStatus(`Shell exited (${data.session?.exitCode ?? -1}). Close it to start a new terminal.`);
@@ -264,7 +258,6 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
     setError('');
     void lookup().then(result => {
       if (result?.session) {
-        setInfo(result.session);
         connect(true);
       } else setStatus('Terminal session ended. Close this tab and create a new terminal.');
     });
@@ -294,10 +287,7 @@ export function TerminalView({workspaceId, tabId, active, disabled, onSessionClo
       <div className="flex justify-end border-t px-2 py-1">
         <Button
           variant="ghost" size="xs" disabled={disabled}
-          onClick={async () => {
-            try {await request('/api/terminal/close', {workspaceId, id: info?.id || tabId});} catch { /* The tab is closing anyway. */ }
-            onSessionClosed();
-          }}
+          onClick={onClose}
         >
           Close shell
         </Button>

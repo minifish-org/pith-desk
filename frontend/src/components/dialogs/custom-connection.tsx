@@ -3,6 +3,7 @@ import {LoaderCircle, Trash2} from 'lucide-react';
 import {closeModalId, desk, type ModalOf} from '@/stores/desk.ts';
 import {loadCustomConnection, saveCustomConnection} from '@/actions/models.ts';
 import {emitAppEvent} from '@/lib/events.ts';
+import type {ModelsJsonModel} from '@/contract.generated.ts';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
@@ -76,9 +77,9 @@ export function CustomConnectionDialog({modal}: {modal: ModalOf<'custom-connecti
         if (rates.some(Boolean) && rates.some(value => value === '')) throw new Error('Enter all four rates, using 0 for a free or unused category, or leave all four blank for unknown prices.');
       }
       const ok = await saveCustomConnection({
-        id: modal.connectionId || '', name, baseUrl, api, ...(apiKey ? {apiKey} : {}),
+        id: modal.connectionId || '', name, baseUrl, api, apiKey,
         models: models.map(model => {
-          const definition: Record<string, unknown> = {
+          const definition: ModelsJsonModel = {
             id: model.id, name: model.name || model.id, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
             reasoning: model.reasoning, input: model.images ? ['text', 'image'] : ['text'],
           };

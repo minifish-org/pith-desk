@@ -67,4 +67,69 @@ for(const mode of ['desktop','server']) test.describe(mode+' workspace tool tabs
     await page.reload();await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toBeEditable();await page.getByRole('button',{name:'Toggle tools',exact:true}).click();await expect(tools(page).getByRole('tab')).toHaveCount(0);
     await create(page,'files');await expect(panel(page).getByRole('searchbox')).toHaveCount(0);await expect(tools(page).getByRole('button',{name:'docs',exact:true})).toHaveAttribute('aria-expanded','false');await expect(tools(page).getByRole('button',{name:'other',exact:true})).toHaveAttribute('aria-expanded','false');
   });
+
+  test('a delayed terminal close preserves tabs created while it is pending', async ({page, host}) => {
+    await open(page, host);
+    await create(page, 'terminal');
+    let release!: () => void;
+    let received!: () => void;
+    const pending = new Promise<void>(resolve => {release = resolve;});
+    const closing = new Promise<void>(resolve => {received = resolve;});
+    await page.route('**/api/terminal/close', async route => {
+      received();
+      await pending;
+      await route.continue();
+    });
+    try {
+      await tools(page).getByRole('button', {name: 'Close Terminal', exact: true}).click();
+      await closing;
+      await create(page, 'files');
+    } finally {release();}
+    await expect(tools(page).getByRole('tab', {name: 'Terminal', exact: true})).toHaveCount(0);
+    await expect(tools(page).getByRole('tab', {name: 'Files 2', exact: true})).toHaveAttribute('aria-selected', 'true');
+    await page.reload();
+    await expect(page.getByRole('textbox', {name: 'Message Pith', exact: true})).toBeEditable();
+    await page.getByRole('button', {name: 'Toggle tools', exact: true}).click();
+    await expect(tools(page).getByRole('tab', {name: 'Files 2', exact: true})).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('a delayed terminal close stays with its original workspace', async ({page, host}) => {
+    const [first, second] = host.state.workspaces;
+    await open(page, host);
+    await create(page, 'terminal');
+    let release!: () => void;
+    let received!: () => void;
+    const pending = new Promise<void>(resolve => {release = resolve;});
+    const closing = new Promise<void>(resolve => {received = resolve;});
+    await page.route('**/api/terminal/close', async route => {
+      received();
+      await pending;
+      await route.continue();
+    });
+    try {
+      await tools(page).getByRole('button', {name: 'Close Terminal', exact: true}).click();
+      await closing;
+      await page.getByRole('button', {name: second.name, exact: true}).click();
+      await page.getByRole('button', {name: second.name + ' conversation', exact: true}).click();
+      await create(page, 'files');
+    } finally {release();}
+    await expect(tools(page).getByRole('tab', {name: 'Files 2', exact: true})).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('button', {name: first.name + ' conversation', exact: true}).click();
+    await expect(tools(page).getByRole('tab', {name: 'Terminal', exact: true})).toHaveCount(0);
+    await page.getByRole('button', {name: second.name + ' conversation', exact: true}).click();
+    await expect(tools(page).getByRole('tab', {name: 'Files 2', exact: true})).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('Close shell sends one close request and removes its tab', async ({page, host}) => {
+    await open(page, host);
+    await create(page, 'terminal');
+    const closes: object[] = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/terminal/close') closes.push(request.postDataJSON());
+    });
+    await panel(page).getByRole('button', {name: 'Close shell', exact: true}).click();
+    await expect(tools(page).getByRole('tab', {name: 'Terminal', exact: true})).toHaveCount(0);
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toMatchObject({workspaceId: host.state.workspaces[0].id});
+  });
 });

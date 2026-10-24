@@ -1,4 +1,4 @@
-import {test, expect} from '@playwright/test';
+import {test, expect, type Page} from '@playwright/test';
 import {installFixture} from './fixture.mjs';
 
 test.beforeEach(async ({page}) => {
@@ -57,4 +57,103 @@ test('expanded runtime details share the composer column when the panel scrolls'
     };
   });
   expect(boxes.details).toEqual(boxes.composer);
+});
+
+async function installCostLedger(page: Page, holdFirst = false) {
+  await page.evaluate(({holdFirst}) => {
+    const fixture = window as any;
+    const original = window.fetch.bind(window);
+    fixture.costReads = [];
+    fixture.failCostRead = false;
+    window.fetch = async (input, options) => {
+      const url = new URL(String(input), location.href);
+      if (url.pathname !== '/api/costs') return original(input, options);
+      const id = url.searchParams.get('id');
+      const revision = fixture.reviewState.runtime.cost.requestCount;
+      fixture.costReads.push({id, revision});
+      // Deliberately ignore cancellation: a retired response must still be harmless.
+      if (holdFirst && fixture.costReads.length === 1) await new Promise<void>(resolve => {fixture.releaseCostRead = resolve;});
+      if (fixture.failCostRead) return Response.json({error: 'Ledger unavailable'}, {status: 503});
+      return Response.json({
+        total: 0, runTotal: 0, requestCount: revision, unknownRequests: 0, runRequests: revision, runUnknownRequests: 0,
+        currency: 'USD', estimated: true,
+        requests: [{id: `${id}-${revision}`, purpose: 'task', model: `ledger-${id}-${revision}`, status: 'complete', known: true, usage: {input: 1, output: 2}}],
+      });
+    };
+  }, {holdFirst});
+  await page.locator('[data-runtime-summary]').click();
+  await page.getByRole('button', {name: 'Request breakdown', exact: true}).click();
+}
+
+test('an open cost ledger refreshes when the request count or conversation changes', async ({page}) => {
+  await installCostLedger(page);
+  await expect(page.getByRole('cell', {name: 'ledger-a-1', exact: true})).toBeVisible();
+  await page.evaluate(() => {
+    const fixture = window as any;
+    fixture.reviewState.runtime.cost.requestCount = 2;
+    fixture.emitReview();
+  });
+  await expect(page.getByRole('cell', {name: 'ledger-a-2', exact: true})).toBeVisible();
+  await page.evaluate(() => {
+    const fixture = window as any;
+    fixture.reviewState.activeId = 'b';
+    fixture.emitReview();
+  });
+  await expect(page.getByRole('cell', {name: 'ledger-b-2', exact: true})).toBeVisible();
+  await expect(page.getByRole('cell', {name: 'ledger-a-2', exact: true})).toHaveCount(0);
+  await page.getByRole('button', {name: 'Request breakdown', exact: true}).click();
+  await page.getByRole('button', {name: 'Request breakdown', exact: true}).click();
+  await expect(page.getByRole('cell', {name: 'ledger-b-2', exact: true})).toBeVisible();
+  expect(await page.evaluate(() => (window as any).costReads.length)).toBe(3);
+});
+
+test('a retired cost response cannot replace the newly selected conversation ledger', async ({page}) => {
+  await installCostLedger(page, true);
+  await expect.poll(() => page.evaluate(() => (window as any).costReads.length)).toBe(1);
+  await page.evaluate(() => {
+    const fixture = window as any;
+    fixture.reviewState.activeId = 'b';
+    fixture.emitReview();
+  });
+  await expect(page.getByRole('cell', {name: 'ledger-b-1', exact: true})).toBeVisible();
+  await page.evaluate(async () => {
+    (window as any).releaseCostRead();
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  await expect(page.getByRole('cell', {name: 'ledger-b-1', exact: true})).toBeVisible();
+  await expect(page.getByRole('cell', {name: 'ledger-a-1', exact: true})).toHaveCount(0);
+});
+
+test('reopening a failed cost ledger clears the error and retries', async ({page}) => {
+  await installCostLedger(page, true);
+  await expect.poll(() => page.evaluate(() => (window as any).costReads.length)).toBe(1);
+  await page.evaluate(() => {
+    const fixture = window as any;
+    fixture.failCostRead = true;
+    fixture.releaseCostRead();
+  });
+  await expect(page.getByText('Request breakdown could not be loaded. Reopen this section to retry.')).toBeVisible();
+  await page.getByRole('button', {name: 'Request breakdown', exact: true}).click();
+  await page.evaluate(() => {(window as any).failCostRead = false;});
+  await page.getByRole('button', {name: 'Request breakdown', exact: true}).click();
+  await expect(page.getByRole('cell', {name: 'ledger-a-1', exact: true})).toBeVisible();
+  await expect(page.getByText('Request breakdown could not be loaded. Reopen this section to retry.')).toHaveCount(0);
+});
+
+test('closing a pending ledger retires its error before the same section is reopened', async ({page}) => {
+  await installCostLedger(page, true);
+  await expect.poll(() => page.evaluate(() => (window as any).costReads.length)).toBe(1);
+  const disclosure = page.getByRole('button', {name: 'Request breakdown', exact: true});
+  await disclosure.click();
+  await disclosure.click();
+  await expect(page.getByRole('cell', {name: 'ledger-a-1', exact: true})).toBeVisible();
+  expect(await page.evaluate(() => (window as any).costReads.length)).toBe(2);
+  await page.evaluate(async () => {
+    const fixture = window as any;
+    fixture.failCostRead = true;
+    fixture.releaseCostRead();
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  await expect(page.getByRole('cell', {name: 'ledger-a-1', exact: true})).toBeVisible();
+  await expect(page.getByText('Request breakdown could not be loaded. Reopen this section to retry.')).toHaveCount(0);
 });

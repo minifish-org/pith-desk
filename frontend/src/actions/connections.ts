@@ -1,6 +1,7 @@
 import {busy, mutate, request} from './core.ts';
 import {desk, modalId} from '@/stores/desk.ts';
 import {emitAppEvent} from '@/lib/events.ts';
+import type {MCPInput} from '@/contract.generated.ts';
 
 // MCP tool connections.
 
@@ -12,12 +13,8 @@ export async function loadMCP() {
   return request('/api/mcp');
 }
 
-export async function saveMCP(draft: {
-  name: string; type: string; args: string[]; oauth: boolean; enabled: boolean; url?: string; command?: string;
-  oauthClientId?: string; oauthScope?: string; bearerToken?: string; clearBearerToken?: boolean;
-  env?: Record<string, string>; clearEnv?: boolean;
-}): Promise<boolean> {
-  return mutate('/api/mcp/save', draft as never);
+export async function saveMCP(draft: MCPInput): Promise<boolean> {
+  return mutate('/api/mcp/save', draft);
 }
 
 async function removeMCP(name: string): Promise<boolean> {

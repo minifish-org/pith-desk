@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react';
 import {ChevronRight, LoaderCircle} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {useDesk} from '@/stores/desk.ts';
-import {request} from '@/actions/core.ts';
+import {loadCostReport} from '@/actions/costs.ts';
 import {compactNumber, duration, formatCost, thinkingLabel} from '@/lib/format';
 import {taskElapsed} from '@/lib/derive.ts';
 import type {CostReport, RuntimeStatus} from '@/contract.generated.ts';
@@ -88,22 +88,48 @@ function Row({label, value}: {label: string; value: string}) {
 
 function CostLedger({activeId, runtime}: {activeId: string; runtime: RuntimeStatus}) {
   const [open, setOpen] = useState(false);
+  if (!(runtime.cost.requestCount || runtime.cost.unavailable)) return null;
+  // Keep the disclosure open across snapshots, but scope its cached read to
+  // this conversation and ledger revision. A new target gets a fresh reader.
+  const revision = JSON.stringify([activeId, runtime.runId, runtime.cost.requestCount, runtime.cost.unavailable]);
+  return (
+    <div className="mt-2 border-t pt-1.5">
+      <button type="button" className="flex w-full items-center gap-1.5 py-1 text-left text-[12px] text-muted-foreground hover:text-foreground" onClick={() => setOpen(value => !value)} aria-expanded={open}>
+        <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />Request breakdown
+      </button>
+      <CostLedgerContent key={revision} activeId={activeId} open={open} />
+    </div>
+  );
+}
+
+function CostLedgerContent({activeId, open}: {activeId: string; open: boolean}) {
   const [report, setReport] = useState<CostReport | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const key = `${activeId}:${runtime.runId}:${runtime.cost.requestCount}`;
-  const visible = !!(runtime.cost.requestCount || runtime.cost.unavailable);
-  useEffect(() => {setReport(null); setError('');}, [key]);
   useEffect(() => {
-    if (!open || !visible || loading || report) return;
+    if (!open || report) return;
+    const controller = new AbortController();
+    let active = true;
+    setError('');
     setLoading(true);
-    void request('/api/costs', {query: {id: activeId}}).then(value => setReport(value)).catch(() => setError('Request breakdown could not be loaded. Reopen this section to retry.')).finally(() => setLoading(false));
-  }, [open, visible, activeId, key]);
-  if (!visible) return null;
-  let body: React.ReactNode = null;
-  if (loading) body = <p className="flex items-center gap-2 py-2 text-[11px] text-muted-foreground"><LoaderCircle className="size-3 animate-spin" />Loading ledger…</p>;
-  else if (error) body = <p className="py-2 text-[11px] text-destructive">{error}</p>;
-  else if (report) body = (
+    void loadCostReport(activeId, controller.signal)
+      .then(value => {
+        if (!active) return;
+        setReport(value);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setError('Request breakdown could not be loaded. Reopen this section to retry.');
+        setLoading(false);
+      });
+    return () => {active = false; controller.abort();};
+  }, [open, activeId, report]);
+  if (!open) return null;
+  if (loading) return <p className="flex items-center gap-2 py-2 text-[11px] text-muted-foreground"><LoaderCircle className="size-3 animate-spin" />Loading ledger…</p>;
+  if (error) return <p className="py-2 text-[11px] text-destructive">{error}</p>;
+  if (!report) return null;
+  return (
     <div className="mt-1 max-h-56 overflow-auto rounded-md border">
       <table className="w-full text-[11px]">
         <thead className="sticky top-0 bg-muted text-left text-muted-foreground">
@@ -121,14 +147,6 @@ function CostLedger({activeId, runtime}: {activeId: string; runtime: RuntimeStat
           ))}
         </tbody>
       </table>
-    </div>
-  );
-  return (
-    <div className="mt-2 border-t pt-1.5">
-      <button type="button" className="flex w-full items-center gap-1.5 py-1 text-left text-[12px] text-muted-foreground hover:text-foreground" onClick={() => setOpen(value => !value)} aria-expanded={open}>
-        <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />Request breakdown
-      </button>
-      {open ? body : null}
     </div>
   );
 }

@@ -1,11 +1,12 @@
-// The workspace tools rail: persisted tabs for files, terminals and web
-// previews, plus the narrow-screen drawer wrapper.
+// Workspace tool tabs and their narrow-screen drawer. The action/store pair
+// owns workspace layouts, persistence and explicit terminal closing.
 import {memo, useEffect, useRef, useState} from 'react';
 import {Folder, FolderOpen, Globe, PanelRightClose, Plus, TerminalSquare, X} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {useDesk} from '@/stores/desk.ts';
+import {emptyToolLayout, useWorkspaceTools} from '@/stores/workspace-tools.ts';
 import {selectedWorkspace} from '@/lib/derive.ts';
-import {request} from '@/actions/core.ts';
+import {closeToolTab, createToolTab, loadWorkspaceTools, selectToolTab, updateFileView} from '@/actions/workspace-tools.ts';
 import {runtime} from '@/lib/runtime.ts';
 import {Button} from '@/components/ui/button';
 import {
@@ -15,80 +16,14 @@ import {FileBrowser} from '@/components/file-browser';
 import {TerminalView} from '@/components/terminal';
 import {WebPreviewView} from '@/components/web-preview';
 
-type Kind = 'files' | 'terminal' | 'preview';
-interface Tab {id: string; kind: Kind; label: string; files?: {expanded: string[]; scrollTop?: number}}
-interface Layout {tabs: Tab[]; activeId: string; next: {files: number; terminal: number}}
-
-const storagePrefix = 'pith-desk.tools.v1.';
-const newID = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
-
-function readLayout(workspaceId: string): Layout {
-  try {
-    const raw = localStorage.getItem(storagePrefix + workspaceId);
-    if (raw && raw.length < 2 * 1024 * 1024) {
-      const value = JSON.parse(raw) as Layout;
-      if (Array.isArray(value.tabs) && value.tabs.length <= 32) {
-        const tabs = value.tabs
-          .filter(tab => tab && typeof tab.id === 'string' && ['files', 'terminal', 'preview'].includes(tab.kind))
-          .map(tab => ({
-            id: tab.id, kind: tab.kind, label: tab.label,
-            ...(tab.kind === 'files' ? {files: {expanded: Array.isArray(tab.files?.expanded) ? tab.files.expanded.filter(path => typeof path === 'string').slice(0, 256) : [], scrollTop: tab.files?.scrollTop}} : {}),
-          }));
-        // A saved empty layout is intentional: closing every tab is remembered.
-        const activeId = tabs.some(tab => tab.id === value.activeId) ? value.activeId : tabs[0]?.id || '';
-        return {tabs, activeId, next: {files: value.next?.files || 2, terminal: value.next?.terminal || 1}};
-      }
-    }
-  } catch { /* Fall through to a fresh layout. */ }
-  const id = newID();
-  return {tabs: [{id, kind: 'files', label: 'Files', files: {expanded: []}}], activeId: id, next: {files: 2, terminal: 1}};
-}
-
-function saveLayout(workspaceId: string, layout: Layout): void {
-  try {localStorage.setItem(storagePrefix + workspaceId, JSON.stringify(layout));} catch { /* Layout is a preference. */ }
-}
-
 function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?: boolean}) {
   const workspaceId = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId)?.id || '');
   const workspace = useDesk(store => store.state.workspaces.find(entry => entry.id === workspaceId));
-  const [layout, setLayout] = useState<Layout>(() => workspace ? readLayout(workspace.id) : {tabs: [], activeId: '', next: {files: 2, terminal: 1}});
-  const [pending, setPending] = useState('');
+  const layout = useWorkspaceTools(store => store.workspaces[workspaceId]?.layout || emptyToolLayout);
   const [everOpened, setEverOpened] = useState(false);
   useEffect(() => {if (visible) setEverOpened(true);}, [visible]);
 
-  useEffect(() => {
-    if (!workspaceId) return;
-    setLayout(readLayout(workspaceId));
-  }, [workspaceId]);
-
-  const update = (next: Layout) => {
-    setLayout(next);
-    if (workspace) saveLayout(workspace.id, next);
-  };
-  const create = (kind: Kind) => {
-    if (!workspace || layout.tabs.length >= 32) return;
-    const next = {...layout.next};
-    const number = kind === 'preview' ? 1 : next[kind]++;
-    const label = kind === 'files' ? (number === 1 ? 'Files' : `Files ${number}`) : kind === 'terminal' ? (number === 1 ? 'Terminal' : `Terminal ${number}`) : 'Web';
-    const tab: Tab = {id: newID(), kind, label, ...(kind === 'files' ? {files: {expanded: []}} : {})};
-    update({...layout, tabs: [...layout.tabs, tab], activeId: tab.id, next});
-  };
-  const close = async (id: string) => {
-    const entry = layout.tabs.find(tab => tab.id === id);
-    if (!entry || pending || !workspace) return;
-    setPending(id);
-    try {
-      if (entry.kind === 'terminal') {
-        // Closing a tab owns the shell it created; a deliberate session ends
-        // only through this action (or the Close shell button).
-        try {await request('/api/terminal/close', {workspaceId: workspace.id, id});} catch { /* The tab closes anyway. */ }
-      }
-      const index = layout.tabs.findIndex(tab => tab.id === id);
-      const tabs = layout.tabs.filter(tab => tab.id !== id);
-      const activeId = layout.activeId === id ? tabs[Math.min(index, tabs.length - 1)]?.id || '' : layout.activeId;
-      update({...layout, tabs, activeId});
-    } finally {setPending('');}
-  };
+  useEffect(() => {loadWorkspaceTools(workspaceId);}, [workspaceId]);
 
   return (
     <aside data-tools-rail="" aria-label="Workspace tools" className="flex h-full min-h-0 flex-col border-l border-border/70 bg-background">
@@ -106,9 +41,9 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuLabel>New tool</DropdownMenuLabel>
-              <DropdownMenuItem onSelect={() => create('files')}><FolderOpen className="size-3.5" />New files</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => create('terminal')}><TerminalSquare className="size-3.5" />New terminal</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => create('preview')}><Globe className="size-3.5" />New Web</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => createToolTab(workspaceId, 'files')}><FolderOpen className="size-3.5" />New files</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => createToolTab(workspaceId, 'terminal')}><TerminalSquare className="size-3.5" />New terminal</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => createToolTab(workspaceId, 'preview')}><Globe className="size-3.5" />New Web</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="ghost" size="icon-xs" aria-label="Close tools" title="Close tools" aria-expanded onClick={onClose}><PanelRightClose className="size-3.5" /></Button>
@@ -124,7 +59,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
                 aria-selected={tab.id === layout.activeId}
                 title={tab.kind === 'files' ? workspace?.path : tab.kind === 'terminal' ? `${runtime.server ? 'Server' : 'Local'} · ${workspace?.path || ''}` : tab.label}
                 className="flex items-center gap-1.5 px-2 py-1"
-                onClick={() => update({...layout, activeId: tab.id})}
+                onClick={() => selectToolTab(workspaceId, tab.id)}
               >
                 {tab.kind === 'files' ? <Folder className="size-3" /> : tab.kind === 'terminal' ? <TerminalSquare className="size-3" /> : <Globe className="size-3" />}
                 {tab.label}
@@ -133,7 +68,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
                 type="button"
                 aria-label={`Close ${tab.label}`}
                 className="mr-0.5 rounded p-0.5 opacity-0 hover:bg-background/70 group-hover/tab:opacity-100"
-                onClick={() => {void close(tab.id);}}
+                onClick={() => {void closeToolTab(workspaceId, tab.id);}}
               >
                 <X className="size-3" />
               </button>
@@ -148,7 +83,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
             <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
               <FolderOpen className="size-6 text-muted-foreground" />
               <p className="text-[13px]">No tool tabs open</p>
-              <Button size="sm" variant="secondary" onClick={() => create('files')}>Open files</Button>
+              <Button size="sm" variant="secondary" onClick={() => createToolTab(workspaceId, 'files')}>Open files</Button>
             </div>
           ) : layout.tabs.map(tab => (
             <div key={tab.id} role="tabpanel" aria-label={tab.label} className={cn('h-full min-h-0 flex-col', tab.id === layout.activeId ? 'flex' : 'hidden')}>
@@ -157,14 +92,14 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
                   key={`${workspace.id}-${tab.id}`} workspaceId={workspace.id} active={tab.id === layout.activeId}
                   initialExpanded={tab.files?.expanded || []}
                   initialScrollTop={tab.files?.scrollTop || 0}
-                  onExpanded={paths => update({...layout, tabs: layout.tabs.map(entry => entry.id === tab.id ? {...entry, files: {...entry.files, expanded: paths}} : entry)})}
-                  onScrollTop={top => update({...layout, tabs: layout.tabs.map(entry => entry.id === tab.id ? {...entry, files: {...entry.files, expanded: entry.files?.expanded || [], scrollTop: top}} : entry)})}
+                  onExpanded={expanded => updateFileView(workspaceId, tab.id, {expanded})}
+                  onScrollTop={scrollTop => updateFileView(workspaceId, tab.id, {scrollTop})}
                 />
               ) : tab.kind === 'terminal' ? (
                 <TerminalView
                   workspaceId={workspace.id} tabId={tab.id} active={tab.id === layout.activeId}
                   disabled={false}
-                  onSessionClosed={() => {void close(tab.id);}}
+                  onClose={() => {void closeToolTab(workspaceId, tab.id);}}
                 />
               ) : <WebPreviewView workspaceId={workspace.id} tabId={tab.id} active={tab.id === layout.activeId && visible} />}
             </div>

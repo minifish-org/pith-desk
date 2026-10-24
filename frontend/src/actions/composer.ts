@@ -33,10 +33,8 @@ export function enableDraftRecovery(recovery?: DraftRecovery): void {
 }
 
 function drafts(): Draft {
-  const draftRequest = ((path: string, input?: unknown, options?: {signal?: AbortSignal; keepalive?: boolean}) =>
-    (request as unknown as (p: string, i?: unknown, o?: unknown) => Promise<unknown>)(path, input, options)) as never;
   draftsInstance ??= createDrafts(
-    draftRequest,
+    request,
     message => setError(message),
     250,
     recoveryEnabled ? recoveryInstance ??= createDraftRecovery() : undefined,

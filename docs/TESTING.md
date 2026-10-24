@@ -25,7 +25,7 @@ GOWORK=off CGO_ENABLED=1 go test -race -p 1 ./internal/...
 ```
 
 `npm run check` builds the frontend once, checks generated transport contracts
-and UI consumption, runs ordinary frontend/tool tests, Go tests and vet. Browser
+and TypeScript types, runs ordinary frontend/tool tests, Go tests and vet. Browser
 checks reuse that output. Individual frontend and tool tests can run after the
 build with:
 
@@ -63,6 +63,16 @@ inspected; this workflow does not establish ARM64 runtime acceptance.
 The former Pith UI consumption checker was removed with the package. Frontend
 types, generated contracts and the behavior suites are the remaining boundaries.
 Native ingress is validated in `native-protocol.ts` and forwarded as data.
+
+For workspace tool ownership and runtime-ledger changes, run:
+
+```sh
+npm run test:ui -- frontend/e2e/workspace-tools.spec.ts frontend/e2e/runtime-summary.spec.ts
+```
+
+These scenarios include delayed terminal closes across tab creation and workspace
+switches, a single close request from either control, and cost reads that refresh
+with their conversation/revision, retire late responses and retry after failure.
 
 ## Required behavior
 
