@@ -140,8 +140,8 @@ export function CustomConnectionDialog({modal}: {modal: ModalOf<'custom-connecti
                     <label className="flex items-center gap-1.5"><input type="checkbox" checked={model.reasoning} onChange={event => updateModel(index, {reasoning: event.target.checked})} />Reasoning</label>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {(['input', 'output', 'cacheRead', 'cacheWrite'] as const).map(key => (
-                      <label key={key} className="space-y-1 text-[11px]"><span className="text-muted-foreground">{key} USD / 1M</span><Input aria-label={`Model ${index + 1} ${key} price`} value={model.prices[key]} onChange={event => updateModel(index, {prices: {...model.prices, [key]: event.target.value}})} placeholder="unknown" /></label>
+                    {([['input', 'Input'], ['output', 'Output'], ['cacheRead', 'Cache read'], ['cacheWrite', 'Cache write']] as const).map(([key, label]) => (
+                      <label key={key} className="space-y-1 text-[11px]"><span className="text-muted-foreground">{label} $/1M</span><Input aria-label={`Model ${index + 1} ${key} price`} value={model.prices[key]} onChange={event => updateModel(index, {prices: {...model.prices, [key]: event.target.value}})} placeholder="unknown" /></label>
                     ))}
                   </div>
                   <div className="flex justify-end">

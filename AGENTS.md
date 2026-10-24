@@ -2,6 +2,8 @@
 
 Read the relevant code, `README.md` and `docs/TESTING.md` before changing behavior. Use `rg` and targeted file reads. Prefer RTK for supported shell commands; use `rtk proxy` or raw output when exact output is necessary. Do not prefix shell syntax or builtins with RTK.
 
+Use Ponytail's `full` principles for development. Read `.agents/skills/ponytail/SKILL.md` when available; use `.agents/skills/ponytail-review/SKILL.md` for requested reviews. These skills are project-local and Git-ignored. Understand the affected flow and callers first, then make the smallest complete, readable change. Reuse existing code, components and dependencies; do not add unrequested features, speculative abstractions or configuration. Preserve validation, data-loss protection, security and accessibility. Test concrete risky behavior and complete the affected checks below.
+
 - Keep the Go + Pith + TypeScript + MyGo stack. Desktop and Server share the Agent core, business logic and Web UI. Preserve both modes and existing user data; do not restore a third Preview mode.
 - The Web UI is source-controlled in `frontend/src` with React 19, Vite, Tailwind CSS v4 and shadcn/ui (Nova, Radix). Keep the chosen libraries: Lucide icons, Motion animation, react-resizable-panels, dnd-kit and Zustand. Do not add a second icon, animation, layout, drag or state library.
 - shadcn components live in `frontend/src/components/ui`; adjust them there instead of layering presentation overrides elsewhere. Application composition lives in `frontend/src/components`, state projection in `frontend/src/stores`, and requests, permissions, persistence and operation targets in `frontend/src/actions` and Go.
