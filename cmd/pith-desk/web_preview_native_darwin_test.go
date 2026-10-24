@@ -99,7 +99,8 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	win.Show()
 	win.Focus()
 	waitNativeDropCondition(t, win, `!!document.querySelector('textarea[aria-label="Message Pith"]') && !document.querySelector('textarea[aria-label="Message Pith"]').readOnly && !!document.querySelector('button[aria-label="Toggle tools"]')`)
-	for _, selector := range []string{`button[aria-label="Toggle tools"]`, `button[aria-label="New tool tab"]`} {
+	clickControl := func(selector string) {
+		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for {
 			if nativeDropEval(t, win, `(() => {const button=document.querySelector(`+strconv.Quote(selector)+`);if(!button)return false;for(const type of ['pointerdown','pointerup'])button.dispatchEvent(new PointerEvent(type,{bubbles:true,button:0,pointerId:1}));button.click();return true})()`) == true {
@@ -111,6 +112,9 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 			time.Sleep(15 * time.Millisecond)
 		}
 	}
+	clickControl(`button[aria-label="Toggle tools"]`)
+	openNativeFilesTab(t, win)
+	clickControl(`button[aria-label="New tool tab"]`)
 	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[role="menuitem"]')].some(b=>b.textContent==='New Web')`)
 	nativeDropEval(t, win, `[...document.querySelectorAll('[role="menuitem"]')].find(b=>b.textContent==='New Web').click();return true;`)
 	waitNativeDropCondition(t, win, `!!document.querySelector('input[aria-label="Web address"]') && !document.querySelector('input[aria-label="Web address"]').disabled`)

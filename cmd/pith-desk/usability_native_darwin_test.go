@@ -304,10 +304,18 @@ func openNativePreview(t *testing.T, win *desktopWindow, name string) {
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	nativeDropEval(t, win, `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));[...document.querySelectorAll('[data-tools-rail] [role="tab"]')].find(tab=>tab.textContent.trim()==='Files')?.click();return true;`)
+	nativeDropEval(t, win, `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));return true;`)
+	openNativeFilesTab(t, win)
 	nativeDropEval(t, win, `document.querySelector('[data-tools-rail] button[aria-label="Refresh workspace files"]')?.click();return true;`)
 	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[data-tools-rail] button')].some(button=>button.textContent.trim()===`+string(encoded)+`)`)
 	nativeDropEval(t, win, `[...document.querySelectorAll('[data-tools-rail] button')].find(button=>button.textContent.trim()===`+string(encoded)+`).click();return true;`)
+}
+
+func openNativeFilesTab(t *testing.T, win *desktopWindow) {
+	t.Helper()
+	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[data-tools-rail] button')].some(button=>button.textContent.trim()==='Open files') || [...document.querySelectorAll('[data-tools-rail] [role="tab"]')].some(tab=>tab.textContent.trim()==='Files')`)
+	nativeDropEval(t, win, `const tab=[...document.querySelectorAll('[data-tools-rail] [role="tab"]')].find(tab=>tab.textContent.trim()==='Files');if(tab)tab.click();else [...document.querySelectorAll('[data-tools-rail] button')].find(button=>button.textContent.trim()==='Open files').click();return true;`)
+	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[data-tools-rail] [role="tab"][aria-selected="true"]')].some(tab=>tab.textContent.trim()==='Files')`)
 }
 
 func waitNativeApproval(t *testing.T, win *desktopWindow, service *desk.Service, previousID string) *desk.Approval {

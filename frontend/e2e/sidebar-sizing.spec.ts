@@ -18,7 +18,7 @@ for(const mode of ['desktop','server']) test.describe(mode+' sidebar widths',()=
   test('committed widths survive hide, refresh and service restart; viewport limits retain preferences',async({page,host})=>{
     const root=host.state.workspaces[0].path;await mkdir(root+'/width-state');await writeFile(root+'/width-state/note.txt','Retained file view');
     await page.goto(host.url);const draft=page.getByRole('textbox',{name:'Message Pith',exact:true});await expect(draft).toBeEditable();await draft.fill('Sizing draft 中文');
-    await page.getByRole('button',{name:'Toggle tools',exact:true}).click();const folder=rail(page,'Workspace tools').getByRole('button',{name:'width-state',exact:true});await folder.click();await expect(rail(page,'Workspace tools').getByRole('button',{name:'note.txt',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Toggle tools',exact:true}).click();await rail(page,'Workspace tools').getByRole('button',{name:'Open files',exact:true}).click();const folder=rail(page,'Workspace tools').getByRole('button',{name:'width-state',exact:true});await folder.click();await expect(rail(page,'Workspace tools').getByRole('button',{name:'note.txt',exact:true})).toBeVisible();
     let saves=0;page.on('request',request=>{if(new URL(request.url()).pathname==='/api/sidebar-widths')saves++;});
     const left=(await page.getByRole('separator',{name:'Resize navigation',exact:true}).boundingBox())!;
     await page.mouse.move(left.x+5,left.y+100);await page.mouse.down();await page.mouse.move(left.x+85,left.y+100,{steps:12});expect(saves).toBe(0);
@@ -34,7 +34,7 @@ for(const mode of ['desktop','server']) test.describe(mode+' sidebar widths',()=
 
   test('dragging a terminal rail resizes the real PTY while retaining its pending command and shell',async({page,host})=>{
     const root=host.state.workspaces[0].path;await page.goto(host.url);await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toBeEditable();await page.getByRole('button',{name:'Toggle tools',exact:true}).click();
-    const tools=rail(page,'Workspace tools');await tools.getByRole('button',{name:'New tool tab',exact:true}).click();await page.getByRole('menuitem',{name:'New terminal',exact:true}).click();await expect(tools.getByLabel('Interactive terminal',{exact:true})).toHaveAttribute('aria-disabled','false');
+    const tools=rail(page,'Workspace tools');await tools.getByRole('button',{name:'Open files',exact:true}).click();await tools.getByRole('button',{name:'New tool tab',exact:true}).click();await page.getByRole('menuitem',{name:'New terminal',exact:true}).click();await expect(tools.getByLabel('Interactive terminal',{exact:true})).toHaveAttribute('aria-disabled','false');
     const input=tools.getByRole('textbox',{name:'Terminal input',exact:true});
     async function typeText(text:string) {await input.focus();await input.evaluate((node: HTMLTextAreaElement,value: string) => {const data = new DataTransfer();data.setData('text/plain', value);node.dispatchEvent(new ClipboardEvent('paste', {clipboardData: data, bubbles: true, cancelable: true}));},text);}
     async function command(text:string) {await typeText(text);await input.press('Enter');}

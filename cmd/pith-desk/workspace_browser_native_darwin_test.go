@@ -88,6 +88,11 @@ func TestWorkspaceBrowserNativeSidebarPreviewReferenceAndSave(t *testing.T) {
 	win.Show()
 	waitNativeDropCondition(t, win, `!!document.querySelector('button[aria-label="Toggle tools"]') && document.querySelector('textarea')?.value==='Stored draft' && !document.querySelector('textarea').readOnly`)
 	nativeDropEval(t, win, `const input = document.querySelector('textarea[aria-label="Message Pith"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Keep draft');input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Toggle tools"]').click();return true;`)
+	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[data-tools-rail] button')].some(button=>button.textContent.trim()==='Open files')`)
+	if nativeDropEval(t, win, `document.querySelectorAll('[data-tools-rail] [role="tab"]').length === 0`) != true {
+		t.Fatal("new workspace opened a tool tab before a tool was requested")
+	}
+	openNativeFilesTab(t, win)
 	waitNativeDropCondition(t, win, `[...document.querySelectorAll('[data-tools-rail] button')].some(button=>button.textContent.trim()==='Native 中文.md')`)
 	for _, action := range []string{"Open", "Reveal", "Copy file", "Download", "Insert reference"} {
 		nativeDropEval(t, win, `const trigger=document.querySelector('[data-tools-rail] button[aria-label="Actions for Native 中文.md"]');for(const type of ['pointerdown','pointerup'])trigger.dispatchEvent(new PointerEvent(type,{bubbles:true,button:0,pointerId:1}));return true;`)

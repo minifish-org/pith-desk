@@ -20,11 +20,13 @@ test('the React shell renders the conversation, composer and navigation', async 
     .toEqual({id: 'a', text: 'Hello from the new shell', images: []});
 });
 
-test('workspace tools open with the file browser and settings lists providers', async ({page}) => {
+test('workspace tools start empty, open files on request and settings lists providers', async ({page}) => {
   await page.goto('/');
   await expect(page.getByRole('textbox', {name: 'Message Pith'})).toBeEditable();
   await page.getByRole('button', {name: 'Toggle tools', exact: true}).click();
   const tools = page.getByRole('complementary', {name: 'Workspace tools'});
+  await expect(tools.getByRole('tab')).toHaveCount(0);
+  await tools.getByRole('button', {name: 'Open files', exact: true}).click();
   await expect(tools.getByRole('tab', {name: 'Files', exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Close tools', exact: true}).click();
   await page.getByRole('button', {name: 'Settings', exact: true}).click();

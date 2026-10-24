@@ -11,6 +11,9 @@ dist/
 .env.*
 !.env.example
 
+# Project-local agent skills
+/.agents/skills/
+
 # Local UI test captures
 .playwright-cli/
 output/playwright/

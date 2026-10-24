@@ -8,6 +8,7 @@ const panel = (page: any) => tools(page).getByRole('tabpanel');
 const keyboard = (page: any) => panel(page).getByRole('textbox',{name: 'Terminal input',exact: true});
 const connected = (page: any) => expect(panel(page).getByLabel('Interactive terminal',{exact:true})).toHaveAttribute('aria-disabled','false');
 async function newTerminal(page: any) {await tools(page).getByRole('button',{name:'New tool tab',exact:true}).click();await page.getByRole('menuitem',{name:'New terminal',exact:true}).click();await connected(page);}
+async function newFiles(page: any) {await tools(page).getByRole('button',{name:'New tool tab',exact:true}).click();await page.getByRole('menuitem',{name:'New files',exact:true}).click();}
 async function showTerminal(page: any) {
   const toggle = page.getByRole('button',{name: 'Toggle tools',exact: true,includeHidden:true});
   if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
@@ -39,11 +40,11 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
   test.use({hostMode: mode});
   test('shell state, tools and drafts remain independent from Agent commands and approval',async ({page,host}) => {
     const root = host.state.workspaces[0].path;
-    await startTerminal(page,host);await expect(tools(page).getByText(/^(Local|Server)$/)).toHaveCount(0);
+    await startTerminal(page,host);await expect(panel(page).getByRole('button')).toHaveCount(0);await expect(panel(page)).not.toContainText('Connected · manual shell');
     const tab=tools(page).getByRole('tab',{name:'Terminal',exact:true});await expect(tab).toHaveAttribute('title',new RegExp('^'+(mode==='server'?'Server':'Local')));await expect(tab).toHaveAttribute('title',new RegExp(root));
     await command(page,"mkdir manual-dir; cd manual-dir; export MANUAL_ONLY=manual; echo 'terminal 中文' > shared.txt");
     await expect.poll(() => file(root+'/manual-dir/shared.txt')).toBe('terminal 中文\n');
-    await tools(page).getByRole('tab',{name: 'Files',exact: true}).click();await tools(page).getByRole('button',{name: 'Refresh workspace files',exact: true}).click();
+    await newFiles(page);await tools(page).getByRole('button',{name: 'Refresh workspace files',exact: true}).click();
     await tools(page).getByRole('button',{name: 'manual-dir',exact: true}).click();await expect(tools(page).getByRole('button',{name: 'shared.txt',exact: true})).toBeVisible();
     await tools(page).getByRole('button',{name: 'Close tools',exact: true}).click();
     const draft = page.getByRole('textbox',{name: 'Message Pith',exact: true});await draft.fill('Agent verifies its own execution state');
@@ -72,7 +73,7 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
     expect(starts).toBe(1);await command(page,'echo $$ > reconnected.pid');await expect.poll(() => file(root+'/reconnected.pid')).toBe(pid);
     await command(page,"sleep 60");await keyboard(page).press('Control+c');await command(page,'echo interrupted > interrupted.txt');await expect.poll(() => file(root+'/interrupted.txt')).toBe('interrupted\n');
     await command(page,"head -c 2097152 /dev/zero | tr '\\000' x; printf '\\nTAIL_MARKER\\n'");
-    await expect(tools(page)).toContainText('TAIL_MARKER');await page.reload();await showTerminal(page);await expect(tools(page)).toContainText('Earlier terminal output was truncated');await expect(tools(page)).toContainText('TAIL_MARKER');
+    await expect(tools(page)).toContainText('TAIL_MARKER');await page.reload();await showTerminal(page);await expect(panel(page).getByLabel('Interactive terminal',{exact:true})).toHaveAttribute('aria-description',/Earlier terminal output was truncated/);await expect(tools(page)).toContainText('TAIL_MARKER');
     await command(page,"(sleep .2; echo page-closed > page-closed.txt) &");await page.close();await expect.poll(() => file(root+'/page-closed.txt')).toBe('page-closed\n');
     const next = await context.newPage();await next.goto(host.url);
     if (mode==='server') {await expect(next.getByRole('button',{name: 'Continue here',exact: true})).toBeVisible();await next.getByRole('button',{name: 'Continue here',exact: true}).click();}
@@ -84,18 +85,42 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
     const [first,second] = host.state.workspaces;await startTerminal(page,host);
     await command(page,'export WORKSPACE_MARKER=first');await typeText(page,'echo pending-first > pending.txt');
     await page.getByRole('button',{name: second.name,exact: true}).click();await page.getByRole('button',{name: second.name+' conversation',exact: true}).click();
-    await expect(tools(page).getByRole('tab',{name:'Files',exact:true})).toHaveAttribute('aria-selected','true');await newTerminal(page);
+    await expect(tools(page).getByRole('tab')).toHaveCount(0);await newTerminal(page);
     await connected(page);await command(page,"printf '%s' ${WORKSPACE_MARKER-unset} > marker.txt");await expect.poll(() => file(second.path+'/marker.txt')).toBe('unset');
     await page.getByRole('button',{name: first.name+' conversation',exact: true}).click();await expect(panel(page)).toContainText('pending-first');
     await keyboard(page).press('Enter');await expect.poll(() => file(first.path+'/pending.txt')).toBe('pending-first\n');expect(await file(second.path+'/pending.txt')).toBe('');
   });
 
   test('continuous output stays interruptible without publishing application snapshots',async ({page,host}) => {
-    let snapshots=0;page.on('websocket',socket=>{if(new URL(socket.url()).pathname==='/api/socket') socket.on('framereceived',()=>snapshots++);});
+    await page.addInitScript(() => {
+      const descriptor=Object.getOwnPropertyDescriptor(WebSocket.prototype,'onmessage')!;
+      Object.defineProperty(WebSocket.prototype,'onmessage',{
+        ...descriptor,
+        set(listener) {
+          descriptor.set!.call(this,listener && function(this:WebSocket,event:MessageEvent) {
+            listener.call(this,event);
+            if(!(window as any).interruptOnTerminalOutput || new URL(this.url).pathname!=='/api/terminal/socket' || JSON.parse(event.data).type!=='output') return;
+            (window as any).interruptOnTerminalOutput=false;
+            // Live flood output uses xterm's deferred write parser. Deliver the
+            // real keyboard event after the handler but before that parser runs.
+            const input=document.querySelector<HTMLTextAreaElement>('[aria-label="Terminal input"]')!;
+            input.dispatchEvent(new KeyboardEvent('keydown',{key:'c',code:'KeyC',keyCode:67,ctrlKey:true,bubbles:true,cancelable:true}));
+            input.dispatchEvent(new KeyboardEvent('keyup',{key:'c',code:'KeyC',keyCode:67,ctrlKey:true,bubbles:true,cancelable:true}));
+          });
+        },
+      });
+    });
+    let snapshots=0,interrupts=0;
+    page.on('websocket',socket=>{
+      const path=new URL(socket.url()).pathname;
+      if(path==='/api/socket') socket.on('framereceived',()=>snapshots++);
+      if(path==='/api/terminal/socket') socket.on('framesent',event=>{const data=JSON.parse(String(event.payload));if(data.type==='input' && data.data==='\u0003') interrupts++;});
+    });
     await startTerminal(page,host);const before=snapshots;
-    await command(page,'yes terminal-flood');await expect(tools(page)).toContainText('Earlier terminal output was truncated');
-    await tools(page).getByRole('button',{name:'Interrupt terminal',exact:true}).click();await page.waitForTimeout(700);
-    await expect.poll(async()=>{await command(page,'echo responsive > flood-stopped');return file(host.state.workspaces[0].path+'/flood-stopped');},{timeout:10000}).toBe('responsive\n');expect(snapshots).toBe(before);
+    await command(page,'yes terminal-flood; echo responsive > flood-stopped');await expect(panel(page).getByLabel('Interactive terminal',{exact:true})).toHaveAttribute('aria-description',/Earlier terminal output was truncated/);
+    await page.evaluate(()=>{(window as any).interruptOnTerminalOutput=true;});
+    await expect.poll(()=>interrupts).toBe(1);
+    await expect.poll(()=>file(host.state.workspaces[0].path+'/flood-stopped'),{timeout:10000}).toBe('responsive\n');expect(snapshots).toBe(before);
   });
 });
 
@@ -128,15 +153,15 @@ test('vim and top redraw across reconnect; unsaved editor state stays in the pro
 
 test.describe('phone terminal',() => {
   test.use({viewport: {width:390,height:844},isMobile:true,hasTouch:true});
-  test('simulated soft keyboard keeps terminal sizing, scrolling, Esc and touch keys usable',async ({page,host}) => {
+  test('simulated soft keyboard keeps terminal sizing, scrolling and keyboard input usable',async ({page,host}) => {
     await page.goto(host.url);const draft = page.getByRole('textbox',{name:'Message Pith',exact:true});await expect(draft).toBeEditable();await draft.fill('Phone draft 中文');await page.getByRole('button',{name:'Toggle tools',exact:true}).click();await newTerminal(page);
     await page.evaluate(() => {Object.defineProperty(window.visualViewport!,'height',{configurable:true,value:330});window.visualViewport!.dispatchEvent(new Event('resize'));});
     await keyboard(page).focus();await command(page,'stty size > phone-size');
     await expect.poll(() => file(host.state.workspaces[0].path+'/phone-size')).toMatch(/\d+ \d+/);
     const box = await page.locator('[data-terminal-viewport]').boundingBox();expect(box!.height).toBeGreaterThan(25);expect(box!.y+box!.height).toBeLessThanOrEqual(330);
-    const interrupt = tools(page).getByRole('button',{name:'Interrupt terminal',exact:true});await expect(interrupt).toBeVisible();const keyBox = await interrupt.boundingBox();expect(keyBox!.y+keyBox!.height).toBeLessThanOrEqual(330);
-    await command(page,'sleep 60');await interrupt.click();await command(page,'echo phone-ok > phone.txt');await expect.poll(() => file(host.state.workspaces[0].path+'/phone.txt')).toBe('phone-ok\n');
-    await keyboard(page).press('Escape');await expect(tools(page)).toBeVisible();await tools(page).getByRole('tab',{name:'Files',exact:true}).click();await expect(tools(page).getByRole('button',{name:'Refresh workspace files',exact:true})).toBeVisible();
+    await expect(panel(page).getByRole('button')).toHaveCount(0);
+    await command(page,'sleep 60');await keyboard(page).press('Control+c');await command(page,'echo phone-ok > phone.txt');await expect.poll(() => file(host.state.workspaces[0].path+'/phone.txt')).toBe('phone-ok\n');
+    await keyboard(page).press('Escape');await expect(tools(page)).toBeVisible();await newFiles(page);await expect(tools(page).getByRole('button',{name:'Refresh workspace files',exact:true})).toBeVisible();
     await tools(page).getByRole('button',{name:'Close tools',exact:true}).click();await expect(draft).toHaveValue('Phone draft 中文');await expect(page.getByRole('button',{name:'Toggle tools',exact:true})).toBeFocused();
   });
 });

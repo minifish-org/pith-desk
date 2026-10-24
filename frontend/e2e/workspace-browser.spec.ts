@@ -27,6 +27,9 @@ for (const mode of ['desktop','server']) test.describe(mode+' workspace browser'
     await (await picker).setFiles({name: 'draft.png',mimeType: 'image/png',buffer: png});
     await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();
     const tools = page.getByRole('complementary',{name: 'Workspace tools',exact: true});
+    await expect(tools.getByRole('tab')).toHaveCount(0);
+    expect(reads).toEqual([]);
+    await tools.getByRole('button',{name:'Open files',exact:true}).click();
     await expect(tools.getByRole('searchbox')).toHaveCount(0);
     await expect(tools.getByRole('tab',{name:'Files',exact:true})).toHaveAttribute('title',new RegExp(workspace.path.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
     await expect(tools.getByRole('button',{name: 'docs',exact: true})).toBeVisible();
@@ -80,10 +83,13 @@ for (const mode of ['desktop','server']) test.describe(mode+' workspace browser'
       const response = await route.fetch();waiting = true;await pending;await route.fulfill({response}).catch(() => {});
     });
     await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();
+    const tools = page.getByRole('complementary',{name: 'Workspace tools',exact: true});
+    await tools.getByRole('button',{name:'Open files',exact:true}).click();
     await expect.poll(() => waiting).toBe(true);
     await page.getByRole('button',{name: second.name,exact: true}).click();
     await page.getByRole('button',{name: second.name+' conversation',exact: true}).click();
-    const tools = page.getByRole('complementary',{name: 'Workspace tools',exact: true});
+    await expect(tools.getByRole('tab')).toHaveCount(0);
+    await tools.getByRole('button',{name:'Open files',exact:true}).click();
     await expect(tools.getByRole('button',{name: 'current.txt',exact: true})).toBeVisible();
     release();
     await expect(tools.getByRole('button',{name: 'old.txt',exact: true})).toHaveCount(0);
@@ -113,6 +119,7 @@ test.describe('phone workspace files',() => {
     await page.evaluate(() => {Object.defineProperty(window.visualViewport!,'height',{configurable: true,value: 330});window.visualViewport!.dispatchEvent(new Event('resize'));});
     await page.getByRole('button',{name: 'Toggle tools',exact: true}).click();
     const tools = page.getByRole('complementary',{name: 'Workspace tools',exact: true});
+    await tools.getByRole('button',{name:'Open files',exact:true}).click();
     await tools.getByRole('button',{name: 'docs',exact: true}).click();
     const nav = tools.getByRole('navigation',{name: 'Workspace files',exact: true});
     await expect.poll(async () => nav.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);

@@ -23,8 +23,7 @@ function readLayout(workspaceId: string): ToolLayout {
       }
     }
   } catch { /* Fall through to a fresh layout. */ }
-  const id = newID();
-  return {tabs: [{id, kind: 'files', label: 'Files', files: {expanded: []}}], activeId: id, next: {files: 2, terminal: 1}};
+  return {tabs: [], activeId: '', next: {files: 1, terminal: 1}};
 }
 
 export function loadWorkspaceTools(workspaceId: string): void {

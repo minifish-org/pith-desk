@@ -71,7 +71,7 @@ npm run test:ui -- frontend/e2e/workspace-tools.spec.ts frontend/e2e/runtime-sum
 ```
 
 These scenarios include delayed terminal closes across tab creation and workspace
-switches, a single close request from either control, and cost reads that refresh
+switches, a single close request from the tab control, and cost reads that refresh
 with their conversation/revision, retire late responses and retry after failure.
 
 For the resource, model-settings, Web lifetime and task-recovery regressions:
@@ -101,7 +101,7 @@ and approved nested file changes with diff, restart and branch projection.
 | Files | authenticated paths, preview/read limits, clipboard/export/download, recorded generated files, the conversation edited-files summary and its recorded diff preview |
 | Workspace browser | lazy directories and view restoration, retired legacy filters, private/symlink boundaries, lease revocation, late workspace/preview responses, reference insertion and draft/image preservation |
 | Sidebars | rail-owned expanded controls/topbar openers, independent drag/keyboard widths, viewport limits and persisted restore across refresh/restart, live PTY columns and pending input, phone overlay exclusion, scrim/close/Escape and focus restoration, native titlebar insets |
-| Workspace tool tabs | create/select/close, independent file expansion/reading positions, workspace layout/selection restore, drafts and narrow overlays |
+| Workspace tool tabs | initially empty, create/select/close, three direct empty-state entries, single-row tabs and reachable controls, independent file expansion/reading positions, workspace layout/selection restore, drafts and narrow overlays |
 | Manual terminal | independent tab processes/PTY interaction/interrupt/resize/UTF-8, bounded history/parse acknowledgements, page-independent lifetime, reconnect/takeover/late controls, scoped close/workspace cleanup |
 | Persistence | literal compatibility fixtures, real creation, restart recovery and failure handling |
 
@@ -267,7 +267,7 @@ suite/vet and affected browser/native suites.
 ## Terminal acceptance
 
 Start with `go test ./internal/terminal ./internal/host -run 'TestTerminal|TestRealShell|TestCloseCleans|TestBoundedByte'`
-and `node --experimental-strip-types --test frontend/tests/terminal.test.ts frontend/tests/workspace-tools.test.ts`.
+and `npm run test:unit`.
 `frontend/e2e/terminal.spec.ts` covers Desktop/Server real shells, Agent command
 approval and cwd/environment independence, retained drafts/files, page close,
 network reconnect, parse-bounded output, truncation, workspace command lines,

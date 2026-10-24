@@ -1,5 +1,18 @@
-import {expect} from '@playwright/test';
+import {expect, type Locator} from '@playwright/test';
 import {test} from './host-fixture.mjs';
+
+async function expectToolsHeader(tools: Locator) {
+  const heading=tools.locator('[data-rail-heading]');
+  await expect(tools.getByText('Workspace tools',{exact:true})).toHaveCount(0);
+  const row=(await heading.boundingBox())!;
+  for(const control of [heading.getByRole('tablist'),heading.getByRole('button',{name:'New tool tab',exact:true}),heading.getByRole('button',{name:'Close tools',exact:true})]) {
+    await expect(control).toBeVisible();
+    const box=(await control.boundingBox())!;
+    expect(Math.abs(box.y+box.height/2-row.y-row.height/2)).toBeLessThanOrEqual(1);
+    expect(box.x).toBeGreaterThanOrEqual(row.x);
+    expect(box.x+box.width).toBeLessThanOrEqual(row.x+row.width);
+  }
+}
 
 for(const mode of ['desktop','server']) test.describe(mode+' sidebar controls',()=>{
   test.use({hostMode:mode});
@@ -21,6 +34,8 @@ for(const mode of ['desktop','server']) test.describe(mode+' sidebar controls',(
     await expect(openRight).toBeVisible();
     await openRight.click();
     await expect(closeRight).toBeVisible();
+    await tools.getByRole('button',{name:'Open files',exact:true}).click();
+    await expectToolsHeader(tools);
     await expect(topbar.getByRole('button',{name:/Toggle (navigation|tools)/})).toHaveCount(0);
     const header=(await topbar.boundingBox())!;
     expect(header.height).toBe(44);
@@ -79,6 +94,24 @@ test.describe('phone panel controls',()=>{
       expect(box.y+box.height).toBeLessThanOrEqual(330);
       await expect(page.locator('header')).toHaveCSS('height','44px');
       await expect(panel.locator('[data-rail-heading]')).toHaveCSS('height','44px');
+      if(label==='Workspace tools') {
+        await expect(panel.getByRole('tab')).toHaveCount(0);
+        for(const entry of ['Open files','Open terminal','Open Web']) {
+          const button=panel.getByRole('button',{name:entry,exact:true});
+          await expect(button).toBeVisible();
+          const bounds=(await button.boundingBox())!;
+          expect(bounds.x).toBeGreaterThanOrEqual(region.x);
+          expect(bounds.x+bounds.width).toBeLessThanOrEqual(region.x+region.width);
+          expect(bounds.y+bounds.height).toBeLessThanOrEqual(330);
+        }
+        await panel.getByRole('button',{name:'Open Web',exact:true}).click();
+        for(let index=0;index<4;index++) {
+          await panel.getByRole('button',{name:'New tool tab',exact:true}).click();
+          await page.getByRole('menuitem',{name:'New files',exact:true}).click();
+        }
+        await expect(panel.getByRole('tab')).toHaveCount(5);
+        await expectToolsHeader(panel);
+      }
       await close.press('Escape');
       await expect(opener).toBeFocused();
       await opener.press('Enter');

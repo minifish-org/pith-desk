@@ -76,6 +76,7 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 		}
 	}
 	openTools()
+	openNativeFilesTab(t, win)
 	newTerminal := func() {
 		deadline := time.Now().Add(5 * time.Second)
 		for {
@@ -122,7 +123,7 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	interrupted := false
 	for deadline := time.Now().Add(10 * time.Second); !interrupted && time.Now().Before(deadline); {
-		nativeDropEval(t, win, `document.querySelector('[data-tools-rail] button[aria-label="Interrupt terminal"]')?.click();return true;`)
+		nativeDropEval(t, win, `const input=document.querySelector('[role="tabpanel"]:not(.hidden) textarea[aria-label="Terminal input"]');input.focus();input.dispatchEvent(new KeyboardEvent('keydown',{key:'c',code:'KeyC',keyCode:67,which:67,ctrlKey:true,bubbles:true,cancelable:true}));return true;`)
 		time.Sleep(250 * time.Millisecond)
 		enter(`echo interrupted > native-interrupted`)
 		for attempt := 0; attempt < 10; attempt++ {
@@ -134,7 +135,7 @@ func TestTerminalNativeShellReconnectToolsAndDraft(t *testing.T) {
 		}
 	}
 	if !interrupted {
-		t.Fatal("native interrupt did not release foreground program")
+		t.Fatal("native Ctrl+C did not release foreground program")
 	}
 	first, _ := os.ReadFile(filepath.Join(workspace.Path, "first.pid"))
 	second, _ := os.ReadFile(filepath.Join(workspace.Path, "after-refresh.pid"))

@@ -1,10 +1,9 @@
 import {useEffect, useRef, useState} from 'react';
 import {Terminal as XTerm} from '@xterm/xterm';
 import {FitAddon} from '@xterm/addon-fit';
-import {LoaderCircle, RotateCcw, Square} from 'lucide-react';
+import {LoaderCircle} from 'lucide-react';
 import {request} from '@/actions/core';
 import {runtime} from '@/lib/runtime';
-import {Button} from '@/components/ui/button';
 import type {Info, TerminalControl, TerminalEvent} from '@/contract.generated.ts';
 
 interface Props {
@@ -12,10 +11,9 @@ interface Props {
   tabId: string;
   active: boolean;
   disabled: boolean;
-  onClose: () => void;
 }
 
-export function TerminalView({workspaceId, tabId, active, disabled, onClose}: Props) {
+export function TerminalView({workspaceId, tabId, active, disabled}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState('Connecting…');
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
@@ -202,12 +200,10 @@ export function TerminalView({workspaceId, tabId, active, disabled, onClose}: Pr
             terminal.current?.reset();
             setNotice('Earlier terminal output was truncated (1 MiB replay limit). The display was reset; full-screen programs may need a redraw.');
           }
-          replaying.current = true;
           terminal.current?.write(bytes, () => {
             if (generation !== session.current.generation) return;
             cursor.current = data.end;
             ws.send(JSON.stringify({type: 'ack', end: cursor.current} satisfies TerminalControl));
-            replaying.current = false;
           });
         } else if (data.type === 'live') {
           if (!ready) throw new Error('Terminal was not initialized');
@@ -218,7 +214,7 @@ export function TerminalView({workspaceId, tabId, active, disabled, onClose}: Pr
           if (data.session) infoRef.current = data.session;
           setConnected(true);
           setError('');
-          setStatus(current?.running === false ? `Shell exited (${current.exitCode ?? -1}). Close it to start another.` : 'Connected · manual shell');
+          setStatus(current?.running === false ? `Shell exited (${current.exitCode ?? -1}). Close it to start another.` : '');
           requestAnimationFrame(() => {
             try {fit.current?.fit();} catch { /* Not measurable yet. */ }
             const size = readSize();
@@ -251,46 +247,17 @@ export function TerminalView({workspaceId, tabId, active, disabled, onClose}: Pr
     ws.onerror = () => ws.close();
   }
 
-  const reconnect = () => {
-    session.current.generation++;
-    session.current.socket?.close();
-    session.current.socket = undefined;
-    setError('');
-    void lookup().then(result => {
-      if (result?.session) {
-        connect(true);
-      } else setStatus('Terminal session ended. Close this tab and create a new terminal.');
-    });
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-1 border-b px-2 py-1">
-        <span className="min-w-0 flex-1 truncate text-[10.5px] text-muted-foreground" title={error || notice || status}>{error || notice || status}</span>
-        <Button
-          variant="ghost" size="icon-xs" aria-label="Interrupt terminal" title="Send Ctrl+C"
-          disabled={!connected} onClick={() => send({type: 'input', data: '\u0003'})}
-        >
-          <Square className="size-3" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" aria-label="Reconnect terminal" onClick={reconnect}><RotateCcw className="size-3" /></Button>
-      </div>
       {error ? <p className="border-b bg-destructive/10 px-2 py-1 text-[11px] text-destructive" role="alert">{error}</p> : null}
       <div className="relative min-h-0 flex-1 bg-[var(--code-surface)] p-1.5">
         <div
           ref={host} role="group" aria-label="Interactive terminal" data-terminal-viewport=""
+          aria-description={error || notice || (!connected ? status : undefined)}
           aria-disabled={!connected} className="h-full w-full"
           style={{backgroundColor: themeFor(dark).background, color: themeFor(dark).foreground, fontSize: 12, '--terminal-surface': themeFor(dark).background} as React.CSSProperties}
         />
         {!connected && !error ? <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground"><LoaderCircle className="size-3 animate-spin" />{status}</div> : null}
-      </div>
-      <div className="flex justify-end border-t px-2 py-1">
-        <Button
-          variant="ghost" size="xs" disabled={disabled}
-          onClick={onClose}
-        >
-          Close shell
-        </Button>
       </div>
     </div>
   );

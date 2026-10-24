@@ -143,12 +143,15 @@ survive collapse, refresh and app/service restart, and apply to the controlling
 page in both Desktop and Server. A viewport constraint is never saved as a
 new preference. These widths are shared by workspaces in that Desk profile.
 
-The right tool rail opens with one **Files** tab. Use the adjacent **+** menu for
+The right tool rail starts empty, with **Open files**, **Open terminal** and
+**Open Web** entries. Tabs, the **+** menu and the collapse button share its top
+row. Use the **+** menu for
 **New files**, **New terminal** or **New Web**. Files and terminal tabs retain their content when switched or
 hidden. Each workspace restores its own tabs and selection after refresh;
 each Files tab keeps its expanded directories and reading position.
 These preferences are local to the browser/profile. Closing Files destroys only
-that view. Closing every tab leaves an empty rail with the **+** menu available.
+that view. Closing every tab shows **Open files**, **Open terminal** and **Open Web**
+so any tool can be opened directly.
 
 **Files** lists the selected folder's immediate directories and files.
 Expand a directory to read its contents on demand; safe links inside the
@@ -256,13 +259,12 @@ or headless Server needs no Node.js, terminal service or extra daemon. Existing
 GUI-free Linux Server and `CGO_ENABLED=0` builds remain supported.
 
 Select text and use standard Copy/Paste shortcuts or the system context menu.
-Paste/input messages are limited to 16 KiB. On phones and touch layouts, compact
-bottom controls provide Ctrl+C (interrupt), Escape,
-Tab, arrows and Ctrl+D. Keyboard shortcuts stay in the focused terminal; Escape
-is delivered to terminal programs, so use **Close tools** or the backdrop to
-dismiss a phone overlay. Short keyboard viewports retain the emulator and touch
-keys. Desktop keeps those buttons hidden. Conversation drafts and file-browser
-positions stay intact across tool switches.
+Paste/input messages are limited to 16 KiB. The terminal fills its tab without
+a permanent status bar or footer controls. Use keyboard shortcuts such as Ctrl+C
+to interrupt a command and the tab's **×** to close its shell. Keyboard shortcuts
+stay in the focused terminal; Escape is delivered to terminal programs, so use
+**Close tools** or the backdrop to dismiss a phone overlay. Conversation drafts
+and file-browser positions stay intact across tool switches.
 
 **This is a host-account shell, not a workspace sandbox.** The workspace is only
 its initial directory. A signed-in Server controller can execute commands with
@@ -285,7 +287,8 @@ xterm parses each block; terminal traffic does not update application snapshots.
 Go continues draining output without a browser into a **1 MiB byte ring** per
 session; the emulator keeps **1,000 scrollback lines**. A slow page may lose old
 output rather than accumulate unbounded buffers. Reconnect resets the emulator
-and replays the retained bytes; truncation displays an explicit notice. Input is
+and replays the retained bytes; truncation is included in the terminal's
+accessible description. Input is
 disabled while disconnected/restoring and is never queued for retransmission.
 Commands near a disconnection may already have reached the shell: inspect before
 typing them again.

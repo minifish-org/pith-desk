@@ -33,8 +33,34 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
         className="flex shrink-0 items-center gap-1 border-b px-2"
         style={{height: 'var(--frame-header-height)', paddingRight: 'max(0.5rem, var(--mygo-titlebar-inset-right, 0px))'}}
       >
-        <span className="truncate pl-1.5 text-[12px] font-medium text-muted-foreground">Workspace tools</span>
-        <div className="ml-auto flex items-center gap-0.5">
+        {layout.tabs.length ? (
+          <div role="tablist" aria-label="Workspace tools" data-app-region="no-drag" className="scrollbar-quiet flex min-w-0 items-center gap-0.5 overflow-x-auto py-1">
+            {layout.tabs.map(tab => (
+              <div key={tab.id} className={cn('group/tab flex shrink-0 items-center rounded-md text-[12px]', tab.id === layout.activeId ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60')}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab.id === layout.activeId}
+                  title={tab.kind === 'files' ? workspace?.path : tab.kind === 'terminal' ? `${runtime.server ? 'Server' : 'Local'} · ${workspace?.path || ''}` : tab.label}
+                  className="flex items-center gap-1.5 px-2 py-1"
+                  onClick={() => selectToolTab(workspaceId, tab.id)}
+                >
+                  {tab.kind === 'files' ? <Folder className="size-3" /> : tab.kind === 'terminal' ? <TerminalSquare className="size-3" /> : <Globe className="size-3" />}
+                  {tab.label}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Close ${tab.label}`}
+                  className="mr-0.5 rounded p-0.5 opacity-0 hover:bg-background/70 group-hover/tab:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+                  onClick={() => {void closeToolTab(workspaceId, tab.id);}}
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-xs" aria-label="New tool tab" disabled={!workspace}><Plus className="size-3.5" /></Button>
@@ -49,41 +75,17 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
           <Button variant="ghost" size="icon-xs" aria-label="Close tools" title="Close tools" aria-expanded onClick={onClose}><PanelRightClose className="size-3.5" /></Button>
         </div>
       </div>
-      {layout.tabs.length ? (
-        <div role="tablist" aria-label="Workspace tools" className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b px-1.5 py-1">
-          {layout.tabs.map(tab => (
-            <div key={tab.id} className={cn('group/tab flex shrink-0 items-center rounded-md text-[12px]', tab.id === layout.activeId ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60')}>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab.id === layout.activeId}
-                title={tab.kind === 'files' ? workspace?.path : tab.kind === 'terminal' ? `${runtime.server ? 'Server' : 'Local'} · ${workspace?.path || ''}` : tab.label}
-                className="flex items-center gap-1.5 px-2 py-1"
-                onClick={() => selectToolTab(workspaceId, tab.id)}
-              >
-                {tab.kind === 'files' ? <Folder className="size-3" /> : tab.kind === 'terminal' ? <TerminalSquare className="size-3" /> : <Globe className="size-3" />}
-                {tab.label}
-              </button>
-              <button
-                type="button"
-                aria-label={`Close ${tab.label}`}
-                className="mr-0.5 rounded p-0.5 opacity-0 hover:bg-background/70 group-hover/tab:opacity-100"
-                onClick={() => {void closeToolTab(workspaceId, tab.id);}}
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         {!everOpened ? null
           : !workspace ? <p className="p-4 text-[12px] text-muted-foreground">Choose a workspace to browse its files.</p>
           : !layout.tabs.length ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-              <FolderOpen className="size-6 text-muted-foreground" />
-              <p className="text-[13px]">No tool tabs open</p>
-              <Button size="sm" variant="secondary" onClick={() => createToolTab(workspaceId, 'files')}>Open files</Button>
+              <p className="text-[13px] text-muted-foreground">No tool tabs open</p>
+              <div className="grid w-full max-w-44 gap-2">
+                <Button size="sm" variant="secondary" className="justify-start" onClick={() => createToolTab(workspaceId, 'files')}><FolderOpen className="size-3.5" />Open files</Button>
+                <Button size="sm" variant="secondary" className="justify-start" onClick={() => createToolTab(workspaceId, 'terminal')}><TerminalSquare className="size-3.5" />Open terminal</Button>
+                <Button size="sm" variant="secondary" className="justify-start" onClick={() => createToolTab(workspaceId, 'preview')}><Globe className="size-3.5" />Open Web</Button>
+              </div>
             </div>
           ) : layout.tabs.map(tab => (
             <div key={tab.id} role="tabpanel" aria-label={tab.label} className={cn('h-full min-h-0 flex-col', tab.id === layout.activeId ? 'flex' : 'hidden')}>
@@ -99,7 +101,6 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
                 <TerminalView
                   workspaceId={workspace.id} tabId={tab.id} active={tab.id === layout.activeId}
                   disabled={false}
-                  onClose={() => {void closeToolTab(workspaceId, tab.id);}}
                 />
               ) : <WebPreviewView workspaceId={workspace.id} tabId={tab.id} active={tab.id === layout.activeId && visible} />}
             </div>
