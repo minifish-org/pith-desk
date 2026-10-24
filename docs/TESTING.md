@@ -131,7 +131,7 @@ after task completion, retaining environment isolation and error redaction.
 | Configuration/resources | original workspace/provider/MCP targets, failed writes keep drafts, async reads retire on close |
 | Application lifetime | shared dialog replacement, callback reentry, session switching, root teardown and native menus |
 | Files | authenticated paths, preview/read limits, clipboard/export/download, recorded generated files, the conversation edited-files summary and its recorded diff preview |
-| Workspace browser | lazy directories and view restoration, retired legacy filters, private/symlink boundaries, lease revocation, late workspace/preview responses, reference insertion and draft/image preservation |
+| Workspace browser | lazy directories and view restoration, saved-layout compatibility, private/symlink boundaries, lease revocation, late workspace/preview responses, reference insertion and draft/image preservation |
 | Sidebars | rail-owned expanded controls/topbar openers, independent drag/keyboard widths, viewport limits and persisted restore across refresh/restart, live PTY columns and pending input, phone overlay exclusion, scrim/close/Escape and focus restoration, native titlebar insets |
 | Workspace tool tabs | initially empty, create/select/close, three direct empty-state entries, single-row tabs and reachable controls, independent file expansion/reading positions, workspace layout/selection restore, drafts and narrow overlays |
 | Manual terminal | independent tab processes/PTY interaction/interrupt/resize/UTF-8, bounded history/parse acknowledgements, page-independent lifetime, reconnect/takeover/late controls, scoped close/workspace cleanup |
