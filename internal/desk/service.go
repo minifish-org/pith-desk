@@ -377,10 +377,6 @@ func (s *Service) DecideApprovalWithScope(id string, allow, alwaysAllow bool) er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.tasks.pendingApproval(id)
-	// Standalone guarded-tool tests also use the blank conversation runtime.
-	if r == nil && s.active.PendingApproval != nil && s.active.PendingApproval.ID == id {
-		r = s.active
-	}
 	// Validate before writing any permission. A stale/canceled browser request
 	// must never turn into a lasting grant for another pending action.
 	if r == nil || s.closed || r.aborting || r.PendingApproval == nil || r.PendingApproval.ID != id || r.approval == nil || (r.approvalCtx != nil && r.approvalCtx.Err() != nil) {
@@ -479,10 +475,6 @@ func (s *Service) loadMessagesLocked(id string) error {
 	}
 	s.selectRuntimeLocked(r)
 	return nil
-}
-
-func (s *Service) sessionFile(id string) string {
-	return s.sessionAdapter().file(id)
 }
 
 func (s *Service) idleLocked() error {

@@ -86,7 +86,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	defer func() { _ = server.Close() }()
 	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk usability smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, server)
 	})
 	defer win.Destroy()
 	defer func() {
@@ -258,7 +258,7 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 	defer server.Close()
 	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk initial draft smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, server)
 	})
 	defer win.Destroy()
 	if err := flushDesktopDrafts(win); err != nil {

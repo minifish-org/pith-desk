@@ -49,7 +49,7 @@ func TestArtifactsRequireSuccessfulOriginalCallsAndCurrentWorkspaceFiles(t *test
 	if err := os.Symlink(privateFile, filepath.Join(workspace.Path, "private-link.txt")); err != nil {
 		t.Fatal(err)
 	}
-	manager, err := openDeskSession(s.sessionFile(conversation.ID), conversation.ID, workspace.Path)
+	manager, err := openDeskSession(s.sessionAdapter().file(conversation.ID), conversation.ID, workspace.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestArtifactsUseOnlyActivePithBranch(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	manager, err := openDeskSession(s.sessionFile(conversation.ID), conversation.ID, workspace.Path)
+	manager, err := openDeskSession(s.sessionAdapter().file(conversation.ID), conversation.ID, workspace.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestArtifactsSumLineChangesFromSuccessfulWritesAndEdits(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	manager, err := openDeskSession(s.sessionFile(conversation.ID), conversation.ID, workspace.Path)
+	manager, err := openDeskSession(s.sessionAdapter().file(conversation.ID), conversation.ID, workspace.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestArtifactDiffKeepsOriginalSuccessfulChanges(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	manager, err := openDeskSession(s.sessionFile(conversation.ID), conversation.ID, workspace.Path)
+	manager, err := openDeskSession(s.sessionAdapter().file(conversation.ID), conversation.ID, workspace.Path)
 	if err != nil {
 		t.Fatal(err)
 	}

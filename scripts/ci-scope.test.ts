@@ -29,10 +29,10 @@ test('only PR documentation can omit runtime and browser work',() => {
   assert.equal(selectScope(['README.md'],'workflow_dispatch').mode,'full');
 });
 test('UI changes retain the frontend and both browser engines',() => {
-  assert.deepEqual(selectScope(['frontend/src/files.ts','frontend/e2e/server.spec.ts','README.md']),{mode: 'ui',install: true,browser: true,runtime: false});
+  assert.deepEqual(selectScope(['frontend/src/actions/files.ts','frontend/e2e/server.spec.ts','README.md']),{mode: 'ui',install: true,browser: true,runtime: false});
 });
 test('dependencies, public transport, build configuration and unknown paths expand coverage',() => {
-  for (const file of ['go.mod','go.sum','internal/host/server.go','frontend/package-lock.json','package.json','frontend/src/contract.generated.ts','frontend/src/api.ts','frontend/src/server-session.ts','frontend/vite.config.ts','frontend/tsconfig.json','mygo.config.ts','.github/workflows/check.yml','scripts/ci-scope.ts','new-runtime/file']) {
+  for (const file of ['go.mod','go.sum','internal/host/server.go','frontend/package-lock.json','package.json','frontend/src/contract.generated.ts','frontend/src/api.ts','frontend/src/lib/session.ts','frontend/vite.config.ts','frontend/tsconfig.json','mygo.config.ts','.github/workflows/check.yml','scripts/ci-scope.ts','new-runtime/file']) {
     assert.equal(selectScope(['README.md',file]).mode,'full',file);
   }
 });

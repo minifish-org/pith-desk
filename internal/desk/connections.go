@@ -102,8 +102,3 @@ func (c *Connections) takeMCPPreview() *codingagent.MCPRuntime {
 	c.mcpRuntime = nil
 	return runtime
 }
-func (c *Connections) discardMCPPreview(runtime *codingagent.MCPRuntime) {
-	if c.mcpRuntime == runtime {
-		c.mcpRuntime = nil
-	}
-}

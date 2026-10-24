@@ -41,8 +41,7 @@ type TaskJournal struct {
 	open    func(string) (durable.Storage, error)
 }
 
-func (j *TaskJournal) dir(id string) string    { return filepath.Join(j.dataDir, "durable", id) }
-func (s *Service) durableDir(id string) string { return s.journals.dir(id) }
+func (j *TaskJournal) dir(id string) string { return filepath.Join(j.dataDir, "durable", id) }
 
 func (r *RunExecution) admitDurableWithQueueLocked(id string, workspace Workspace, config savedConfig, model *aitypes.Model, input durableInput, pending []QueuedMessage) (*deskDurable, error) {
 	s := r.dependencies

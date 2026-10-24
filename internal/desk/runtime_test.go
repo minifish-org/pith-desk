@@ -53,7 +53,7 @@ func TestQueueStartupSteeringAndFollowUpConsumeOnlyNewMessages(t *testing.T) {
 	t.Cleanup(provider.Close)
 	s, folder, _ := configuredService(t, provider.URL)
 	id := s.Snapshot().ActiveID
-	manager, err := openDeskSession(s.sessionFile(id), id, folder)
+	manager, err := openDeskSession(s.sessionAdapter().file(id), id, folder)
 	if err != nil {
 		t.Fatal(err)
 	}

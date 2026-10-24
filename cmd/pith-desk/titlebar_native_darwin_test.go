@@ -31,13 +31,9 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	server.SetTitlebarOverlay(true)
 	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		opts := desktopWindowOptions()
-		opts.Title = "Pith Desk titlebar smoke"
-		opts.StateKey = ""
-		win = newNativeTestWindow(t, opts)
+		win = newNativeTestWindow(t, server)
 	})
 	defer win.Destroy()
 	if err := win.Page().LoadURL(server.URL); err != nil {
@@ -120,7 +116,9 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 		t.Fatal("native resize diverged from the window-controls row")
 	}
 	saveUsabilityScreenshot(t, win, "sidebar-controls-wide.png")
-	nativeDropEval(t, win, `document.querySelector('button[aria-label="Close tools"]').click();document.querySelector('button[aria-label="Close navigation"]').click();return true;`)
+	nativeDropEval(t, win, `const button=document.querySelector('button[aria-label="Close tools"]');button.focus();button.click();return true;`)
+	waitNativeDropCondition(t, win, `document.activeElement===document.querySelector('header button[aria-label="Toggle tools"]')`)
+	nativeDropEval(t, win, `const button=document.querySelector('button[aria-label="Close navigation"]');button.focus();button.click();return true;`)
 	waitNativeDropCondition(t, win, `document.activeElement===document.querySelector('header button[aria-label="Toggle navigation"]') && !!document.querySelector('header button[aria-label="Toggle tools"]')`)
 	nativeDropEval(t, win, `document.querySelector('header button[aria-label="Toggle navigation"]').click();return true;`)
 	saveUsabilityScreenshot(t, win, "titlebar-fusion.png")
@@ -138,7 +136,8 @@ func TestTitlebarNativeOverlayAndExistingControls(t *testing.T) {
 	})()`) != true {
 		t.Fatal("narrow native composer alignment or existing traffic-light insets changed")
 	}
-	waitNativeDropCondition(t, win, `document.querySelector('.app-root').getBoundingClientRect().height===700 && document.querySelector('.app-root').getBoundingClientRect().width===480 && document.querySelectorAll('[data-navigation-rail]').length===0`)
+	win.Focus()
+	waitNativeDropCondition(t, win, `document.visibilityState==='visible' && document.hasFocus() && document.querySelector('.app-root').getBoundingClientRect().height===700 && document.querySelector('.app-root').getBoundingClientRect().width===480 && document.querySelectorAll('[data-navigation-rail]').length===0`)
 	nativeDropEval(t, win, `window.__sidebarPainted=false;requestAnimationFrame(()=>requestAnimationFrame(()=>window.__sidebarPainted=true));return true;`)
 	waitNativeDropCondition(t, win, `window.__sidebarPainted`)
 	saveUsabilityScreenshot(t, win, "titlebar-narrow.png")

@@ -37,7 +37,7 @@ func (r *RunExecution) buildTools(policy *filePolicy) (*codingagent.ToolRegistry
 		definitions[i].Name = names[i]
 	}
 	external := map[string]bool{}
-	for _, definition := range mcpToolDefinitions(s, r) {
+	for _, definition := range r.mcpToolDefinitions() {
 		external[definition.Name] = true
 		definitions = append(definitions, definition)
 	}

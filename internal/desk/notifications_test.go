@@ -143,7 +143,7 @@ func TestCompletionNotificationUnavailableTargetsLeaveCurrentViewUnchanged(t *te
 				t.Fatalf("unavailable target replaced the current view %s with %s", other.ID, s.Snapshot().ActiveID)
 			}
 			if kind == "deleted" {
-				if _, err := os.Stat(s.sessionFile(entry.ID)); !os.IsNotExist(err) {
+				if _, err := os.Stat(s.sessionAdapter().file(entry.ID)); !os.IsNotExist(err) {
 					t.Fatalf("notification recreated a deleted transcript: %v", err)
 				}
 			}

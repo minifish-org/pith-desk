@@ -42,7 +42,6 @@ func TestWorkspaceBrowserNativeSidebarPreviewReferenceAndSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	server.SetTitlebarOverlay(true)
 	var opened, revealed, copied, saved, automatic atomic.Int32
 	server.SetFileActions(func(p string) error {
 		if p != path {
@@ -74,11 +73,7 @@ func TestWorkspaceBrowserNativeSidebarPreviewReferenceAndSave(t *testing.T) {
 	})
 	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		opts := desktopWindowOptions()
-		opts.Title = "Pith Desk workspace smoke"
-		opts.StateKey = ""
-		opts.Hidden = true
-		win = newNativeTestWindow(t, opts)
+		win = newNativeTestWindow(t, server)
 		win.Page().OnWillDownload(func(event *mygo.DownloadEvent) { automatic.Add(1); event.PreventDefault() })
 	})
 	defer win.Destroy()

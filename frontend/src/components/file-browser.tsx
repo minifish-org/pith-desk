@@ -15,7 +15,6 @@ import type {WorkspaceEntry} from '@/contract.generated.ts';
 
 interface Directory {
   path: string;
-  expanded: boolean;
   entries: WorkspaceEntry[];
   loading?: boolean;
   error?: string;
@@ -23,35 +22,35 @@ interface Directory {
 
 /** Lazy workspace tree used by the Files tool tab. Expanded folders and the
  * scroll offset are owned by the tab so switching tabs restores the view. */
-export function FileBrowser({workspaceId, active, initialExpanded, initialScrollTop, onExpanded, onScrollTop}: {
+export function FileBrowser({workspaceId, active, expandedPaths, initialScrollTop, onExpanded, onScrollTop}: {
   workspaceId: string;
   active: boolean;
-  initialExpanded: string[];
+  expandedPaths: string[];
   initialScrollTop: number;
   onExpanded: (paths: string[]) => void;
   onScrollTop: (top: number) => void;
 }) {
-  const [directories, setDirectories] = useState<Map<string, Directory>>(new Map([['', {path: '', expanded: true, entries: [], loading: true}]]));
+  const [directories, setDirectories] = useState<Map<string, Directory>>(new Map([['', {path: '', entries: [], loading: true}]]));
   const requests = useRef(new Map<string, AbortController>());
   const generation = useRef(0);
   const tree = useRef<HTMLDivElement>(null);
   const scrollFrame = useRef(0);
   const desiredTop = useRef(initialScrollTop);
-  const expandedPaths = useRef(new Set(initialExpanded));
+  const expanded = new Set(expandedPaths);
 
   const load = async (path: string) => {
     const controller = new AbortController();
     requests.current.get(path)?.abort();
     requests.current.set(path, controller);
     const current = generation.current;
-    setDirectories(previous => new Map(previous).set(path, {...(previous.get(path) || {path, expanded: true, entries: []}), loading: true, error: undefined}));
+    setDirectories(previous => new Map(previous).set(path, {...(previous.get(path) || {path, entries: []}), loading: true, error: undefined}));
     try {
       const listing = await request('/api/workspace-files', {query: {workspaceId, path}, signal: controller.signal});
       if (current !== generation.current || requests.current.get(path) !== controller) return;
-      setDirectories(previous => new Map(previous).set(path, {path, expanded: true, entries: listing.entries || [], loading: false}));
+      setDirectories(previous => new Map(previous).set(path, {path, entries: listing.entries || [], loading: false}));
     } catch (failure) {
       if (current !== generation.current || requests.current.get(path) !== controller) return;
-      setDirectories(previous => new Map(previous).set(path, {path, expanded: true, entries: [], error: failure instanceof Error ? failure.message : String(failure)}));
+      setDirectories(previous => new Map(previous).set(path, {path, entries: [], error: failure instanceof Error ? failure.message : String(failure)}));
     } finally {
       if (requests.current.get(path) === controller) requests.current.delete(path);
     }
@@ -65,20 +64,14 @@ export function FileBrowser({workspaceId, active, initialExpanded, initialScroll
 
   useEffect(() => {
     generation.current++;
-    setDirectories(new Map([['', {path: '', expanded: true, entries: [], loading: true}]]));
-    const restore = initialExpanded.filter(Boolean).sort((a, b) => a.split('/').length - b.split('/').length);
+    setDirectories(new Map([['', {path: '', entries: [], loading: true}]]));
+    const restore = expandedPaths.filter(Boolean).sort((a, b) => a.split('/').length - b.split('/').length);
     const current = generation.current;
     void (async () => {
       await load('');
       for (const path of restore) {
         if (generation.current !== current) return;
         await load(path);
-        setDirectories(previous => {
-          const next = new Map(previous);
-          const directory = next.get(path);
-          if (directory) next.set(path, {...directory, expanded: true});
-          return next;
-        });
       }
       if (generation.current === current && active) {
         requestAnimationFrame(() => {if (tree.current) tree.current.scrollTop = desiredTop.current;});
@@ -87,22 +80,17 @@ export function FileBrowser({workspaceId, active, initialExpanded, initialScroll
     return () => {generation.current++; for (const controller of requests.current.values()) controller.abort(); requests.current.clear();};
   }, [workspaceId]);
 
-  const toggle = (entry: WorkspaceEntry, expanded: boolean) => {
-    if (expanded) void load(entry.path);
-    setDirectories(previous => {
-      const next = new Map(previous);
-      const directory = next.get(entry.path) || {path: entry.path, expanded: true, entries: []};
-      next.set(entry.path, {...directory, expanded});
-      return next;
-    });
-    if (expanded) expandedPaths.current.add(entry.path);
-    else expandedPaths.current.delete(entry.path);
-    onExpanded([...expandedPaths.current].sort());
+  const toggle = (entry: WorkspaceEntry, open: boolean) => {
+    if (open) void load(entry.path);
+    const next = new Set(expandedPaths);
+    if (open) next.add(entry.path);
+    else next.delete(entry.path);
+    onExpanded([...next].sort());
   };
 
   const refresh = () => {
     void load('');
-    for (const [path, directory] of directories) if (path && directory.expanded) void load(path);
+    for (const path of expandedPaths) if (path) void load(path);
   };
 
   const root = directories.get('');
@@ -130,33 +118,35 @@ export function FileBrowser({workspaceId, active, initialExpanded, initialScroll
         {root?.loading ? <p className="flex items-center gap-2 px-2 py-3 text-[12px] text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading files…</p> : null}
         {root?.error ? <p className="px-2 py-3 text-[12px] text-destructive">{root.error}</p> : null}
         {!root?.loading && !root?.error && !root?.entries.length ? <p className="px-2 py-3 text-[12px] text-muted-foreground">This workspace is empty.</p> : null}
-        <ul>{root?.entries.map(entry => <TreeRow key={entry.path} entry={entry} workspaceId={workspaceId} directories={directories} depth={0} onToggle={toggle} />)}</ul>
+        <ul>{root?.entries.map(entry => <TreeRow key={entry.path} entry={entry} workspaceId={workspaceId} directories={directories} expanded={expanded} depth={0} onToggle={toggle} />)}</ul>
       </div>
     </div>
   );
 }
 
-function TreeRow({entry, workspaceId, directories, depth, onToggle}: {
+function TreeRow({entry, workspaceId, directories, expanded, depth, onToggle}: {
   entry: WorkspaceEntry;
   workspaceId: string;
   directories: Map<string, Directory>;
+  expanded: ReadonlySet<string>;
   depth: number;
   onToggle: (entry: WorkspaceEntry, expanded: boolean) => void;
 }) {
-  const directory = directories.get(entry.path) || {path: entry.path, expanded: false, entries: []};
-  const Icon = entry.directory ? (directory.expanded ? FolderOpen : Folder) : File;
+  const directory = directories.get(entry.path) || {path: entry.path, entries: []};
+  const open = expanded.has(entry.path);
+  const Icon = entry.directory ? (open ? FolderOpen : Folder) : File;
   const preview = () => desk().openModal({kind: 'preview', id: `preview-${entry.path}`, owner: {kind: 'workspace', id: workspaceId}, path: entry.path});
   return (
     <li>
       <div className="group flex items-center rounded-md hover:bg-accent/60">
         <button
           type="button"
-          aria-expanded={entry.directory ? directory.expanded : undefined}
+          aria-expanded={entry.directory ? open : undefined}
           className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12.5px]"
           style={{paddingLeft: `${6 + depth * 13}px`}}
-          onClick={() => entry.directory ? onToggle(entry, !directory.expanded) : preview()}
+          onClick={() => entry.directory ? onToggle(entry, !open) : preview()}
         >
-          {entry.directory ? <ChevronRight className={cn('size-3 shrink-0 text-muted-foreground transition-transform', directory.expanded && 'rotate-90')} /> : <span className="size-3 shrink-0" />}
+          {entry.directory ? <ChevronRight className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} /> : <span className="size-3 shrink-0" />}
           <Icon className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="truncate">{entry.name}</span>
         </button>
@@ -185,11 +175,11 @@ function TreeRow({entry, workspaceId, directories, depth, onToggle}: {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {entry.directory && directory.expanded ? (
+      {entry.directory && open ? (
         <ul>
           {directory.loading ? <li className="py-1 pl-6 text-[11px] text-muted-foreground">Loading…</li> : null}
           {directory.error ? <li className="py-1 pl-6 text-[11px] text-destructive">{directory.error}</li> : null}
-          {directory.entries.map(child => <TreeRow key={child.path} entry={child} workspaceId={workspaceId} directories={directories} depth={depth + 1} onToggle={onToggle} />)}
+          {directory.entries.map(child => <TreeRow key={child.path} entry={child} workspaceId={workspaceId} directories={directories} expanded={expanded} depth={depth + 1} onToggle={onToggle} />)}
         </ul>
       ) : null}
     </li>

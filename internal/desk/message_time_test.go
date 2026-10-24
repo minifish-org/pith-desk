@@ -10,7 +10,7 @@ import (
 
 func TestVisibleMessagesPreserveRecordedTimestampsAfterReopen(t *testing.T) {
 	s, _, conversation, _ := productFeatureService(t)
-	manager, err := codingagent.OpenSession(s.sessionFile(conversation.ID))
+	manager, err := codingagent.OpenSession(s.sessionAdapter().file(conversation.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestVisibleMessagesPreserveRecordedTimestampsAfterReopen(t *testing.T) {
 	if err := manager.Close(); err != nil {
 		t.Fatal(err)
 	}
-	manager, err = codingagent.OpenSession(s.sessionFile(conversation.ID))
+	manager, err = codingagent.OpenSession(s.sessionAdapter().file(conversation.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

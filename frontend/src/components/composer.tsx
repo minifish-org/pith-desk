@@ -1,6 +1,6 @@
 // The message composer: text, attachments, permission and model controls. The
 // business rules for what may be submitted live in `actions/composer.ts`.
-import {memo, useEffect, useRef, useState} from 'react';
+import {memo, useEffect, useRef} from 'react';
 import {ArrowUp, CircleStop, ImagePlus, LoaderCircle} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {useDesk} from '@/stores/desk.ts';
@@ -34,7 +34,6 @@ function ComposerView() {
   const disabled = composerDisabled();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     attachComposerElement(textarea.current);
@@ -79,15 +78,6 @@ function ComposerView() {
           disabled={!loaded}
           placeholder={placeholder}
           rows={1}
-          onDragEnter={() => setDragging(true)}
-          onDragOver={event => {if (event.dataTransfer.types.includes('Files')) {event.preventDefault(); setDragging(true);}}}
-          onDragLeave={() => setDragging(false)}
-          onDrop={event => {
-            event.stopPropagation();
-            setDragging(false);
-            const files = [...event.dataTransfer.files].filter(file => file.type.startsWith('image/'));
-            if (files.length) {event.preventDefault(); void addImageFiles(files);}
-          }}
           onChange={event => setComposerText(event.target.value)}
           onBlur={() => {rememberDraft(); void flushAllDrafts().catch(() => {});}}
           onKeyDown={event => {
@@ -96,10 +86,7 @@ function ComposerView() {
               submit();
             }
           }}
-          className={cn(
-            'block max-h-[180px] min-h-[40px] w-full resize-none bg-transparent px-3.5 pt-2.5 text-[14px] leading-[1.5] outline-none placeholder:text-muted-foreground/80',
-            dragging && 'opacity-70',
-          )}
+          className="block max-h-[180px] min-h-[40px] w-full resize-none bg-transparent px-3.5 pt-2.5 text-[14px] leading-[1.5] outline-none placeholder:text-muted-foreground/80"
         />
         <div data-composer-context="" className="flex items-end gap-1.5 px-2 pt-1 pb-2">
           <Tooltip>

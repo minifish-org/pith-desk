@@ -12,7 +12,7 @@ import (
 
 func seedDeletionData(t *testing.T, s *Service, workspace Workspace, conversation Conversation) string {
 	t.Helper()
-	manager, err := openDeskSession(s.sessionFile(conversation.ID), conversation.ID, workspace.Path)
+	manager, err := openDeskSession(s.sessionAdapter().file(conversation.ID), conversation.ID, workspace.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func seedDeletionData(t *testing.T, s *Service, workspace Workspace, conversatio
 func requireNoConversationData(t *testing.T, s *Service, ids ...string) {
 	t.Helper()
 	for _, id := range ids {
-		for _, file := range []string{s.sessionFile(id), s.receiptFile(id)} {
+		for _, file := range []string{s.sessionAdapter().file(id), s.receiptFile(id)} {
 			if _, err := os.Lstat(file); !os.IsNotExist(err) {
 				t.Fatalf("deleted data still exists: %s (%v)", file, err)
 			}
@@ -163,7 +163,7 @@ func TestDeletionFailurePreservesCatalogAndData(t *testing.T) {
 	s, workspace, conversation, dataDir := productFeatureService(t)
 	seedDeletionData(t, s, workspace, conversation)
 	before := s.Snapshot()
-	file := s.sessionFile(conversation.ID)
+	file := s.sessionAdapter().file(conversation.ID)
 	bytes, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func TestDeletionRecoveryUsesCommittedCatalog(t *testing.T) {
 	}
 	defer reopened.Close()
 	requireNoConversationData(t, reopened, removed.ID)
-	if _, err := os.Stat(reopened.sessionFile(kept.ID)); err != nil {
+	if _, err := os.Stat(reopened.sessionAdapter().file(kept.ID)); err != nil {
 		t.Fatal("uncommitted deletion removed kept conversation")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, deletionFile)); !os.IsNotExist(err) {
@@ -252,7 +252,7 @@ func TestInterruptedDeletionRetainsIntentUntilCleanupCanFinish(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, deletionFile)); err != nil {
 		t.Fatal("failed cleanup lost retry intent")
 	}
-	if _, err := os.Stat(s.sessionFile(conversation.ID)); err != nil {
+	if _, err := os.Stat(s.sessionAdapter().file(conversation.ID)); err != nil {
 		t.Fatal("preflight did not preserve data on failure")
 	}
 	if err := os.Remove(s.receiptFile(conversation.ID)); err != nil {
@@ -291,7 +291,7 @@ func TestDeletionDoesNotFollowWorkspaceSymlinksOrDeleteUnexpectedDirectories(t *
 	if err := os.Remove(filepath.Join(dataDir, "sessions")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(s.sessionFile(conversation.ID), 0700); err != nil {
+	if err := os.MkdirAll(s.sessionAdapter().file(conversation.ID), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteConversation(conversation.ID); err == nil {

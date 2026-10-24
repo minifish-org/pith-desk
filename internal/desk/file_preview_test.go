@@ -22,7 +22,7 @@ func TestArtifactPreviewsRequireRecordedFilesAndKeepActiveContentAsText(t *testi
 		"picture.png": imageData.Bytes(), "long.txt": []byte(strings.Repeat("中", maxTextPreviewBytes)),
 		"binary.bin": {0, 1, 2, 3}, "unrecorded.txt": []byte("not a result"),
 	}
-	manager, err := openDeskSession(s.sessionFile(conversation.ID), conversation.ID, workspace.Path)
+	manager, err := openDeskSession(s.sessionAdapter().file(conversation.ID), conversation.ID, workspace.Path)
 	if err != nil {
 		t.Fatal(err)
 	}

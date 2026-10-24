@@ -339,44 +339,47 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 				if !ok || function.Body == nil {
 					continue
 				}
-				if function.Name.Name == "serve" || function.Name.Name == "serveAPI" {
-					ast.Inspect(function.Body, func(node ast.Node) bool {
-						statement, ok := node.(*ast.IfStmt)
-						if !ok {
-							return true
+				// Delegated mutation switches inherit the caller's POST gate.
+				method := "POST"
+				for _, statement := range function.Body.List {
+					guard, ok := statement.(*ast.IfStmt)
+					if !ok || guard.Else != nil || len(guard.Body.List) == 0 {
+						continue
+					}
+					if _, returns := guard.Body.List[len(guard.Body.List)-1].(*ast.ReturnStmt); returns {
+						if guarded := requestMethod(guard.Cond, token.NEQ); guarded != "" {
+							method = guarded
 						}
-						var routes []string
-						var method string
-						ast.Inspect(statement.Cond, func(node ast.Node) bool {
-							if literal, ok := node.(*ast.BasicLit); ok && literal.Kind == token.STRING {
-								value, _ := strconv.Unquote(literal.Value)
-								if strings.HasPrefix(value, "/api/") && !strings.HasSuffix(value, "/") {
-									routes = append(routes, value)
-								}
+					}
+				}
+				ast.Inspect(function.Body, func(node ast.Node) bool {
+					statement, ok := node.(*ast.IfStmt)
+					if !ok {
+						return true
+					}
+					var routes []string
+					method := requestMethod(statement.Cond, token.EQL)
+					ast.Inspect(statement.Cond, func(node ast.Node) bool {
+						if literal, ok := node.(*ast.BasicLit); ok && literal.Kind == token.STRING {
+							value, _ := strconv.Unquote(literal.Value)
+							if strings.HasPrefix(value, "/api/") && !strings.HasSuffix(value, "/") {
+								routes = append(routes, value)
 							}
-							if selector, ok := node.(*ast.SelectorExpr); ok {
-								switch selector.Sel.Name {
-								case "MethodGet":
-									method = "GET"
-								case "MethodPost":
-									method = "POST"
-								}
-							}
-							return true
-						})
-						for _, route := range routes {
-							if method == "" {
-								continue
-							}
-							key := method + " " + route
-							if _, exists := registered[key]; !exists {
-								errors = append(errors, "missing contract for "+key)
-							}
-							observed[key] = true
 						}
 						return true
 					})
-				}
+					for _, route := range routes {
+						if method == "" {
+							continue
+						}
+						key := method + " " + route
+						if _, exists := registered[key]; !exists {
+							errors = append(errors, "missing contract for "+key)
+						}
+						observed[key] = true
+					}
+					return true
+				})
 				ast.Inspect(function.Body, func(node ast.Node) bool {
 					clause, ok := node.(*ast.CaseClause)
 					if !ok {
@@ -394,21 +397,15 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 					if len(routes) == 0 {
 						return true
 					}
-					method := "POST"
-					if function.Name.Name == "serveFeatureRead" {
-						method = "GET"
-					}
 					var input string
 					var query string
 					ast.Inspect(clause, func(node ast.Node) bool {
-						if spec, ok := node.(*ast.ValueSpec); ok {
-							for _, name := range spec.Names {
-								if name.Name == "in" {
-									input = exprName(spec.Type, aliases)
+						if call, ok := node.(*ast.CallExpr); ok {
+							if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "Decode" && len(call.Args) == 3 {
+								if _, literal := call.Args[0].(*ast.BasicLit); !literal {
+									input = decoderInputType(call.Args[2], aliases)
 								}
 							}
-						}
-						if call, ok := node.(*ast.CallExpr); ok {
 							if indexed, ok := call.Fun.(*ast.IndexExpr); ok {
 								if selector, ok := indexed.X.(*ast.SelectorExpr); ok && selector.Sel.Name == "ReadQuery" {
 									query = exprName(indexed.Index, aliases)
@@ -436,15 +433,7 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 				})
 				// Delegated handlers (file references and native menus) validate
 				// their literal route with the same Decode helper.
-				var input string
 				ast.Inspect(function.Body, func(node ast.Node) bool {
-					if spec, ok := node.(*ast.ValueSpec); ok {
-						for _, name := range spec.Names {
-							if name.Name == "in" {
-								input = exprName(spec.Type, aliases)
-							}
-						}
-					}
 					call, ok := node.(*ast.CallExpr)
 					if !ok || len(call.Args) < 3 {
 						return true
@@ -458,6 +447,7 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 						return true
 					}
 					route, _ := strconv.Unquote(literal.Value)
+					input := decoderInputType(call.Args[2], aliases)
 					if endpoint, exists := registered["POST "+route]; exists && input != goName(endpoint.Input) {
 						errors = append(errors, fmt.Sprintf("request type drift for %s: handler %s, registry %s", route, input, goName(endpoint.Input)))
 					}
@@ -474,6 +464,78 @@ func verifyHandlers(directory string, endpoints []wire.Endpoint) error {
 	if len(errors) > 0 {
 		sort.Strings(errors)
 		return fmt.Errorf("host contract drift:\n%s", strings.Join(errors, "\n"))
+	}
+	return nil
+}
+
+func requestMethod(condition ast.Expr, comparison token.Token) string {
+	method := ""
+	ast.Inspect(condition, func(node ast.Node) bool {
+		binary, ok := node.(*ast.BinaryExpr)
+		if !ok || binary.Op != comparison {
+			return true
+		}
+		field, value := ast.Unparen(binary.X), ast.Unparen(binary.Y)
+		if selector, ok := field.(*ast.SelectorExpr); !ok || selector.Sel.Name != "Method" {
+			field, value = value, field
+		}
+		if selector, ok := field.(*ast.SelectorExpr); ok && selector.Sel.Name == "Method" {
+			if constant, ok := value.(*ast.SelectorExpr); ok {
+				switch constant.Sel.Name {
+				case "MethodGet":
+					method = "GET"
+				case "MethodPost":
+					method = "POST"
+				}
+			}
+			if literal, ok := value.(*ast.BasicLit); ok && literal.Kind == token.STRING {
+				method, _ = strconv.Unquote(literal.Value)
+			}
+		}
+		return true
+	})
+	return method
+}
+
+func decoderInputType(expression ast.Expr, aliases map[string]string) string {
+	if pointer, ok := ast.Unparen(decoderTargetType(expression)).(*ast.StarExpr); ok {
+		return exprName(pointer.X, aliases)
+	}
+	return "anonymous"
+}
+
+// Follow local declarations and constructors, not variable names or helper bodies.
+func decoderTargetType(expression ast.Expr) ast.Expr {
+	switch value := ast.Unparen(expression).(type) {
+	case *ast.UnaryExpr:
+		if value.Op == token.AND {
+			if typ := decoderTargetType(value.X); typ != nil {
+				return &ast.StarExpr{X: typ}
+			}
+		}
+	case *ast.CompositeLit:
+		return value.Type
+	case *ast.CallExpr:
+		if name, ok := value.Fun.(*ast.Ident); ok && name.Name == "new" && name.Obj == nil && len(value.Args) == 1 {
+			return &ast.StarExpr{X: value.Args[0]}
+		}
+	case *ast.Ident:
+		if value.Obj == nil {
+			return nil
+		}
+		switch declaration := value.Obj.Decl.(type) {
+		case *ast.ValueSpec:
+			if declaration.Type != nil {
+				return declaration.Type
+			}
+			if len(declaration.Values) == 1 {
+				return decoderTargetType(declaration.Values[0])
+			}
+		case *ast.AssignStmt:
+			if len(declaration.Rhs) == 1 {
+				return decoderTargetType(declaration.Rhs[0])
+			}
+		}
 	}
 	return nil
 }

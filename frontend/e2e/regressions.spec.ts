@@ -49,6 +49,74 @@ test('text and image drafts restore together after switching and reload', async 
   await expect(page.getByRole('textbox', {name: 'Message Pith'})).toHaveValue('Keep this draft');
 });
 
+test('file drops on the message field and its frame add each image and reference once', async ({page}) => {
+  await page.evaluate(() => {
+    const original = window.fetch;
+    (window as any).dropRequests = [];
+    window.fetch = async (url, options) => {
+      if (new URL(String(url), location.href).pathname === '/api/workspace-references') {
+        (window as any).dropRequests.push(JSON.parse(String(options?.body)));
+        return Response.json({paths: ['report.txt']});
+      }
+      return original(url, options);
+    };
+  });
+  const composer = page.getByRole('textbox', {name: 'Message Pith', exact: true});
+  for (const [index, target] of ['field', 'frame'].entries()) {
+    await composer.fill('Before after');
+    const prevented = await composer.evaluate((node: HTMLTextAreaElement, target: string) => {
+      node.setSelectionRange(7, 7);
+      const canvas = document.createElement('canvas'); canvas.width = 10; canvas.height = 10;
+      const png = Uint8Array.from(atob(canvas.toDataURL().split(',')[1]), character => character.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([png], `drop-${target}.png`, {type: 'image/png'}));
+      transfer.setData('text/uri-list', 'file:///tmp/pith-review/report.txt');
+      const receiver = target === 'field' ? node : node.closest('form')!;
+      receiver.dispatchEvent(new DragEvent('dragover', {dataTransfer: transfer, bubbles: true, cancelable: true}));
+      const event = new DragEvent('drop', {dataTransfer: transfer, bubbles: true, cancelable: true});
+      receiver.dispatchEvent(event);
+      return event.defaultPrevented;
+    }, target);
+    expect(prevented).toBe(true);
+    await expect(composer).toHaveValue('Before `report.txt` after');
+    await expect(page.locator('[data-draft-image]')).toHaveCount(index + 1);
+    expect(await page.evaluate(() => (window as any).dropRequests)).toHaveLength(index + 1);
+  }
+});
+
+test('a collapsed Files folder stays closed when its pending read succeeds or fails', async ({page}) => {
+  await page.evaluate(() => {
+    const original = window.fetch;
+    window.fetch = async (url, options) => {
+      const target = new URL(String(url), location.href);
+      if (target.pathname !== '/api/workspace-files') return original(url, options);
+      if (!target.searchParams.get('path')) return Response.json({entries: [{name: 'docs', path: 'docs', directory: true}]});
+      await new Promise<void>(resolve => {(window as any).releaseFolder = resolve;});
+      return (window as any).failFolder
+        ? Response.json({error: 'Directory is temporarily unavailable'}, {status: 503})
+        : Response.json({entries: [{name: 'child.txt', path: 'docs/child.txt', directory: false}]});
+    };
+  });
+  await page.getByRole('button', {name: 'Toggle tools', exact: true}).click();
+  await page.getByRole('button', {name: 'Open files', exact: true}).click();
+  const folder = page.getByRole('button', {name: 'docs', exact: true});
+  for (const fail of [false, true]) {
+    await page.evaluate(fail => {(window as any).failFolder = fail; (window as any).releaseFolder = undefined;}, fail);
+    await folder.click();
+    await expect.poll(() => page.evaluate(() => typeof (window as any).releaseFolder)).toBe('function');
+    await folder.click();
+    await expect(folder).toHaveAttribute('aria-expanded', 'false');
+    await page.evaluate(async () => {
+      (window as any).releaseFolder();
+      // Let the fulfilled read and React render settle before checking that it stayed closed.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await expect(folder).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('button', {name: 'child.txt', exact: true})).toHaveCount(0);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('pith-desk.tools.v1.w')!).tabs[0].files.expanded)).toEqual([]);
+  }
+});
+
 test('stream snapshots cannot enable a model menu still loading', async ({ page }) => {
   await page.evaluate(() => { (window as any).review.holdModels = true; });
   await page.getByRole('button', {name: 'Choose model'}).click();

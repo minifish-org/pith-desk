@@ -92,9 +92,9 @@ test('browser-local file drops are rejected while images and typed server refere
   let resolvers = 0;page.on('request',request => {if (new URL(request.url()).pathname === '/api/workspace-references') resolvers++;});
   const path = host.state.workspaces[0].path + '/report.txt';
   await page.evaluate(path => {
-    const form = document.querySelector('textarea[aria-label="Message Pith"]')!.closest('form')!;
-    const uri = new DataTransfer();uri.setData('text/uri-list','file://' + path);form.dispatchEvent(new DragEvent('drop',{bubbles: true,cancelable: true,dataTransfer: uri}));
-    const files = new DataTransfer();files.items.add(new File(['local content'],'report.txt',{type: 'text/plain'}));form.dispatchEvent(new DragEvent('drop',{bubbles: true,cancelable: true,dataTransfer: files}));
+    const field = document.querySelector('textarea[aria-label="Message Pith"]')!;
+    const uri = new DataTransfer();uri.setData('text/uri-list','file://' + path);field.dispatchEvent(new DragEvent('drop',{bubbles: true,cancelable: true,dataTransfer: uri}));
+    const files = new DataTransfer();files.items.add(new File(['local content'],'report.txt',{type: 'text/plain'}));field.dispatchEvent(new DragEvent('drop',{bubbles: true,cancelable: true,dataTransfer: files}));
   },path);
   await expect(page.getByText('Files on this device are not uploaded.',{exact: false})).toBeVisible();expect(resolvers).toBe(0);
   await page.getByRole('textbox',{name: 'Message Pith',exact: true}).fill('Review `report.txt` in this server workspace');

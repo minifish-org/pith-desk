@@ -100,6 +100,21 @@ after deleting the active conversation in both modes, and retired provider-edit
 results. Compaction checks exercise the same summary stream used by real tasks,
 including saved credentials, provider protocols, history and metered usage.
 
+For resource creation, file-drop routing, Files expansion and late artifact reads:
+
+```sh
+npm run test:ui -- frontend/e2e/regressions.spec.ts frontend/e2e/edited-files.spec.ts frontend/e2e/server-remote.spec.ts frontend/e2e/workspace-tools.spec.ts
+GOWORK=off CGO_ENABLED=0 go test ./internal/desk -run 'TestResourceCreation|TestMCP|TestDeferredMCP|TestWorkspaceMCPAbort' -count=1
+GOWORK=off CGO_ENABLED=0 go test ./cmd/contractgen -count=1
+```
+
+Resource write failures run in a separate test process with disposable files and
+a temporary file-size limit. The checks retain existing files, remove incomplete
+new resources and permit a retry. Browser cases cover textarea and frame drops,
+folding a directory during a read, and responses from retired conversation reads.
+Contract checks accept equivalent handler names and decoder declarations while
+rejecting missing routes and incorrect request types.
+
 ## Required behavior
 
 | Responsibility | Maintained checks |
@@ -147,7 +162,11 @@ verification window open after the assertions until it is closed manually.
 These checks exercise native titlebar insets and existing controls, drafts, rejected sends, approval, file previews/downloads,
 file-drop forwarding, terminal tabs and reconnect, the native Web preview view,
 update progress/failure and Dock unread state in native WebViews, with temporary
-data and local providers. Browser validation alone
+data and local providers. All macOS application windows use the production
+window options and matching Host titlebar state, with saved window geometry
+disabled. To retain screenshots for visual review, set
+`PITH_DESK_NATIVE_SCREENSHOTS=/absolute/path/outside/the/repository` on the test
+command. Browser validation alone
 does not establish native behavior. These checks require an interactive desktop
 session; they do not download or install a Desk release.
 

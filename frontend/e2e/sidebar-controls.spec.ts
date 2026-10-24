@@ -116,6 +116,42 @@ for(const mode of ['desktop','server']) test.describe(mode+' sidebar controls',(
   });
 });
 
+test('closing tools cancels a width restore that cannot fit the current window', async ({page, host}) => {
+  await page.setViewportSize({width: 1600, height: 840});
+  await page.goto(host.url);
+  await expect(page.getByRole('textbox', {name: 'Message Pith', exact: true})).toBeEditable();
+  await page.getByRole('button', {name: 'Toggle tools', exact: true}).click();
+  const handle = (await page.getByRole('separator', {name: 'Resize tools', exact: true}).boundingBox())!;
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/sidebar-widths') && response.ok());
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 - 500, handle.y + 100, {steps: 10});
+  await page.mouse.up();
+  await saved;
+  expect((await host.command('state')).state.settings.toolsWidth).toBe(800);
+  await page.setViewportSize({width: 1000, height: 840});
+  await page.reload();
+  await expect(page.getByRole('textbox', {name: 'Message Pith', exact: true})).toBeEditable();
+  const frames = await page.evaluate(async () => {
+    const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    document.querySelector<HTMLButtonElement>('button[aria-label="Toggle tools"]')!.click();
+    await frame(); await frame();
+    document.querySelector<HTMLButtonElement>('button[aria-label="Close tools"]')!.click();
+    // Observe several paints after closing while the old width restore would still be pending.
+    await frame(); await frame();
+    const states = [];
+    for (let index = 0; index < 10; index++) {
+      await frame();
+      states.push({
+        width: document.querySelector('[data-panel][id="tools"]')!.getBoundingClientRect().width,
+        focused: document.activeElement === document.querySelector('header button[aria-label="Toggle tools"]'),
+      });
+    }
+    return states;
+  });
+  expect(frames).toEqual(Array.from({length: 10}, () => ({width: 0, focused: true})));
+});
+
 test.describe('phone panel controls',()=>{
   test.use({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
   test('top panel controls and Escape dismiss overlays and restore the corresponding opener',async({page,host})=>{

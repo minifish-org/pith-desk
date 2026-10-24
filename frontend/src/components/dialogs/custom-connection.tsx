@@ -12,7 +12,6 @@ import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, Di
 const protocols = ['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai', 'mistral-conversations'];
 
 interface ModelDraft {
-  sourceIndex: number;
   id: string;
   name: string;
   contextWindow: number;
@@ -22,8 +21,8 @@ interface ModelDraft {
   prices: {input: string; output: string; cacheRead: string; cacheWrite: string};
 }
 
-const emptyModel = (sourceIndex = 0): ModelDraft => ({
-  sourceIndex, id: '', name: '', contextWindow: 128000, maxTokens: 8192, images: false, reasoning: false,
+const emptyModel = (): ModelDraft => ({
+  id: '', name: '', contextWindow: 128000, maxTokens: 8192, images: false, reasoning: false,
   prices: {input: '', output: '', cacheRead: '', cacheWrite: ''},
 });
 
@@ -46,8 +45,7 @@ export function CustomConnectionDialog({modal}: {modal: ModalOf<'custom-connecti
       setName(connection.name);
       setBaseUrl(connection.baseUrl);
       setApi(connection.api);
-      setModels((connection.models || []).map((model, index) => ({
-        sourceIndex: index,
+      setModels((connection.models || []).map(model => ({
         id: model.id,
         name: model.name || model.id,
         contextWindow: model.contextWindow || 128000,
@@ -125,7 +123,7 @@ export function CustomConnectionDialog({modal}: {modal: ModalOf<'custom-connecti
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="text-[13px] font-semibold">Models</h3>
-                <Button type="button" size="sm" variant="secondary" onClick={() => setModels(previous => [...previous, emptyModel(previous.length)])}>Add model</Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => setModels(previous => [...previous, emptyModel()])}>Add model</Button>
               </div>
               {models.map((model, index) => (
                 <div key={index} className="space-y-2 rounded-lg border p-2.5">

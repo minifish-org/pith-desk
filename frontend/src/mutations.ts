@@ -4,13 +4,12 @@ import type { ApiRequest, ApiMutate } from './api.ts';
 // Never invite a retry of a successful write when only the following read failed.
 export function createMutations(api: {
   request: ApiRequest; refresh: () => Promise<void>; busy: () => boolean;
-  setBusy: (busy: boolean) => void; error: (message: string) => void; render: () => void;
+  setBusy: (busy: boolean) => void; error: (message: string) => void;
 }): ApiMutate {
   return async (path, payload, onResponse) => {
     if (api.busy()) return false;
     api.setBusy(true);
     api.error('');
-    api.render();
     try {
       const response = await api.request(path, payload);
       try {
@@ -25,7 +24,6 @@ export function createMutations(api: {
       return false;
     } finally {
       api.setBusy(false);
-      api.render();
     }
   };
 }

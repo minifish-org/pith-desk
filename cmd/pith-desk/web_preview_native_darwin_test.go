@@ -85,11 +85,7 @@ func TestWebPreviewNativeIsolationAndSocket(t *testing.T) {
 	defer server.Close()
 	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		opts := desktopWindowOptions()
-		opts.Title = "Pith Desk web preview smoke"
-		opts.StateKey = ""
-		opts.Hidden = true
-		win = newNativeTestWindow(t, opts)
+		win = newNativeTestWindow(t, server)
 		win.installBrowser(server)
 	})
 	defer win.Destroy()

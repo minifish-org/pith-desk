@@ -55,7 +55,7 @@ func TestWorkspaceFileDropNativeBridge(t *testing.T) {
 	t.Cleanup(func() { _ = server.Close() })
 	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk file drop smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, server)
 		installWorkspaceFileDrop(win, server)
 	})
 	t.Cleanup(win.Destroy)
@@ -85,7 +85,9 @@ func TestWorkspaceFileDropNativeBridge(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("embedded UI did not load")
 	}
-	waitNativeDropCondition(t, win, `document.visibilityState==='visible' && document.querySelector('[data-breadcrumb-workspace]')?.textContent === 'workspace' && document.querySelector('textarea[aria-label="Message Pith"]')?.placeholder !== 'Connecting to Pith…'`)
+	// The workspace can render before its saved draft has finished loading.
+	// Exercise an editable composer, just as a real file drop requires.
+	waitNativeDropCondition(t, win, `document.visibilityState==='visible' && document.querySelector('[data-breadcrumb-workspace]')?.textContent === 'workspace' && document.querySelector('textarea[aria-label="Message Pith"]')?.readOnly === false && !document.querySelector('textarea[aria-label="Message Pith"]').disabled`)
 	var point struct {
 		X int `json:"x"`
 		Y int `json:"y"`
@@ -101,6 +103,7 @@ return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rec
 	if err != nil || json.Unmarshal(data, &point) != nil {
 		t.Fatalf("composer coordinates: %s %v", data, err)
 	}
+	waitNativeDropCondition(t, win, `document.querySelector('textarea[aria-label="Message Pith"]').value === 'Review OLD please'`)
 	if err := forwardNativeFileDrop(win, &mygo.FileDropEvent{Paths: paths, X: point.X, Y: point.Y}); err != nil {
 		t.Fatal(err)
 	}

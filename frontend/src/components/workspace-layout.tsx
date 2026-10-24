@@ -108,7 +108,8 @@ export function WorkspaceLayout() {
   };
   const applyWidth = (ref: typeof navRef, target: number, attempts = 30) => {
     const panel = ref.current;
-    if (!panel || !target) return;
+    // Closing a rail retires any pending attempt to restore its width.
+    if (!panel || !target || panel.isCollapsed()) return;
     panel.resize(target);
     if (attempts > 0 && Math.abs(panel.getSize().inPixels - target) > 2) {
       requestAnimationFrame(() => applyWidth(ref, target, attempts - 1));

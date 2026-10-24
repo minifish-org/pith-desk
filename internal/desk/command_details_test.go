@@ -22,7 +22,7 @@ func appendCommandCalls(t *testing.T, manager *codingagent.SessionManager, calls
 
 func TestCommandDetailsLiveAndReopenedHistory(t *testing.T) {
 	s, workspace, conversation, dataDir := productFeatureService(t)
-	manager, err := openDeskSession(s.sessionFile(conversation.ID), conversation.ID, workspace.Path)
+	manager, err := openDeskSession(s.sessionAdapter().file(conversation.ID), conversation.ID, workspace.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCommandDetailsLiveAndReopenedHistory(t *testing.T) {
 
 func TestCommandHistoryPairsMultipleCallsAndKeepsUnknownExit(t *testing.T) {
 	s, workspace, conversation, _ := productFeatureService(t)
-	manager, err := openDeskSession(s.sessionFile(conversation.ID), conversation.ID, workspace.Path)
+	manager, err := openDeskSession(s.sessionAdapter().file(conversation.ID), conversation.ID, workspace.Path)
 	if err != nil {
 		t.Fatal(err)
 	}

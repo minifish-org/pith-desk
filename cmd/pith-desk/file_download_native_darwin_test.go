@@ -73,7 +73,7 @@ func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
 	})
 	var win *desktopWindow
 	mygo.RunOnMain(func() {
-		win = newNativeTestWindow(t, mygo.WindowOptions{Title: "Pith Desk download smoke", Hidden: true, Width: 1320, Height: 860})
+		win = newNativeTestWindow(t, server)
 		win.Page().OnWillDownload(func(e *mygo.DownloadEvent) { automaticDownloads.Add(1); e.PreventDefault() })
 	})
 	defer win.Destroy()

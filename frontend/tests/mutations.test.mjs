@@ -7,7 +7,7 @@ test('a successful write stays successful when its snapshot refresh fails', asyn
   const mutate = createMutations({
     request: async () => { writes++; return { ok: true }; },
     refresh: async () => { throw new Error('snapshot unavailable'); },
-    busy: () => busy, setBusy: (value) => { busy = value; }, error: (value) => { message = value; }, render: () => {},
+    busy: () => busy, setBusy: (value) => { busy = value; }, error: (value) => { message = value; },
   });
   const succeeded = await mutate('/api/conversations', { workspaceId: 'a' }, () => { callbacks++; });
   if (!succeeded) await mutate('/api/conversations', { workspaceId: 'a' });
@@ -19,7 +19,7 @@ test('a successful write stays successful when its snapshot refresh fails', asyn
 
 test('failed writes preserve the draft callback and concurrent actions are rejected', async () => {
   let busy = false, release, callbacks = 0;
-  const mutate = createMutations({ request: async () => { await new Promise((resolve) => { release = resolve; }); throw new Error('rejected'); }, refresh: async () => assert.fail('must not refresh'), busy: () => busy, setBusy: (value) => { busy = value; }, error: () => {}, render: () => {} });
+  const mutate = createMutations({ request: async () => { await new Promise((resolve) => { release = resolve; }); throw new Error('rejected'); }, refresh: async () => assert.fail('must not refresh'), busy: () => busy, setBusy: (value) => { busy = value; }, error: () => {} });
   const first = mutate('/api/send', { id: 'a', text: 'keep' }, () => { callbacks++; });
   assert.equal(await mutate('/api/send', { id: 'a', text: 'again' }), false);
   release();

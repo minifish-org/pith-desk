@@ -91,43 +91,12 @@ func (s *Service) resourcesLocked(workspaceID string) (ResourceInventory, error)
 func (s *Service) CreateInstructions(workspaceID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.workspaceIdleLocked(workspaceID); err != nil {
-		return "", err
-	}
-	workspace, ok := s.workspaceLocked(workspaceID)
-	if !ok {
-		return "", errors.New("Workspace not found")
-	}
-	if err := workspacefs.ValidateResources(workspace.Path, s.dataDir, codingagent.ConfigDirName); err != nil {
-		return "", err
-	}
-	root, err := os.OpenRoot(workspace.Path)
-	if err != nil {
-		return "", err
-	}
-	defer root.Close()
-	file, err := root.OpenFile("AGENTS.md", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	const template = "# Workspace instructions\n\nDescribe the project and how you want Pith to help in this workspace.\n\n## Project context\n\n<!-- Add the purpose of this workspace and any useful background. -->\n\n## Preferences\n\n<!-- Add conventions, preferred formats, and important boundaries. -->\n"
+	path, err := s.saveResourceLocked(ResourceInput{WorkspaceID: workspaceID, Kind: "instructions", Content: template})
 	if errors.Is(err, os.ErrExist) {
 		return "", errors.New("AGENTS.md already exists; your instructions were left unchanged")
 	}
-	if err != nil {
-		return "", err
-	}
-	const template = "# Workspace instructions\n\nDescribe the project and how you want Pith to help in this workspace.\n\n## Project context\n\n<!-- Add the purpose of this workspace and any useful background. -->\n\n## Preferences\n\n<!-- Add conventions, preferred formats, and important boundaries. -->\n"
-	_, writeErr := file.WriteString(template)
-	if writeErr == nil {
-		writeErr = file.Sync()
-	}
-	closeErr := file.Close()
-	if writeErr != nil {
-		_ = root.Remove("AGENTS.md")
-		return "", writeErr
-	}
-	if closeErr != nil {
-		return "", closeErr
-	}
-	s.changedLocked()
-	return filepath.Join(workspace.Path, "AGENTS.md"), nil
+	return path, err
 }
 
 func (s *Service) ResolveResourceFile(workspaceID, path string) (string, error) {

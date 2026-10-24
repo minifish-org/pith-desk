@@ -182,9 +182,10 @@ func TestMCPAutoConnectUsesPithAndSeparateExternalPermissions(t *testing.T) {
 	if len(views) != 1 || views[0].Status != "disconnected" {
 		t.Fatalf("wrong MCP status: %+v", views)
 	}
-	if err := s.ConnectMCP(context.Background()); err != nil {
+	if err := s.active.connectMCP(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	defer s.active.closeMCP()
 	policy, err := newFilePolicy(s.Snapshot().Workspaces[0].Path, s.dataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -404,9 +405,10 @@ func TestMCPStdioUsesExplicitEnvironmentAndCleansUp(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := s.ConnectMCP(ctx); err != nil {
+	if err := s.active.connectMCP(ctx); err != nil {
 		t.Fatal(err)
 	}
+	defer s.active.closeMCP()
 	policy, err := newFilePolicy(s.Snapshot().Workspaces[0].Path, s.dataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -431,16 +433,14 @@ func TestMCPStdioUsesExplicitEnvironmentAndCleansUp(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "stdio-only-secret") {
 		t.Fatalf("configured environment credential leaked through MCP error: %v", err)
 	}
-	if err := s.DisconnectMCP(); err != nil {
-		t.Fatal(err)
-	}
+	s.active.closeMCP()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(marker); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("MCP child did not close after disconnect")
+			t.Fatal("MCP child did not close with its task connection")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

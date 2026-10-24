@@ -76,16 +76,17 @@ export async function artifactAction(action: 'open' | 'reveal' | 'copy' | 'copy-
   }
 }
 
+let artifactRequest = 0;
+
 export async function loadArtifacts(id: string): Promise<void> {
-  desk().setArtifacts({loading: true, error: ''});
+  const requestId = ++artifactRequest;
+  const current = () => requestId === artifactRequest && desk().state.activeId === id;
+  desk().setArtifacts({error: ''});
   try {
     const result = await request('/api/artifacts', {query: {id}});
-    if (desk().state.activeId !== id) return;
-    desk().setArtifacts({files: result || []});
+    if (current()) desk().setArtifacts({files: result || []});
   } catch (error) {
-    desk().setArtifacts({error: error instanceof Error ? error.message : String(error)});
-  } finally {
-    desk().setArtifacts({loading: false});
+    if (current()) desk().setArtifacts({error: error instanceof Error ? error.message : String(error)});
   }
 }
 

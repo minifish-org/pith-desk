@@ -21,7 +21,6 @@ export function mutate<P extends MutationPath>(path: P, payload: MutationInput<P
     busy: () => desk().activity.busy,
     setBusy: busy => desk().setBusy(busy),
     error: error => desk().setError(error),
-    render: () => {},
   });
   return mutateImplementation(path, payload, onResponse);
 }

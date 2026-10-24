@@ -9,7 +9,7 @@ export function selectScope(files: readonly string[] | null, event = 'pull_reque
     const code = files.filter(file => !/^(?:README\.md|AGENTS\.md|LICENSE|docs\/.*)$/.test(file));
     if (!code.length) mode = 'docs';
     else if (code.every(file => /^frontend\/(?:src\/|tests\/|e2e\/)/.test(file) || file === 'frontend/index.html') &&
-      !code.some(file => ['frontend/src/contract.generated.ts','frontend/src/api.ts','frontend/src/server-session.ts'].includes(file))) mode = 'ui';
+      !code.some(file => ['frontend/src/contract.generated.ts','frontend/src/api.ts','frontend/src/lib/session.ts'].includes(file))) mode = 'ui';
   }
   return {mode,install: mode !== 'docs',browser: mode !== 'docs',runtime: mode === 'full'};
 }

@@ -9,13 +9,11 @@ import (
 	"strings"
 )
 
-func mcpToolDefinitions(s executionDependencies, owner *RunExecution) []codingagent.ToolDefinition {
+func (r *RunExecution) mcpToolDefinitions() []codingagent.ToolDefinition {
+	s := r.dependencies
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	runtime := s.connections.mcpRuntime
-	if owner != nil && owner.Running {
-		runtime = owner.mcpRuntime
-	}
+	runtime := r.mcpRuntime
 	if runtime == nil {
 		return nil
 	}
@@ -29,10 +27,9 @@ func mcpToolDefinitions(s executionDependencies, owner *RunExecution) []codingag
 				select {
 				case <-ctx.Done():
 					s.mu.Lock()
-					if owner != nil && owner.mcpRuntime == runtime {
-						owner.mcpRuntime = nil
+					if r.mcpRuntime == runtime {
+						r.mcpRuntime = nil
 					}
-					s.connections.discardMCPPreview(runtime)
 					s.changedLocked()
 					s.mu.Unlock()
 					closeMCPRuntime(runtime)

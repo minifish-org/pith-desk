@@ -115,7 +115,7 @@ test('refresh failure and reconnect never replay a committed mutation or old soc
   });
   await app.start();
   sockets[0].open();
-  const mutate = createMutations({ request: app.request, refresh: app.refresh, busy: () => busy, setBusy: (value) => { busy = value; }, error: () => {}, render: () => {} });
+  const mutate = createMutations({ request: app.request, refresh: app.refresh, busy: () => busy, setBusy: (value) => { busy = value; }, error: () => {} });
   failRead = true;
   assert.equal(await mutate('/api/open', { id: 'chat-b' }), true);
   sockets[0].close();

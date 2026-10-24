@@ -83,3 +83,45 @@ test('recorded changes are listed in order and legacy files fall back to the com
   await expect(legacy.locator('[data-file-preview-text]')).toContainText('second');
   await expect(legacy.locator('[data-preview-mode]')).toHaveCount(0);
 });
+
+for (const outcome of ['failure', 'success']) {
+  test(`retired artifact ${outcome} cannot replace the current conversation result`, async ({page}) => {
+    await expect(page.locator('[data-edited-files]')).toBeVisible();
+    await page.evaluate(() => {
+      const fixture = (window as any).review;
+      fixture.pendingArtifacts = [];
+      const original = window.fetch;
+      window.fetch = (url, options) => {
+        const target = new URL(String(url), location.href);
+        if (target.pathname !== '/api/artifacts') return original(url, options);
+        return new Promise<Response>(resolve => fixture.pendingArtifacts.push({id: target.searchParams.get('id'), resolve}));
+      };
+    });
+    await page.locator('button[title="Conversation b"]').click();
+    await page.waitForFunction(() => (window as any).review.pendingArtifacts.length === 1);
+    await page.locator('button[title="Conversation a"]').click();
+    await page.waitForFunction(() => (window as any).review.pendingArtifacts.length === 2);
+
+    if (outcome === 'success') {
+      await page.locator('button[title="Conversation b"]').click();
+      await page.waitForFunction(() => (window as any).review.pendingArtifacts.length === 3);
+      await page.evaluate(() => {
+        const pending = (window as any).review.pendingArtifacts;
+        pending[2].resolve(Response.json([{path: '/tmp/pith-review/new.txt', name: 'new.txt'}]));
+      });
+      await expect(page.locator('[data-edited-file]')).toHaveAccessibleName('Preview new.txt');
+    }
+    await page.evaluate(async outcome => {
+      const pending = (window as any).review.pendingArtifacts;
+      pending[1].resolve(Response.json([]));
+      pending[0].resolve(outcome === 'failure'
+        ? Response.json({error: 'Retired conversation failed'}, {status: 503})
+        : Response.json([{path: '/tmp/pith-review/old.txt', name: 'old.txt'}]));
+      // Let both released responses and their React updates reach the screen.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }, outcome);
+    await expect(page.locator('[data-artifacts-error]')).toHaveCount(0);
+    if (outcome === 'success') await expect(page.locator('[data-edited-file]')).toHaveAccessibleName('Preview new.txt');
+    else await expect(page.locator('[data-edited-files]')).toHaveCount(0);
+  });
+}

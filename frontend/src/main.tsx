@@ -100,7 +100,7 @@ function snapshotChanged(next: State, previous: State, initialized: boolean): vo
   if (activeChanged) {
     store.setError('');
     clearFilePreview();
-    store.setArtifacts({files: [], error: '', loading: false});
+    store.setArtifacts({files: [], error: ''});
   }
   void loadComposerDraft();
   observeNotices(initialized);
@@ -139,7 +139,7 @@ const removeNativeMenu = installNativeMenu(((path: string, payload: unknown, opt
 const fileDrop = installWorkspaceFileDrop({
   resolve: async (workspaceId, paths) => (await request('/api/workspace-references', {workspaceId, paths})).paths || [],
   busy: () => desk().activity.busy || desk().composer.loading || !desk().loaded,
-  context: () => `${desk().selectedWorkspaceId}/${desk().state.activeId}/${desk().composer.generation}`,
+  context: () => `${desk().selectedWorkspaceId}/${desk().state.activeId}`,
 });
 const removeNativeDrop = installNativeDrop(bootstrap.nativeFileDrop, (paths, x, y) => {
   if (!document.elementFromPoint(x, y)?.closest('[data-composer]')) return;

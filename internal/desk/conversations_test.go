@@ -51,7 +51,7 @@ func TestConversationNamesAndExportsUsePithSession(t *testing.T) {
 	if err := s.RenameConversation(conversation.ID, "  Notes\nfor tomorrow  "); err != nil {
 		t.Fatal(err)
 	}
-	manager, err := codingagent.OpenSession(s.sessionFile(conversation.ID))
+	manager, err := codingagent.OpenSession(s.sessionAdapter().file(conversation.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,13 +93,13 @@ func TestEmptyHistoricalConversationExportDoesNotCreateSession(t *testing.T) {
 	if err != nil || !strings.Contains(exported, "# New conversation") {
 		t.Fatalf("empty export: %q %v", exported, err)
 	}
-	if _, err := os.Stat(s.sessionFile(conversation.ID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(s.sessionAdapter().file(conversation.ID)); !os.IsNotExist(err) {
 		t.Fatal("export created a session")
 	}
-	if err := os.MkdirAll(filepath.Dir(s.sessionFile(conversation.ID)), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.sessionAdapter().file(conversation.ID)), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(s.sessionFile(conversation.ID), nil, 0600); err != nil {
+	if err := os.WriteFile(s.sessionAdapter().file(conversation.ID), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ExportConversation(conversation.ID); err != nil {
@@ -108,14 +108,14 @@ func TestEmptyHistoricalConversationExportDoesNotCreateSession(t *testing.T) {
 	if err := s.OpenConversation(conversation.ID); err != nil {
 		t.Fatal(err)
 	}
-	info, _ := os.Stat(s.sessionFile(conversation.ID))
+	info, _ := os.Stat(s.sessionAdapter().file(conversation.ID))
 	if info.Size() != 0 {
 		t.Fatal("export rewrote a historical empty session")
 	}
 	if err := s.RenameConversation(conversation.ID, "Empty but named"); err != nil {
 		t.Fatal(err)
 	}
-	manager, err := codingagent.OpenSession(s.sessionFile(conversation.ID))
+	manager, err := codingagent.OpenSession(s.sessionAdapter().file(conversation.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

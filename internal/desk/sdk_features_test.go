@@ -277,9 +277,10 @@ func TestDeferredMCPDiscoveryAndCodemodeShareExternalApproval(t *testing.T) {
 	if err := s.SaveMCP(MCPInput{Name: "fixture", Type: "http", URL: connector.server.URL, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ConnectMCP(context.Background()); err != nil {
+	if err := s.active.connectMCP(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	defer s.active.closeMCP()
 	policy, err := newFilePolicy(s.catalog.Workspaces[0].Path, s.dataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -351,7 +352,7 @@ func TestBranchSwitchPreservesSiblingsAcrossRestart(t *testing.T) {
 	if err := s.RenameConversation(c.ID, "Branch fixture"); err != nil {
 		t.Fatal(err)
 	}
-	manager, err := codingagent.OpenSession(s.sessionFile(c.ID))
+	manager, err := codingagent.OpenSession(s.sessionAdapter().file(c.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +364,7 @@ func TestBranchSwitchPreservesSiblingsAcrossRestart(t *testing.T) {
 	if err := s.BranchConversation(c.ID, first, false); err != nil {
 		t.Fatal(err)
 	}
-	manager, _ = codingagent.OpenSession(s.sessionFile(c.ID))
+	manager, _ = codingagent.OpenSession(s.sessionAdapter().file(c.ID))
 	appendFeatureMessage(t, manager, aitypes.NewUserMessageVariant(aitypes.NewUserMessage("Alternative follow-up", 3)))
 	manager.Close()
 	nodes, err := s.History(c.ID)
@@ -386,7 +387,7 @@ func TestBranchSwitchPreservesSiblingsAcrossRestart(t *testing.T) {
 
 func TestMessageBranchTargetsExcludeToolExchanges(t *testing.T) {
 	s, _, conversation, _ := productFeatureService(t)
-	manager, err := codingagent.OpenSession(s.sessionFile(conversation.ID))
+	manager, err := codingagent.OpenSession(s.sessionAdapter().file(conversation.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +527,7 @@ func TestDurableAdmissionQueueRecoveryPaginationAndDeletion(t *testing.T) {
 	if err := reopened.DeleteConversation(c.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(reopened.durableDir(c.ID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(reopened.journals.dir(c.ID)); !os.IsNotExist(err) {
 		t.Fatal("durable data left after delete")
 	}
 }

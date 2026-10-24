@@ -10,10 +10,9 @@ interface Props {
   workspaceId: string;
   tabId: string;
   active: boolean;
-  disabled: boolean;
 }
 
-export function TerminalView({workspaceId, tabId, active, disabled}: Props) {
+export function TerminalView({workspaceId, tabId, active}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState('Connecting…');
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
@@ -159,7 +158,7 @@ export function TerminalView({workspaceId, tabId, active, disabled}: Props) {
   }
 
   function connect(focus = false) {
-    if (disabled || session.current.socket) return;
+    if (session.current.socket) return;
     const generation = session.current.generation;
     let ws: WebSocket;
     try {

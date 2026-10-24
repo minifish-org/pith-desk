@@ -241,7 +241,7 @@ func TestCompactionPreservesVisibleActiveBranchAfterReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := codingagent.OpenSession(s.sessionFile(conversation.ID))
+	manager, err := codingagent.OpenSession(s.sessionAdapter().file(conversation.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,29 +402,11 @@ func TestDataDirectoryLockSubprocess(t *testing.T) {
 }
 
 func TestWorkspacePolicyRejectsEscapeAndSanitizesApprovedShell(t *testing.T) {
-	root := t.TempDir()
-	folder, dataDir := filepath.Join(root, "workspace"), filepath.Join(root, "private")
-	if err := os.Mkdir(folder, 0700); err != nil {
-		t.Fatal(err)
-	}
-	s, err := New(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(s.Close)
+	s, registry, folder, dataDir := permissionService(t)
+	root := filepath.Dir(folder)
 	if _, err := s.AddWorkspace(root); err == nil {
 		t.Fatal("a workspace containing private application data was accepted")
 	}
-	policy, err := newFilePolicy(folder, dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = policy.root.Close() })
-	registry, err := s.active.buildTools(policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = registry.CloseTools() })
 	secret := filepath.Join(root, "outside.txt")
 	if err := os.WriteFile(secret, []byte("external-secret"), 0600); err != nil {
 		t.Fatal(err)

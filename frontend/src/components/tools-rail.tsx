@@ -92,7 +92,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
               {tab.kind === 'files' ? (
                 <FileBrowser
                   key={`${workspace.id}-${tab.id}`} workspaceId={workspace.id} active={tab.id === layout.activeId}
-                  initialExpanded={tab.files?.expanded || []}
+                  expandedPaths={tab.files?.expanded || []}
                   initialScrollTop={tab.files?.scrollTop || 0}
                   onExpanded={expanded => updateFileView(workspaceId, tab.id, {expanded})}
                   onScrollTop={scrollTop => updateFileView(workspaceId, tab.id, {scrollTop})}
@@ -100,7 +100,6 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
               ) : tab.kind === 'terminal' ? (
                 <TerminalView
                   workspaceId={workspace.id} tabId={tab.id} active={tab.id === layout.activeId}
-                  disabled={false}
                 />
               ) : <WebPreviewView workspaceId={workspace.id} tabId={tab.id} active={tab.id === layout.activeId && visible} />}
             </div>
