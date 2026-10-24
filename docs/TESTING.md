@@ -77,7 +77,7 @@ with their conversation/revision, retire late responses and retry after failure.
 For the resource, model-settings, Web lifetime and task-recovery regressions:
 
 ```sh
-npm run test:ui -- frontend/e2e/settings-parity.spec.ts frontend/e2e/ui-consistency.spec.ts frontend/e2e/web-preview-lifecycle.spec.ts frontend/e2e/web-preview.spec.ts
+npm run test:ui -- frontend/e2e/settings.spec.ts frontend/e2e/ui-consistency.spec.ts frontend/e2e/web-preview-lifecycle.spec.ts frontend/e2e/web-preview.spec.ts
 GOWORK=off CGO_ENABLED=0 go test ./internal/desk ./internal/workspacefs ./internal/appdata -run 'TestWorkspaceCase|TestWithinChecksCase|TestContinueRestoresOnlyUnrecorded|TestFindFilesMatchesUnicode|TestCodemodeFileChanges' -count=1
 ```
 
@@ -91,7 +91,7 @@ and approved nested file changes with diff, restart and branch projection.
 For shared drawer, workspace draft and provider-editor ownership:
 
 ```sh
-npm run test:ui -- frontend/e2e/sidebar-controls.spec.ts frontend/e2e/draft-scope.spec.ts frontend/e2e/settings-parity.spec.ts
+npm run test:ui -- frontend/e2e/sidebar-controls.spec.ts frontend/e2e/draft-scope.spec.ts frontend/e2e/settings.spec.ts
 GOWORK=off CGO_ENABLED=0 go test ./internal/desk -run 'TestCompactionUsesSavedCredential|TestNativeProvidersUsedForAgentProbeAndCompaction|TestManualCompactionKeepsHistoryAndMetersSummary' -count=1
 ```
 

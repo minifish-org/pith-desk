@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => (window as ContentTestWindow).reviewSocket?.onmessage && !(document.querySelector('textarea[aria-label="Message Pith"]') as HTMLTextAreaElement).readOnly);
 });
 
-test('library integration preserves per-message copy eligibility, host branch actions and stream transition', async ({ page }) => {
+test('message actions preserve per-message copy eligibility, host branch actions and stream transition', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Copy response', exact: true })).toHaveCount(2);
   await expect(page.locator('[data-reading-id="progress"]').getByRole('button', { name: 'Copy response', exact: true })).toBeVisible();
   await expect(page.locator('[data-reading-id="stream"] button')).toHaveCount(0);
