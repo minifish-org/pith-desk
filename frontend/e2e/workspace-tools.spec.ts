@@ -63,6 +63,11 @@ for(const mode of ['desktop','server']) test.describe(mode+' workspace tool tabs
     await tools(page).getByRole('button',{name:'Close tools',exact:true}).click();await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toHaveValue('Multiple tabs keep this draft 中文');
   });
 
+  test('exiting the shell closes its terminal tab',async({page,host})=>{
+    await open(page,host);await create(page,'terminal');await command(page,'exit');
+    await expectEmpty(page);await expect(panel(page)).toHaveCount(0);
+  });
+
   test('Files tabs restore independent views; an empty layout offers Files, Terminal and Web',async({page,host})=>{
     const root=host.state.workspaces[0].path;await mkdir(root+'/docs');await mkdir(root+'/other');await writeFile(root+'/other/other.txt','Other view');await Promise.all(Array.from({length:70},(_,index)=>writeFile(root+`/docs/file-${String(index).padStart(2,'0')}.txt`,'Fixture')));
     await open(page,host);await tools(page).getByRole('button',{name:'Open files',exact:true}).click();const tree=()=>panel(page).getByRole('navigation',{name:'Workspace files',exact:true});

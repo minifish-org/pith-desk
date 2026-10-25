@@ -81,6 +81,88 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
     await tools(next).getByRole('button',{name: 'Close Terminal',exact: true}).click();await expect(tools(next).getByRole('tab',{name:'Terminal',exact:true})).toHaveCount(0);
   });
 
+  test('a shell that ended while its page was closed closes the restored tab', async ({page,host,context}) => {
+    const workspace = host.state.workspaces[0],root = workspace.path;
+    await startTerminal(page,host);await command(page,'echo $$ > ended.pid');
+    await expect.poll(() => file(root+'/ended.pid')).toMatch(/^\d+\n$/);
+    await page.close();process.kill(Number((await file(root+'/ended.pid')).trim()),'SIGKILL');
+    const next = await context.newPage();await next.goto(host.url);
+    if (mode==='server') {await expect(next.getByRole('button',{name: 'Continue here',exact: true})).toBeVisible();await next.getByRole('button',{name: 'Continue here',exact: true}).click();}
+    await expect(next.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();await next.getByRole('button',{name:'Toggle tools',exact:true}).click();
+    await expect.poll(() => next.evaluate(key => JSON.parse(localStorage.getItem('pith-desk.tools.v1.'+key)||'{}').tabs?.length ?? -1,workspace.id)).toBe(0);
+    await expect(tools(next).getByRole('tab')).toHaveCount(0);
+  });
+
+  test('a session lost while the link is down restarts in its tab', async ({page,host}) => {
+    const workspace = host.state.workspaces[0],root = workspace.path;
+    let fail = false,authorization = '',operation = 0;const routes: any[] = [];
+    page.on('request',request => {
+      const headers = request.headers(),auth = headers.authorization;
+      if (auth) authorization = auth;
+      operation = Math.max(operation,Number(headers['x-desk-request'] || 0));
+    });
+    await page.routeWebSocket('**/api/terminal/socket?**',route => {if(fail) {void route.close(); return;} routes.push({route,server: route.connectToServer()});});
+    await startTerminal(page,host);await command(page,'echo $$ > old.pid');
+    await expect.poll(() => file(root+'/old.pid')).toMatch(/^\d+\n$/);
+    const old = (await file(root+'/old.pid')).trim();
+    fail = true;await routes.at(-1).server.close();
+    const terminal = panel(page).getByLabel('Interactive terminal',{exact:true});
+    await expect(terminal).toHaveAttribute('aria-description',/Disconnected/,{timeout:10000});
+    const id = await page.evaluate(key => JSON.parse(localStorage.getItem(key)||'{}').tabs?.[0]?.id,'pith-desk.tools.v1.'+workspace.id);
+    expect(id).toBeTruthy();
+    // Drop the session the way a restarted or emptied service would. The page's
+    // operation numbers stay valid because the lease allows 64 ahead.
+    const close = await page.evaluate(async ({workspaceId,id,authorization,operation}) => {
+      const headers: Record<string,string> = {'Content-Type':'application/json','X-Desk-Request':String(operation+32)};
+      const lease = sessionStorage.getItem('pith-desk-server-lease');
+      if (authorization) headers.Authorization = authorization;
+      if (lease) headers['X-Desk-Lease'] = lease;
+      const response = await fetch('/api/terminal/close',{method:'POST',credentials:'same-origin',headers,body:JSON.stringify({workspaceId,id})});
+      return {status: response.status,error: response.ok ? '' : await response.text()};
+    },{workspaceId: workspace.id,id,authorization,operation});
+    expect(close).toEqual({status: 200,error: ''});
+    fail = false;
+    await expect(terminal).toHaveAttribute('aria-disabled','false',{timeout:30000});
+    await expect(tools(page).getByRole('tab',{name:'Terminal',exact:true})).toHaveCount(1);
+    await command(page,'echo $$ > new.pid');
+    await expect.poll(() => file(root+'/new.pid')).toMatch(/^\d+\n$/);
+    expect((await file(root+'/new.pid')).trim()).not.toBe(old);
+  });
+
+  // The complaint behind the reconnect rework: a notice that churns and a screen
+  // that replays while the service is unreachable. Say it once, try quietly.
+  test('an unreachable service retries quietly and keeps the same shell', async ({page,host}) => {
+    const root = host.state.workspaces[0].path;
+    let fail = false,attempts = 0;const routes: any[] = [];
+    await page.routeWebSocket('**/api/terminal/socket?**',route => {
+      if (fail) {attempts++; void route.close(); return;}
+      routes.push({route,server: route.connectToServer()});
+    });
+    await startTerminal(page,host);await command(page,'echo $$ > quiet.pid');
+    await expect.poll(() => file(root+'/quiet.pid')).toMatch(/^\d+\n$/);
+    await page.evaluate(() => {
+      const node = document.querySelector('[aria-label="Interactive terminal"]')!;
+      const seen: string[] = [];
+      new MutationObserver(() => {
+        const value = node.getAttribute('aria-description') || '';
+        if (seen.at(-1) !== value) seen.push(value);
+      }).observe(node,{attributes:true,attributeFilter:['aria-description']});
+      (window as any).descriptions = seen;
+    });
+    fail = true;await routes.at(-1).server.close();
+    await page.waitForTimeout(2500);
+    // Only the outage notice: no per-attempt "Connecting…", no replay or reset.
+    expect(await page.evaluate(() => (window as any).descriptions)).toEqual(['Disconnected · reconnecting. Input is disabled and will not be replayed.']);
+    expect(attempts).toBeLessThanOrEqual(4);
+    expect(await page.locator('[role="alert"]').count()).toBe(0);
+    fail = false;
+    const terminal = panel(page).getByLabel('Interactive terminal',{exact:true});
+    await expect(terminal).toHaveAttribute('aria-disabled','false',{timeout:30000});
+    await command(page,'echo $$ > quiet-again.pid');
+    await expect.poll(() => file(root+'/quiet-again.pid')).toMatch(/^\d+\n$/);
+    expect(await file(root+'/quiet-again.pid')).toBe(await file(root+'/quiet.pid'));
+  });
+
   test('workspace switches show separate shells and preserve their pending command lines',async ({page,host}) => {
     const [first,second] = host.state.workspaces;await startTerminal(page,host);
     await command(page,'export WORKSPACE_MARKER=first');await typeText(page,'echo pending-first > pending.txt');

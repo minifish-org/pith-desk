@@ -3,8 +3,9 @@ import {Terminal as XTerm} from '@xterm/xterm';
 import {FitAddon} from '@xterm/addon-fit';
 import {LoaderCircle} from 'lucide-react';
 import {request} from '@/actions/core';
+import {closeToolTab} from '@/actions/workspace-tools.ts';
 import {runtime} from '@/lib/runtime';
-import type {Info, TerminalControl, TerminalEvent} from '@/contract.generated.ts';
+import type {TerminalControl, TerminalEvent} from '@/contract.generated.ts';
 
 interface Props {
   workspaceId: string;
@@ -19,12 +20,12 @@ export function TerminalView({workspaceId, tabId, active}: Props) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [connected, setConnected] = useState(false);
-  const infoRef = useRef<Info | undefined>(undefined);
-  const session = useRef<{socket?: WebSocket; generation: number; timer?: ReturnType<typeof setTimeout>}>({generation: 0});
+  const session = useRef<{socket?: WebSocket; generation: number; timer?: ReturnType<typeof setTimeout>; delay: number}>({generation: 0, delay: 500});
   const terminal = useRef<XTerm | undefined>(undefined);
   const fit = useRef<FitAddon | undefined>(undefined);
   const connectedRef = useRef(false);
   const replaying = useRef(false);
+  const retrying = useRef(false);
   const cursor = useRef(0);
 
   useEffect(() => {
@@ -85,23 +86,7 @@ export function TerminalView({workspaceId, tabId, active}: Props) {
     themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ['class']});
 
     let cancelled = false;
-    void lookup().then(async result => {
-      if (cancelled) return;
-      if (result?.session) {
-        connect();
-        return;
-      }
-      try {
-        const size = readSize();
-        const started = await request('/api/terminal', {workspaceId, id: tabId, cols: size.cols, rows: size.rows});
-        if (cancelled) return;
-        if (started.session && (started.session.id !== tabId || started.session.workspaceId !== workspaceId)) throw new Error('Terminal session changed');
-        if (started.session) connect(true);
-        else setStatus('Terminal session ended. Close this tab and create a new terminal.');
-      } catch (failure) {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
-      }
-    });
+    void attach().catch(failure => {if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));});
 
     return () => {
       cancelled = true;
@@ -157,6 +142,29 @@ export function TerminalView({workspaceId, tabId, active}: Props) {
     }
   }
 
+  // Adopt this tab's shell, starting one when the service has none: a new tab,
+  // or a session it dropped while the link was down.
+  async function attach() {
+    const generation = session.current.generation;
+    const result = await lookup();
+    if (generation !== session.current.generation) return;
+    if (result?.session) {connect(); return;}
+    const size = readSize();
+    const started = await request('/api/terminal', {workspaceId, id: tabId, cols: size.cols, rows: size.rows});
+    if (generation !== session.current.generation) return;
+    if (started.session && (started.session.id !== tabId || started.session.workspaceId !== workspaceId)) throw new Error('Terminal session changed');
+    if (!started.session) {setStatus('Terminal session ended. Close this tab and create a new terminal.'); return;}
+    connect(true);
+  }
+
+  function scheduleRetry() {
+    session.current.timer = setTimeout(() => {
+      session.current.timer = undefined;
+      void attach().catch(scheduleRetry);
+    }, session.current.delay);
+    session.current.delay = Math.min(5000, session.current.delay * 2);
+  }
+
   function connect(focus = false) {
     if (session.current.socket) return;
     const generation = session.current.generation;
@@ -174,19 +182,28 @@ export function TerminalView({workspaceId, tabId, active}: Props) {
     session.current.socket = ws;
     connectedRef.current = false;
     replaying.current = true;
-    setStatus('Connecting…');
+    // While reconnecting, keep the outage notice instead of blinking back to
+    // "Connecting…" on every attempt.
+    if (!retrying.current) setStatus('Connecting…');
     let ready = false;
-    let delay = 500;
+    let exited = false;
+    // A shell that ends leaves nothing to type into or restore, so its tab goes
+    // away entirely. Closing reuses the explicit close so the host drops it.
+    const closeExited = () => {
+      exited = true;
+      ws.close();
+      void closeToolTab(workspaceId, tabId);
+    };
 
     ws.onmessage = event => {
-      if (generation !== session.current.generation) return;
+      if (generation !== session.current.generation || exited) return;
       try {
         if (typeof event.data !== 'string' || event.data.length > 64 * 1024) throw new Error('Invalid terminal frame');
         const data = JSON.parse(event.data) as TerminalEvent;
         if (data.type === 'ready') {
           if (ready || data.session?.id !== tabId || data.session?.workspaceId !== workspaceId) throw new Error('Terminal session changed');
+          if (data.session?.running === false) { closeExited(); return; }
           ready = true;
-          infoRef.current = data.session;
           terminal.current?.reset();
           terminal.current?.resize(data.session.cols, data.session.rows);
           cursor.current = 0;
@@ -208,12 +225,11 @@ export function TerminalView({workspaceId, tabId, active}: Props) {
           if (!ready) throw new Error('Terminal was not initialized');
           connectedRef.current = true;
           replaying.current = false;
-          delay = 500;
-          const current = data.session ?? infoRef.current;
-          if (data.session) infoRef.current = data.session;
+          retrying.current = false;
+          session.current.delay = 500;
           setConnected(true);
           setError('');
-          setStatus(current?.running === false ? `Shell exited (${current.exitCode ?? -1}). Close it to start another.` : '');
+          setStatus('');
           requestAnimationFrame(() => {
             try {fit.current?.fit();} catch { /* Not measurable yet. */ }
             const size = readSize();
@@ -221,10 +237,7 @@ export function TerminalView({workspaceId, tabId, active}: Props) {
             if (focus && active) terminal.current?.focus();
           });
         } else if (data.type === 'exit') {
-          if (data.session) infoRef.current = data.session;
-          connectedRef.current = false;
-          setConnected(false);
-          setStatus(`Shell exited (${data.session?.exitCode ?? -1}). Close it to start a new terminal.`);
+          closeExited();
         } else throw new Error('Unknown terminal event');
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : String(failure));
@@ -233,15 +246,15 @@ export function TerminalView({workspaceId, tabId, active}: Props) {
       }
     };
     ws.onclose = () => {
-      if (generation !== session.current.generation) return;
+      if (generation !== session.current.generation || exited) return;
       session.current.socket = undefined;
       connectedRef.current = false;
       setConnected(false);
       replaying.current = false;
-      setStatus('Disconnected · shell continues. Input is disabled and will not be replayed.');
+      retrying.current = true;
+      setStatus('Disconnected · reconnecting. Input is disabled and will not be replayed.');
       void runtime.checkAccess().catch(() => {});
-      session.current.timer = setTimeout(() => {session.current.timer = undefined; connect();}, delay);
-      delay = Math.min(5000, delay * 2);
+      scheduleRetry();
     };
     ws.onerror = () => ws.close();
   }
