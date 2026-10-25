@@ -400,7 +400,7 @@ Open **Connections** to configure an HTTP endpoint or an installed local MCP ser
 
 Pith provides the MCP transports, discovery, OAuth and calls. Desk saves connection settings, supplies sign-in UI and applies approvals. Enabled MCP tools are registered as deferred: the model starts with `tool_search`, and selected schemas become available on demand. Connecting still discovers the server catalog; deferred exposure saves model context rather than avoiding that initial catalog request. **Ask before changes** and **Allow workspace changes** both require approval for external MCP calls. **Full access** also authorizes tools from enabled connections. Connection changes and disconnects require all running tasks to finish or stop first.
 
-Tokens and environment overrides are saved in the private local `mcp.json` file and their values are never returned in public configuration responses. This client does not install MCP servers or bundle their Node/Python runtimes. HTTP MCP connections can use the SDK OAuth flow instead of a bearer token, with optional client ID and scope. Sign in; the next task connects and loads tools. The temporary callback uses `127.0.0.1:54819`; the port must be available. External servers decide whether they support discovery and dynamic client registration. A connector marketplace is outside this version's scope.
+Tokens and environment overrides are saved in the private local `mcp.json` file and their values are never returned in public configuration responses. This client does not install MCP servers or bundle their Node/Python runtimes. HTTP MCP connections can use the SDK OAuth flow instead of a bearer token, with optional client ID and scope. Sign in; the next task connects and loads tools. In Desktop, the temporary callback uses `127.0.0.1:54819`; the port must be available. In Server, Desk shows the provider page and asks you to paste the complete redirect URL back; no callback port is opened on the server. External servers decide whether they support discovery and dynamic client registration. A connector marketplace is outside this version's scope.
 
 ### Code mode, history and recovery
 
@@ -581,12 +581,13 @@ credential storage. It chooses headless methods where available:
 | Kimi Coding, Meta, xAI | Device code |
 | Radius | Device code |
 | OpenRouter | Manual code or final redirect URL |
-| New MCP OAuth authorization | Unavailable remotely: the current flow requires the Desktop loopback callback on port 54819. New login controls are hidden; use an HTTP bearer token instead |
+| New MCP OAuth authorization | Open the provider page, then paste the complete final redirect URL back into Desk. No callback port is opened on the server |
 
 For manual redirect flows, a browser may show a failed localhost callback page:
 copy its complete final URL into Desk rather than opening a port on the server.
-Saved MCP OAuth settings and credentials are retained, can refresh while valid,
-and can be signed out. In an existing connection, turn OAuth off and save a bearer
+This covers provider sign-in and new MCP OAuth authorization. Saved MCP OAuth
+settings and credentials are retained, can refresh while valid, and can be
+signed out. In an existing connection, turn OAuth off and save a bearer
 token to switch authentication explicitly. New SDK flows are hidden until their remote interaction
 has been reviewed. Provider availability, account eligibility and authorization
 success remain controlled by the provider.

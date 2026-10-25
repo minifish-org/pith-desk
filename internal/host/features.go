@@ -492,7 +492,7 @@ func (s *Server) serveFeatureMutation(w http.ResponseWriter, r *http.Request, de
 		if err = wire.Decode(r.URL.Path, decode, &in); err == nil {
 			if r.URL.Path == "/api/mcp/oauth/start" {
 				if s.access != nil {
-					err = errors.New("MCP sign-in requires a local callback. Configure a bearer token in Server mode.")
+					err = s.service.StartServerMCPOAuth(in.Name)
 				} else {
 					err = s.service.StartMCPOAuth(in.Name)
 				}

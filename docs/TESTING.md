@@ -109,6 +109,16 @@ GOWORK=off CGO_ENABLED=0 go test ./cmd/contractgen -count=1
 GOWORK=off CGO_ENABLED=0 go test ./internal/host -run TestTypedMutationsReadAndRejectMalformedBodies -count=1
 ```
 
+For the Desktop MCP OAuth callback and Server pasted-redirect flow:
+
+```sh
+GOWORK=off CGO_ENABLED=0 go test ./internal/desk -run 'TestMCPOAuth' -count=1
+GOWORK=off CGO_ENABLED=0 go test ./internal/host -run 'TestServerMCPOAuth' -count=1
+```
+
+The Server case completes the SDK state check and PKCE exchange from a pasted
+redirect URL without opening the loopback callback listener.
+
 Resource write failures run in a separate test process with disposable files and
 a temporary file-size limit. The checks retain existing files, remove incomplete
 new resources and permit a retry. Browser cases cover textarea and frame drops,

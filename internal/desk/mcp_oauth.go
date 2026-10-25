@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/minifish-org/pith-desk/internal/localstore"
@@ -19,7 +21,8 @@ import (
 )
 
 // The SDK owns discovery, registration, PKCE, exchange and token refresh.
-// The host supplies only a private file store and loopback callback/UI.
+// The host supplies a private file store and either a loopback callback
+// (Desktop) or a pasted redirect URL (Server).
 type mcpOAuthFile struct {
 	path  string
 	files localstore.Store
@@ -105,10 +108,18 @@ func (p *mcpTokenProvider) Token(ctx context.Context) (string, error) {
 }
 
 func (s *Service) StartMCPOAuth(name string) error {
-	return s.connections.startMCPOAuth(name, s.files, s.idleLocked, s.changedLocked)
+	return s.connections.startMCPOAuth(name, s.files, false, s.idleLocked, s.changedLocked)
 }
 
-func (c *Connections) startMCPOAuth(name string, files localstore.Store, canStart func() error, changed func()) error {
+// StartServerMCPOAuth runs the same SDK flow without a loopback listener. The
+// user authorizes in a browser and pastes the final redirect URL back; Pith
+// still checks the saved state and exchanges the code with the PKCE verifier
+// stored on this host.
+func (s *Service) StartServerMCPOAuth(name string) error {
+	return s.connections.startMCPOAuth(name, s.files, true, s.idleLocked, s.changedLocked)
+}
+
+func (c *Connections) startMCPOAuth(name string, files localstore.Store, manual bool, canStart func() error, changed func()) error {
 	c.mu.Lock()
 	if err := canStart(); err != nil {
 		c.mu.Unlock()
@@ -128,13 +139,20 @@ func (c *Connections) startMCPOAuth(name string, files localstore.Store, canStar
 		c.mu.Unlock()
 		return err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:54819")
-	if err != nil {
-		c.mu.Unlock()
-		return errors.New("MCP sign-in callback port 54819 is busy")
+	var listener net.Listener
+	if !manual {
+		var err error
+		listener, err = net.Listen("tcp", "127.0.0.1:54819")
+		if err != nil {
+			c.mu.Unlock()
+			return errors.New("MCP sign-in callback port 54819 is busy")
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c.loginCancel, c.loginDone = cancel, make(chan struct{})
+	if manual {
+		c.loginAnswer = make(chan string, 1)
+	}
 	id, done := newID(), c.loginDone
 	c.Login = &LoginStatus{ID: id, Provider: name, Phase: "working", Message: "Starting MCP sign-in…"}
 	store := c.mcpOAuthStore(config, files)
@@ -143,7 +161,9 @@ func (c *Connections) startMCPOAuth(name string, files localstore.Store, canStar
 	go func() {
 		defer close(done)
 		defer cancel()
-		defer listener.Close()
+		if listener != nil {
+			defer listener.Close()
+		}
 		callback := make(chan mcp.OAuthFlowOptions, 1)
 		flow := mcpFlow(config, store, func(url string) error {
 			if safeLoginURL(url) == "" {
@@ -155,42 +175,70 @@ func (c *Connections) startMCPOAuth(name string, files localstore.Store, canStar
 			c.mu.Unlock()
 			return nil
 		})
-		mux := http.NewServeMux()
-		mux.HandleFunc("GET /oauth/callback", func(w http.ResponseWriter, r *http.Request) {
-			state, err := store.Load()
-			expected := ""
-			if state != nil {
-				expected = state.OAuthState
-			}
-			if err != nil || expected == "" || subtle.ConstantTimeCompare([]byte(expected), []byte(r.URL.Query().Get("state"))) != 1 || r.URL.Query().Get("code") == "" {
-				http.Error(w, "Invalid sign-in callback", http.StatusBadRequest)
-				return
-			}
-			options := mcp.OAuthFlowOptions{ServerURL: config.URL, Scope: config.OAuthScope, AuthorizationCode: r.URL.Query().Get("code"), ISS: r.URL.Query().Get("iss"), HasISS: r.URL.Query().Has("iss")}
-			select {
-			case callback <- options:
-				fmt.Fprint(w, "Sign-in received. Return to Pith Desk.")
-			default:
-				http.Error(w, "Callback already received", http.StatusConflict)
-			}
-		})
-		server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-		go func() { _ = server.Serve(listener) }()
-		defer server.Close()
+		if listener != nil {
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /oauth/callback", func(w http.ResponseWriter, r *http.Request) {
+				options, err := mcpOAuthOptions(config, r.URL.Query(), store)
+				if err != nil {
+					http.Error(w, "Invalid sign-in callback", http.StatusBadRequest)
+					return
+				}
+				select {
+				case callback <- options:
+					fmt.Fprint(w, "Sign-in received. Return to Pith Desk.")
+				default:
+					http.Error(w, "Callback already received", http.StatusConflict)
+				}
+			})
+			server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+			go func() { _ = server.Serve(listener) }()
+			defer server.Close()
+		}
 		result, loginErr := mcp.AuthorizeMcp(ctx, flow, mcp.OAuthFlowOptions{ServerURL: config.URL, Scope: config.OAuthScope})
 		if loginErr == nil && result == mcp.OAuthFlowRedirect {
-			select {
-			case options := <-callback:
-				result, loginErr = mcp.AuthorizeMcp(ctx, flow, options)
-			case <-ctx.Done():
-				loginErr = ctx.Err()
+			if manual {
+				c.mu.Lock()
+				c.Login.Phase = "prompt"
+				c.Login.Message = "Authorize on the provider page, then paste the complete redirect URL from the browser address bar. The page may show a connection error; that is expected."
+				c.Login.Prompt = "Complete redirect URL"
+				c.Login.PromptType = "url"
+				changed()
+				c.mu.Unlock()
+				var answer string
+				select {
+				case answer = <-c.loginAnswer:
+				case <-ctx.Done():
+					loginErr = ctx.Err()
+				}
+				if loginErr == nil {
+					options, err := mcpPastedOAuthOptions(answer, config, store)
+					if err != nil {
+						loginErr = err
+					} else {
+						result, loginErr = mcp.AuthorizeMcp(ctx, flow, options)
+					}
+				}
+			} else {
+				select {
+				case options := <-callback:
+					result, loginErr = mcp.AuthorizeMcp(ctx, flow, options)
+				case <-ctx.Done():
+					loginErr = ctx.Err()
+				}
 			}
 		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		c.Login.URL = ""
+		c.Login.Prompt = ""
+		c.Login.PromptType = ""
 		if loginErr != nil || ctx.Err() != nil || result != mcp.OAuthFlowAuthorized {
-			c.Login.Phase, c.Login.Message = "error", "MCP sign-in did not finish. Check this server's OAuth support and retry."
+			message := "MCP sign-in did not finish. Check this server's OAuth support and retry."
+			var redirectErr *mcpRedirectError
+			if errors.As(loginErr, &redirectErr) {
+				message = redirectErr.message
+			}
+			c.Login.Phase, c.Login.Message = "error", message
 		} else {
 			c.Login.Phase, c.Login.Message = "complete", "MCP sign-in complete. Connect or reconnect this server to load its tools."
 		}
@@ -198,6 +246,55 @@ func (c *Connections) startMCPOAuth(name string, files localstore.Store, canStar
 		changed()
 	}()
 	return nil
+}
+
+type mcpRedirectError struct{ message string }
+
+func (e *mcpRedirectError) Error() string { return e.message }
+
+// mcpOAuthOptions validates the SDK-generated state and builds the exchange
+// options shared by the Desktop callback and the Server pasted URL.
+func mcpOAuthOptions(config savedMCP, query url.Values, store mcp.McpOAuthStateStore) (mcp.OAuthFlowOptions, error) {
+	if code := query.Get("error"); code != "" {
+		description := query.Get("error_description")
+		if description == "" {
+			description = code
+		}
+		return mcp.OAuthFlowOptions{}, &mcpRedirectError{"MCP sign-in was not completed: " + description}
+	}
+	state, err := store.Load()
+	if err != nil {
+		return mcp.OAuthFlowOptions{}, errors.New("MCP sign-in state could not be read")
+	}
+	if state == nil || state.ServerURL != config.URL || state.OAuthState == "" || subtle.ConstantTimeCompare([]byte(state.OAuthState), []byte(query.Get("state"))) != 1 {
+		return mcp.OAuthFlowOptions{}, &mcpRedirectError{"The redirect URL does not match this sign-in attempt. Start the sign-in again."}
+	}
+	code := query.Get("code")
+	if code == "" {
+		return mcp.OAuthFlowOptions{}, &mcpRedirectError{"The redirect URL does not contain an authorization code."}
+	}
+	return mcp.OAuthFlowOptions{
+		ServerURL:         config.URL,
+		Scope:             config.OAuthScope,
+		AuthorizationCode: code,
+		ISS:               query.Get("iss"),
+		HasISS:            query.Has("iss"),
+	}, nil
+}
+
+// mcpPastedOAuthOptions rejects arbitrary pasted text before it can reach the
+// SDK. Only this flow's registered loopback redirect URI is accepted; the
+// browser may show a connection error there, but its address bar keeps the code.
+func mcpPastedOAuthOptions(answer string, config savedMCP, store mcp.McpOAuthStateStore) (mcp.OAuthFlowOptions, error) {
+	parsed, err := url.Parse(strings.TrimSpace(answer))
+	if err != nil {
+		return mcp.OAuthFlowOptions{}, &mcpRedirectError{"Paste the complete redirect URL from the browser address bar."}
+	}
+	expected, _ := url.Parse(mcpCallbackURL)
+	if parsed.Scheme != expected.Scheme || parsed.Host != expected.Host || parsed.Path != expected.Path || parsed.User != nil {
+		return mcp.OAuthFlowOptions{}, &mcpRedirectError{"That is not the MCP sign-in redirect URL. Paste the complete address from the browser."}
+	}
+	return mcpOAuthOptions(config, parsed.Query(), store)
 }
 
 func (s *Service) LogoutMCPOAuth(name string) error {

@@ -28,6 +28,7 @@ function mcpStatus(entry: MCPServerView): string {
 export function ConnectionsDialog({modal}: {modal: ModalOf<'connections'>}) {
   const busy = useDesk(store => store.activity.busy);
   const running = useDesk(store => store.state.runs.length > 0);
+  const login = useDesk(store => store.state.login);
   const [entries, setEntries] = useState<MCPServerView[] | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<MCPServerView | 'new' | null>(null);
@@ -40,6 +41,9 @@ export function ConnectionsDialog({modal}: {modal: ModalOf<'connections'>}) {
     refresh();
     return onAppEvent('mcpRefresh', refresh);
   }, []);
+  useEffect(() => {
+    if (login?.phase === 'complete') refresh();
+  }, [login?.id, login?.phase]);
 
   const disabled = busy || running;
 
@@ -94,7 +98,7 @@ export function ConnectionsDialog({modal}: {modal: ModalOf<'connections'>}) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuItem disabled={disabled} onSelect={() => setEditing({...entry, args: entry.args || []})}>Edit…</DropdownMenuItem>
-                    {entry.oauth && !runtime.server ? (
+                    {entry.oauth ? (
                       entry.signedIn
                         ? <DropdownMenuItem disabled={disabled} onSelect={async () => {await mcpAuth('mcp-logout', entry.name); refresh();}}>Sign out</DropdownMenuItem>
                         : <DropdownMenuItem disabled={disabled || running} onSelect={() => {void mcpAuth('mcp-login', entry.name);}}>Sign in…</DropdownMenuItem>
@@ -181,11 +185,16 @@ function ConnectionEditor({entry, onCancel, onSaved}: {entry?: MCPServerView; on
           <label className="block space-y-1 text-[12px]"><span className="font-medium">URL</span><Input aria-label="Connection URL" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://example.com/mcp" required /></label>
           <label className="block space-y-1 text-[12px]"><span className="font-medium">Bearer token</span><Input aria-label="Bearer token" type="password" value={bearerToken} onChange={event => setBearerToken(event.target.value)} placeholder={entry?.hasBearerToken ? 'Leave blank to keep the saved token' : 'Optional'} /></label>
           {entry?.hasBearerToken ? <label className="flex items-center gap-2 text-[11px]"><input type="checkbox" checked={clearBearerToken} onChange={event => setClearBearerToken(event.target.checked)} />Remove the saved bearer token</label> : null}
-          {!runtime.server ? <label className="flex items-center gap-2 text-[12px]"><Switch checked={oauth} onCheckedChange={setOauth} />Use OAuth</label> : null}
-          {oauth ? <div className="grid gap-2 sm:grid-cols-2">
-            <label className="space-y-1 text-[12px]"><span className="font-medium">OAuth client ID</span><Input aria-label="OAuth client ID" value={oauthClientId} onChange={event => setOauthClientId(event.target.value)} /></label>
-            <label className="space-y-1 text-[12px]"><span className="font-medium">OAuth scope</span><Input aria-label="OAuth scope" value={oauthScope} onChange={event => setOauthScope(event.target.value)} /></label>
-          </div> : null}
+          <label className="flex items-center gap-2 text-[12px]"><Switch checked={oauth} onCheckedChange={setOauth} />Use OAuth</label>
+          {oauth ? (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="space-y-1 text-[12px]"><span className="font-medium">OAuth client ID</span><Input aria-label="OAuth client ID" value={oauthClientId} onChange={event => setOauthClientId(event.target.value)} /></label>
+                <label className="space-y-1 text-[12px]"><span className="font-medium">OAuth scope</span><Input aria-label="OAuth scope" value={oauthScope} onChange={event => setOauthScope(event.target.value)} /></label>
+              </div>
+              {runtime.server ? <p className="text-[11px] text-muted-foreground">After authorizing, paste the complete redirect URL from the browser address bar back into Desk. The page may show a connection error.</p> : null}
+            </>
+          ) : null}
         </>
       ) : (
         <>

@@ -91,11 +91,97 @@ func TestServerWorkspaceValidationAndPrivateConnectionMetadata(t *testing.T) {
 			t.Fatalf("saved OAuth or env metadata lost: %s", data)
 		}
 	}
-	for path, input := range map[string]any{"/api/oauth/start": wire.ProviderInput{Provider: "not-a-remote-flow"}, "/api/mcp/oauth/start": wire.NameInput{Name: "remote-auth"}} {
-		resp, data = b.request(t, "POST", path, input, "")
-		if resp.StatusCode != 400 {
-			t.Fatalf("unavailable sign-in: %d %s", resp.StatusCode, data)
+	resp, data = b.request(t, "POST", "/api/oauth/start", wire.ProviderInput{Provider: "not-a-remote-flow"}, "")
+	if resp.StatusCode != 400 {
+		t.Fatalf("unavailable sign-in: %d %s", resp.StatusCode, data)
+	}
+}
+
+const serverMCPCallbackURL = "http://127.0.0.1:54819/oauth/callback"
+
+func newServerOAuthFixture(t *testing.T) string {
+	t.Helper()
+	var base string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resource": base + "/mcp", "authorization_servers": []string{base}})
+		case "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": base, "authorization_endpoint": "https://auth.fixture.example/authorize", "token_endpoint": base + "/token", "registration_endpoint": base + "/register", "response_types_supported": []string{"code"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}})
+		case "/register":
+			_ = json.NewEncoder(w).Encode(map[string]any{"client_id": "fixture-client", "token_endpoint_auth_method": "none", "redirect_uris": []string{serverMCPCallbackURL}})
+		case "/token":
+			if err := r.ParseForm(); err != nil || r.Form.Get("code") != "fixture-code" || r.Form.Get("code_verifier") == "" {
+				http.Error(w, "invalid PKCE exchange", 400)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "fixture-access", "refresh_token": "fixture-refresh", "token_type": "Bearer", "expires_in": 3600})
+		default:
+			http.NotFound(w, r)
 		}
+	}))
+	t.Cleanup(server.Close)
+	base = server.URL
+	return base
+}
+
+func TestServerMCPOAuthAcceptsPastedRedirectURL(t *testing.T) {
+	s := testServerMode(t, "")
+	b := &serverBrowser{s: s}
+	b.login(t)
+	b.acquire(t, "", false)
+	base := newServerOAuthFixture(t)
+	if err := s.service.SaveMCP(desk.MCPInput{Name: "oauth-server", Type: "http", URL: base + "/mcp", OAuth: true, Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+	resp, data := b.request(t, "POST", "/api/mcp/oauth/start", wire.NameInput{Name: "oauth-server"}, "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("start MCP OAuth: %d %s", resp.StatusCode, data)
+	}
+	var login desk.LoginStatus
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		state := s.service.Snapshot()
+		if state.Login != nil {
+			login = *state.Login
+			if login.Phase == "prompt" || login.Phase == "error" {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("MCP sign-in prompt not reached: %+v", s.service.Snapshot().Login)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if login.Phase != "prompt" || login.URL == "" || login.Prompt == "" {
+		t.Fatalf("MCP sign-in prompt: %+v", login)
+	}
+	authorization, err := url.Parse(login.URL)
+	if err != nil || authorization.Query().Get("state") == "" {
+		t.Fatalf("authorization URL: %v", err)
+	}
+	callback := serverMCPCallbackURL + "?code=fixture-code&state=" + url.QueryEscape(authorization.Query().Get("state"))
+	resp, data = b.request(t, "POST", "/api/oauth/answer", wire.OAuthAnswerInput{ID: login.ID, Answer: callback}, "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("MCP sign-in answer: %d %s", resp.StatusCode, data)
+	}
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		state := s.service.Snapshot()
+		if state.Login != nil && state.Login.Phase == "complete" {
+			break
+		}
+		if state.Login != nil && state.Login.Phase == "error" {
+			t.Fatalf("MCP sign-in failed: %+v", state.Login)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("MCP sign-in did not complete: %+v", state.Login)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if views := s.service.ListMCP(); len(views) != 1 || !views[0].SignedIn {
+		t.Fatalf("MCP credentials: %+v", views)
 	}
 }
 

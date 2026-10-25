@@ -52,7 +52,7 @@ test('revoked autosave cannot overwrite the new owner and unsent text remains re
   expect((await host.command('stats')).requests).toBe(0);
 });
 
-test('Server configuration explains execution location, hides unavailable integrations and downloads diagnostics',async ({page,host}) => {
+test('Server configuration explains execution location and downloads diagnostics',async ({page,host}) => {
   await ready(page,host);
   await page.getByRole('button',{name: 'Settings',exact: true}).click();
   const settings = page.getByRole('dialog',{name: 'Settings',exact: true});
@@ -73,7 +73,7 @@ test('Server configuration explains execution location, hides unavailable integr
 
 for (const hostMode of ['desktop', 'server']) test.describe(`${hostMode} MCP OAuth controls`, () => {
   test.use({hostMode});
-  test('the actual connection menu and editor expose new authorization only on Desktop', async ({page, host}) => {
+  test('the actual connection menu and editor expose new authorization in both modes', async ({page, host}) => {
     const snapshot = page.waitForRequest(request => new URL(request.url()).pathname === '/api/state');
     await ready(page, host);
     // Seed a saved OAuth connection through the real authenticated Host API.
@@ -91,17 +91,15 @@ for (const hostMode of ['desktop', 'server']) test.describe(`${hostMode} MCP OAu
     const connections = page.getByRole('dialog', {name: 'Connections', exact: true});
     await connections.getByRole('button', {name: 'saved-oauth options', exact: true}).click();
     const signIn = page.getByRole('menu').getByRole('menuitem', {name: 'Sign in…', exact: true});
-    if (hostMode === 'desktop') await expect(signIn).toBeEnabled();
-    else await expect(signIn).toHaveCount(0);
+    await expect(signIn).toBeEnabled();
     await page.keyboard.press('Escape');
     await connections.getByRole('button', {name: 'New connection', exact: true}).click();
     await expect(connections.getByLabel('Bearer token')).toBeVisible();
     const oauth = connections.getByRole('switch', {name: 'Use OAuth', exact: true});
-    if (hostMode === 'desktop') {
-      await oauth.check();
-      await expect(connections.getByLabel('OAuth client ID')).toBeVisible();
-      await expect(connections.getByLabel('OAuth scope')).toBeVisible();
-    } else await expect(oauth).toHaveCount(0);
+    await oauth.check();
+    await expect(connections.getByLabel('OAuth client ID')).toBeVisible();
+    await expect(connections.getByLabel('OAuth scope')).toBeVisible();
+    if (hostMode === 'server') await expect(connections).toContainText('paste the complete redirect URL from the browser address bar');
   });
 });
 

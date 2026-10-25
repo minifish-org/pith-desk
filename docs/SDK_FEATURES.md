@@ -16,7 +16,7 @@ execution. No new Go or npm application dependency was added.
 | Deferred MCP | `MCPRuntime`, `ToolRegistry`, `CreateToolSearchTool` | Enabled connections and shared tool approvals |
 | Code mode | `NewCodemodeTool`, SDK session store, nested execution hooks | Enable the tool and enforce the existing policy for each nested call |
 | Provider OAuth | SDK `OAuth.Login`, `CreateAuthStorage`, `GetAuth` | Dialog, browser link, prompts and private auth path |
-| MCP OAuth | SDK discovery, registration, PKCE, exchange and refresh | Private file store and temporary loopback callback |
+| MCP OAuth | SDK discovery, registration, PKCE, exchange and refresh | Private file store; Desktop loopback callback and Server pasted redirect URL |
 | Durable task recovery | `durable.Harness`, JSONL storage and task definitions | Persist admission/queue/settlement and require reviewed continuation |
 | Request cost estimates | Model catalog rates, `ai.CalculateCost` | Append immutable request records and show totals/details |
 | Task timing and output speed | Reported SDK request usage | Monotonic task clock, average output rate and saved run receipts |

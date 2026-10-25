@@ -68,16 +68,19 @@ and tool side effects retain their existing semantics.
 Server shares Desktop's workspace/private-data checks and does not serve user
 files as active web content. Browser downloads use authenticated attachment
 responses. It does not invoke native shell/clipboard/update callbacks or start
-machine-local OAuth callbacks for remote sign-in. Use API keys and MCP bearer
-tokens. Existing credential files are preserved. This is a single trusted-user
-service, not a sandbox or multi-tenant boundary; approved tools run with the
-server account's privileges. See the README for proxy configuration.
+machine-local OAuth callbacks for remote sign-in. Server uses headless provider
+flows and pasted redirect URLs; MCP OAuth accepts the final redirect URL and
+exchanges it with the PKCE verifier stored on the server. Use API keys or bearer
+tokens where a provider has no reviewed remote flow. Existing credential files
+are preserved. This is a single trusted-user service, not a sandbox or
+multi-tenant boundary; approved tools run with the server account's privileges.
+See the README for proxy configuration.
 
 ## Model credentials and data
 
 Settings and session files are stored locally. API credentials are kept in a private local settings file; this release does not use Keychain. Public state exposes only readiness/sign-in flags for credentials, never the saved keys or OAuth tokens. Each provider retains a separate saved connection; its key is reused only for the same provider and endpoint. Changing the endpoint clears the active key unless a new key is entered explicitly. Credentials are not returned to the frontend or included in command-tool environments. MCP bearer tokens and explicit environment overrides are stored separately in private `mcp.json`; public configuration exposes only whether a token is present and the saved environment key names. Avoid selecting the application data directory as a workspace.
 
-Model OAuth credentials are stored through Pith in private `auth.json`; MCP OAuth state is scoped to the connection name and URL under `mcp-auth/`. The temporary MCP callback listens on loopback port 54819 during sign-in and checks the SDK-generated state before exchanging a code. It closes on completion or cancellation. OAuth model requests use the official provider endpoint, and refresh uses the SDK.
+Model OAuth credentials are stored through Pith in private `auth.json`; MCP OAuth state is scoped to the connection name and URL under `mcp-auth/`. In Desktop, the temporary MCP callback listens on loopback port 54819 during sign-in, checks the SDK-generated state, and closes on completion or cancellation. Server opens no callback listener; the pasted redirect URL passes the same state check before exchange. OAuth model requests use the official provider endpoint, and refresh uses the SDK.
 
 Conversation content and tool results are sent to the endpoint you configure. Reading a workspace file can therefore disclose its contents to that model provider. Use a test folder first and select workspaces deliberately.
 

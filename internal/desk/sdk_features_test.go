@@ -570,28 +570,7 @@ func TestMCPOAuthTokensAreEndpointScopedAndRedacted(t *testing.T) {
 }
 
 func TestMCPOAuthSDKFlowValidatesCallbackAndCancels(t *testing.T) {
-	var base string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource":
-			_ = json.NewEncoder(w).Encode(map[string]any{"resource": base + "/mcp", "authorization_servers": []string{base}})
-		case "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration":
-			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": base, "authorization_endpoint": "https://auth.fixture.example/authorize", "token_endpoint": base + "/token", "registration_endpoint": base + "/register", "response_types_supported": []string{"code"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}})
-		case "/register":
-			_ = json.NewEncoder(w).Encode(map[string]any{"client_id": "fixture-client", "token_endpoint_auth_method": "none", "redirect_uris": []string{mcpCallbackURL}})
-		case "/token":
-			if err := r.ParseForm(); err != nil || r.Form.Get("code") != "fixture-code" || r.Form.Get("code_verifier") == "" {
-				http.Error(w, "invalid PKCE exchange", 400)
-				return
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "fixture-access", "refresh_token": "fixture-refresh", "token_type": "Bearer", "expires_in": 3600})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	base = server.URL
+	base := newMCPOAuthFixture(t)
 	s, _, _, _ := productFeatureService(t)
 	input := MCPInput{Name: "oauth-flow", Type: "http", URL: base + "/mcp", OAuth: true}
 	if err := s.SaveMCP(input); err != nil {
@@ -701,4 +680,101 @@ func TestDurableShutdownPreservesQueueAndRequiresReviewedContinuation(t *testing
 	if !found {
 		t.Fatal("Recovered follow-up was not consumed")
 	}
+}
+
+func newMCPOAuthFixture(t *testing.T) string {
+	t.Helper()
+	var base string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resource": base + "/mcp", "authorization_servers": []string{base}})
+		case "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": base, "authorization_endpoint": "https://auth.fixture.example/authorize", "token_endpoint": base + "/token", "registration_endpoint": base + "/register", "response_types_supported": []string{"code"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}})
+		case "/register":
+			_ = json.NewEncoder(w).Encode(map[string]any{"client_id": "fixture-client", "token_endpoint_auth_method": "none", "redirect_uris": []string{mcpCallbackURL}})
+		case "/token":
+			if err := r.ParseForm(); err != nil || r.Form.Get("code") != "fixture-code" || r.Form.Get("code_verifier") == "" {
+				http.Error(w, "invalid PKCE exchange", 400)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "fixture-access", "refresh_token": "fixture-refresh", "token_type": "Bearer", "expires_in": 3600})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	base = server.URL
+	return base
+}
+
+func TestMCPOAuthPastedRedirectRequiresRegisteredCallback(t *testing.T) {
+	store := &mcp.MemoryOAuthStateStore{}
+	if err := store.Save(mcp.McpOAuthState{ServerURL: "https://example.test/mcp", OAuthState: "expected-state"}); err != nil {
+		t.Fatal(err)
+	}
+	config := savedMCP{Name: "fixture", URL: "https://example.test/mcp"}
+	for _, answer := range []string{
+		"https://evil.example/oauth/callback?code=fixture-code&state=expected-state",
+		"http://localhost:54819/oauth/callback?code=fixture-code&state=expected-state",
+		"http://127.0.0.1:54819/other?code=fixture-code&state=expected-state",
+		"http://127.0.0.1:54819/oauth/callback?state=expected-state",
+		"http://127.0.0.1:54819/oauth/callback?code=fixture-code&state=wrong",
+		"://bad",
+	} {
+		if _, err := mcpPastedOAuthOptions(answer, config, store); err == nil {
+			t.Errorf("accepted pasted redirect %q", answer)
+		}
+	}
+	options, err := mcpPastedOAuthOptions(mcpCallbackURL+"?code=fixture-code&state=expected-state&iss=issuer", config, store)
+	if err != nil || options.AuthorizationCode != "fixture-code" || options.ISS != "issuer" || !options.HasISS {
+		t.Fatalf("valid pasted redirect: %+v %v", options, err)
+	}
+}
+
+func TestMCPOAuthServerFlowUsesPastedRedirectURL(t *testing.T) {
+	base := newMCPOAuthFixture(t)
+	s, _, _, _ := productFeatureService(t)
+	input := MCPInput{Name: "oauth-server", Type: "http", URL: base + "/mcp", OAuth: true}
+	if err := s.SaveMCP(input); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartServerMCPOAuth(input.Name); err != nil {
+		t.Fatal(err)
+	}
+	state := waitState(t, s, func(st State) bool {
+		return st.Login != nil && (st.Login.Phase == "prompt" || st.Login.Phase == "error")
+	})
+	if state.Login.Phase != "prompt" || state.Login.URL == "" || state.Login.Prompt == "" {
+		t.Fatalf("manual sign-in prompt: %+v", state.Login)
+	}
+	authorization, err := url.Parse(state.Login.URL)
+	if err != nil || authorization.Query().Get("state") == "" {
+		t.Fatalf("authorization URL: %v", err)
+	}
+	callback := mcpCallbackURL + "?code=fixture-code&state=" + url.QueryEscape(authorization.Query().Get("state"))
+	if err := s.AnswerOAuth(state.Login.ID, callback); err != nil {
+		t.Fatal(err)
+	}
+	state = waitState(t, s, func(st State) bool { return st.Login.Phase == "complete" || st.Login.Phase == "error" })
+	if state.Login.Phase != "complete" || !s.ListMCP()[0].SignedIn {
+		t.Fatalf("pasted redirect exchange: %+v", state.Login)
+	}
+	<-s.connections.loginDone
+	if err := s.LogoutMCPOAuth(input.Name); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartServerMCPOAuth(input.Name); err != nil {
+		t.Fatal(err)
+	}
+	state = waitState(t, s, func(st State) bool { return st.Login != nil && st.Login.Phase == "prompt" })
+	if err := s.AnswerOAuth(state.Login.ID, mcpCallbackURL+"?code=fixture-code&state=wrong"); err != nil {
+		t.Fatal(err)
+	}
+	state = waitState(t, s, func(st State) bool { return st.Login.Phase == "complete" || st.Login.Phase == "error" })
+	if state.Login.Phase != "error" || s.ListMCP()[0].SignedIn {
+		t.Fatalf("mismatched redirect state was accepted: %+v", state.Login)
+	}
+	<-s.connections.loginDone
 }
