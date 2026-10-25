@@ -80,6 +80,16 @@ function ComposerView() {
           placeholder={placeholder}
           rows={1}
           onChange={event => setComposerText(event.target.value)}
+          onPaste={event => {
+            // Pasted screenshots arrive as file items; keep plain-text paste untouched.
+            const files = [...event.clipboardData.items]
+              .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+              .map(item => item.getAsFile())
+              .filter((file): file is File => file !== null);
+            if (!files.length) return;
+            event.preventDefault();
+            void addImageFiles(files);
+          }}
           onBlur={() => {rememberDraft(); void flushAllDrafts().catch(() => {});}}
           onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -137,6 +147,5 @@ function ComposerNote() {
   const images = useDesk(store => store.composer.images);
   const supportsImages = useDesk(store => store.state.settings.supportsImages);
   if (images.length && !supportsImages) return <p className="mt-1.5 text-center text-[11px] text-[var(--warning-text)]">This model does not support images. Choose an image-capable model or remove the attachments.</p>;
-  if (images.length) return <p className="mt-1.5 text-center text-[11px] text-muted-foreground">Images are saved with this conversation and sent to your configured model provider.</p>;
   return null;
 }

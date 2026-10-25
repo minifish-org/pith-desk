@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {Group, Panel, Separator, usePanelRef} from 'react-resizable-panels';
+import {cn} from '@/lib/utils';
 import {desk, useDesk} from '@/stores/desk.ts';
 import {request} from '@/actions/core.ts';
 import {useMediaQuery} from '@/hooks/use-media';
@@ -178,9 +179,9 @@ export function WorkspaceLayout() {
           >
             <Sidebar onCollapse={() => closeRail('navigation')} />
           </Panel>
-          <Separator aria-label="Resize navigation" className={railSeparator} />
+          <Separator aria-label="Resize navigation" className={cn(railSeparator, navCollapsed && 'after:hidden')} />
           <Panel id="main" minSize={320}>{main}</Panel>
-          <Separator aria-label="Resize tools" className={railSeparator} />
+          <Separator aria-label="Resize tools" className={cn(railSeparator, toolsCollapsed && 'after:hidden')} />
           <Panel
             id="tools" panelRef={toolsRef} defaultSize={toolsWidth} minSize={260} maxSize={800} collapsible collapsedSize={0}
             onResize={size => {

@@ -30,7 +30,7 @@ test('Server token login, refresh and takeover revoke the old page immediately',
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect.poll(() => hmrConnected).toBe(true);
   const logout = page.getByRole('button', {name: 'Log out', exact: true});
-  await expect(logout).toHaveText('');
+  await expect(logout).toHaveText('Log out');
   await expect(logout.locator('svg')).toBeVisible();
   await expect(logout).toHaveAttribute('title', 'Log out');
   const oldLease = await page.evaluate(() => sessionStorage.getItem('pith-desk-server-lease'));

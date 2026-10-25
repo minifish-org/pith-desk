@@ -231,7 +231,7 @@ function SidebarView({onCollapse, overlay, onNavigate}: {onCollapse?: () => void
         })}
       </div>
 
-      <div data-sidebar-bottom="" className="shrink-0 space-y-0.5 border-t border-sidebar-border/70 p-2">
+      <div data-sidebar-bottom="" className="shrink-0 space-y-0.5 p-2">
         <Button variant="ghost" className="h-8 w-full justify-start gap-2 px-2 text-[13px] font-normal text-muted-foreground" onClick={() => navigate(openResources)}>
           <FileText className="size-4" />Workspace resources
         </Button>
@@ -243,11 +243,11 @@ function SidebarView({onCollapse, overlay, onNavigate}: {onCollapse?: () => void
         </Button>
         {runtime.server ? (
           <Button
-            variant="ghost" size="icon-sm" aria-label="Log out" title="Log out"
-            className="ml-1 text-muted-foreground"
+            variant="ghost" title="Log out"
+            className="h-8 w-full justify-start gap-2 px-2 text-[13px] font-normal text-muted-foreground"
             onClick={() => {void runtime.session?.logout().catch(() => {});}}
           >
-            <LogOut className="size-4" />
+            <LogOut className="size-4" />Log out
           </Button>
         ) : null}
         <div data-local-status="" className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-[11px] text-muted-foreground">

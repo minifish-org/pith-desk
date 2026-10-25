@@ -31,7 +31,7 @@ function ToolsRailView({onClose, visible = true, overlay}: {onClose: () => void;
       <div
         data-app-region="drag"
         data-rail-heading=""
-        className="flex shrink-0 items-center gap-1 border-b px-2"
+        className="flex shrink-0 items-center gap-1 px-2"
         style={{height: 'var(--frame-header-height)', paddingRight: 'max(0.5rem, var(--mygo-titlebar-inset-right, 0px))'}}
       >
         {layout.tabs.length ? (
