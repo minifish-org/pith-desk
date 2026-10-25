@@ -27,7 +27,7 @@ function ToolsRailView({onClose, visible = true, overlay}: {onClose: () => void;
   useEffect(() => {loadWorkspaceTools(workspaceId);}, [workspaceId]);
 
   return (
-    <aside data-tools-rail="" aria-label="Workspace tools" className={cn('flex h-full min-h-0 flex-col bg-background', overlay && 'border-l border-border/70')}>
+    <aside data-tools-rail="" aria-label="Workspace tools" className={cn('flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground', overlay && 'border-l border-border/70')}>
       <div
         data-app-region="drag"
         data-rail-heading=""
