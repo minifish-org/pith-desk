@@ -134,45 +134,70 @@ func (s *Server) Close() error {
 
 func (s *Server) snapshot() []byte { data, _ := json.Marshal(s.service.Snapshot()); return data }
 
+// Streamed text produces many service changes per second. One derived snapshot
+// per change would clone and encode the whole conversation for each token, so
+// coalesce changes into a small number of frames while keeping the latest state.
+const broadcastInterval = 25 * time.Millisecond
+
 func (s *Server) broadcast() {
+	ticker := time.NewTicker(broadcastInterval)
+	defer ticker.Stop()
+	coalesceChanges(s.ctx, s.service.Changes(), ticker.C, s.broadcastState)
+}
+
+// coalesceChanges turns a burst of change signals into at most one flush per
+// tick. A final change always produces a later flush because the signal remains
+// pending until a tick observes it.
+func coalesceChanges(ctx context.Context, changes <-chan struct{}, ticks <-chan time.Time, flush func()) {
+	dirty := false
 	for {
 		select {
-		case <-s.ctx.Done():
+		case <-ctx.Done():
 			return
-		case <-s.service.Changes():
-			s.mu.Lock()
-			state := s.service.Snapshot()
-			s.updateTaskStatusLocked(state)
-			s.updateNativeMenuLocked(state)
-			data, _ := json.Marshal(state)
-			completions := s.newCompletionsLocked(state)
-			action := s.completionAction
-			preview := s.preview
-			for ch := range s.clients {
-				select {
-				case ch <- data:
-				default:
-					select {
-					case <-ch:
-					default:
-					}
-					ch <- data
-				}
+		case <-changes:
+			dirty = true
+		case <-ticks:
+			if !dirty {
+				continue
 			}
-			s.mu.Unlock()
-			if preview != nil {
-				preview.pruneWorkspaces(s.service)
+			dirty = false
+			flush()
+		}
+	}
+}
+
+func (s *Server) broadcastState() {
+	s.mu.Lock()
+	state := s.service.Snapshot()
+	s.updateTaskStatusLocked(state)
+	s.updateNativeMenuLocked(state)
+	data, _ := json.Marshal(state)
+	completions := s.newCompletionsLocked(state)
+	action := s.completionAction
+	preview := s.preview
+	for ch := range s.clients {
+		select {
+		case ch <- data:
+		default:
+			select {
+			case <-ch:
+			default:
 			}
-			if action != nil {
-				for _, entry := range completions {
-					for _, workspace := range state.Workspaces {
-						if workspace.ID == entry.WorkspaceID {
-							// Native notifications may wait for permission. Keep
-							// subsequent state updates flowing to the frontend.
-							go action(entry, workspace)
-							break
-						}
-					}
+			ch <- data
+		}
+	}
+	s.mu.Unlock()
+	if preview != nil {
+		preview.pruneWorkspaces(s.service)
+	}
+	if action != nil {
+		for _, entry := range completions {
+			for _, workspace := range state.Workspaces {
+				if workspace.ID == entry.WorkspaceID {
+					// Native notifications may wait for permission. Keep
+					// subsequent state updates flowing to the frontend.
+					go action(entry, workspace)
+					break
 				}
 			}
 		}

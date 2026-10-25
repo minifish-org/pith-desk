@@ -11,6 +11,44 @@ import (
 	"github.com/minifish-org/pith-desk/internal/desk"
 )
 
+func TestCoalesceChanges(t *testing.T) {
+	changes := make(chan struct{})
+	ticks := make(chan time.Time)
+	flushed := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		coalesceChanges(ctx, changes, ticks, func() { flushed <- struct{}{} })
+	}()
+	for range 80 {
+		changes <- struct{}{}
+	}
+	ticks <- time.Now()
+	select {
+	case <-flushed:
+	case <-time.After(time.Second):
+		t.Fatal("a burst of changes did not produce a flush")
+	}
+	select {
+	case <-flushed:
+		t.Fatal("one burst produced more than one flush")
+	default:
+	}
+	ticks <- time.Now()
+	select {
+	case <-flushed:
+		t.Fatal("an empty tick produced a flush")
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("coalescer did not stop")
+	}
+}
+
 func TestSlowDeliveryDoesNotBlockOtherSocketClients(t *testing.T) {
 	s := testServer(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
