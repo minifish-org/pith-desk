@@ -388,6 +388,12 @@ html.visual-viewport-short [data-slot="dialog-content"] {
   -webkit-app-region: no-drag;
 }
 
+/* A disabled rail gutter is not a resize target; the library would otherwise
+   paint its not-allowed cursor over the closed rail's edge. */
+[role="separator"][aria-disabled="true"] {
+  cursor: default !important;
+}
+
 /* xterm paints its viewport black by default; keep the terminal surface unified. */
 [data-terminal-viewport] .xterm-viewport {
   background-color: var(--terminal-surface, var(--code-surface)) !important;

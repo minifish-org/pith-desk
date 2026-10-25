@@ -94,7 +94,7 @@ for(const mode of ['desktop','server']) test.describe(mode+' sidebar controls',(
         const el = document.elementFromPoint(x, y) as HTMLElement | null;
         return el ? getComputedStyle(el).cursor : 'none';
       }, {x, y});
-      expect(cursor).not.toBe('col-resize');
+      expect(cursor).toBe('default');
       await page.mouse.down();
       await page.mouse.move(x + dx, y, {steps: 8});
       await page.mouse.up();
