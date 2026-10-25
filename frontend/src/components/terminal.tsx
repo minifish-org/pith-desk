@@ -192,7 +192,9 @@ export function TerminalView({workspaceId, tabId, active}: Props) {
     const closeExited = () => {
       exited = true;
       ws.close();
-      void closeToolTab(workspaceId, tabId);
+      // A closing page drops its layout writes, so retiring the session here
+      // would leave a restored tab pointing at nothing. The next page retires it.
+      if (!runtime.unloading) void closeToolTab(workspaceId, tabId);
     };
 
     ws.onmessage = event => {

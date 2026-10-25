@@ -85,11 +85,15 @@ for (const mode of ['desktop','server']) test.describe(mode+' manual terminal',(
     const workspace = host.state.workspaces[0],root = workspace.path;
     await startTerminal(page,host);await command(page,'echo $$ > ended.pid');
     await expect.poll(() => file(root+'/ended.pid')).toMatch(/^\d+\n$/);
-    await page.close();process.kill(Number((await file(root+'/ended.pid')).trim()),'SIGKILL');
+    const pid = Number((await file(root+'/ended.pid')).trim());
+    // Let the shell end on its own after the page is gone: killing it from the
+    // test would race the dying page's own socket teardown.
+    await command(page,'sleep 2; exit');await page.close();
+    await expect.poll(() => {try {process.kill(pid,0);return true;} catch {return false;}},{timeout:15000}).toBe(false);
     const next = await context.newPage();await next.goto(host.url);
     if (mode==='server') {await expect(next.getByRole('button',{name: 'Continue here',exact: true})).toBeVisible();await next.getByRole('button',{name: 'Continue here',exact: true}).click();}
     await expect(next.getByRole('textbox',{name: 'Message Pith',exact: true})).toBeEditable();await next.getByRole('button',{name:'Toggle tools',exact:true}).click();
-    await expect.poll(() => next.evaluate(key => JSON.parse(localStorage.getItem('pith-desk.tools.v1.'+key)||'{}').tabs?.length ?? -1,workspace.id)).toBe(0);
+    await expect.poll(() => next.evaluate(key => JSON.parse(localStorage.getItem('pith-desk.tools.v1.'+key)||'{}').tabs?.length ?? -1,workspace.id),{timeout:20000}).toBe(0);
     await expect(tools(next).getByRole('tab')).toHaveCount(0);
   });
 
