@@ -14,9 +14,9 @@ import {ToolsRail} from '@/components/tools-rail';
 
 type Rail = 'navigation' | 'tools';
 
-// The hairline belongs to the rail on its left; the rest of the grab gutter
-// stays in the neighbouring surface's own background.
-const railSeparator = 'group relative w-[9px] shrink-0 bg-transparent after:absolute after:inset-y-0 after:left-0 after:w-px after:bg-border hover:after:bg-foreground/30 data-[resize-handle-state=drag]:after:bg-foreground/40';
+// The grab gutter shares the rail's surface, so the colour edge rather than a
+// line divides the rail; a hairline appears only while hovering or dragging.
+const railSeparator = 'group relative w-[9px] shrink-0 after:absolute after:inset-y-0 after:left-0 after:w-px hover:after:bg-foreground/30 data-[separator=active]:after:bg-foreground/40';
 
 /** Desktop rails and narrow-screen drawers. Panel widths and collapse state are
  * view state, persisted to the host only after a user drag settles. */
@@ -179,9 +179,9 @@ export function WorkspaceLayout() {
           >
             <Sidebar onCollapse={() => closeRail('navigation')} />
           </Panel>
-          <Separator aria-label="Resize navigation" className={cn(railSeparator, navCollapsed && 'after:hidden')} />
+          <Separator aria-label="Resize navigation" className={cn(railSeparator, navCollapsed ? 'bg-transparent after:hidden' : 'bg-sidebar')} />
           <Panel id="main" minSize={320}>{main}</Panel>
-          <Separator aria-label="Resize tools" className={cn(railSeparator, toolsCollapsed && 'after:hidden')} />
+          <Separator aria-label="Resize tools" className={cn(railSeparator, toolsCollapsed ? 'bg-transparent after:hidden' : 'bg-sidebar')} />
           <Panel
             id="tools" panelRef={toolsRef} defaultSize={toolsWidth} minSize={260} maxSize={800} collapsible collapsedSize={0}
             onResize={size => {
