@@ -18,7 +18,8 @@ import {WebPreviewView} from '@/components/web-preview';
 
 function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?: boolean}) {
   const workspaceId = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId)?.id || '');
-  const workspace = useDesk(store => store.state.workspaces.find(entry => entry.id === workspaceId));
+  const workspacePath = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId)?.path || '');
+  const hasWorkspace = useDesk(store => !!selectedWorkspace(store.state, store.selectedWorkspaceId));
   const layout = useWorkspaceTools(store => store.workspaces[workspaceId]?.layout || emptyToolLayout);
   const [everOpened, setEverOpened] = useState(false);
   useEffect(() => {if (visible) setEverOpened(true);}, [visible]);
@@ -41,7 +42,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
                   type="button"
                   role="tab"
                   aria-selected={tab.id === layout.activeId}
-                  title={tab.kind === 'files' ? workspace?.path : tab.kind === 'terminal' ? `${runtime.server ? 'Server' : 'Local'} · ${workspace?.path || ''}` : tab.label}
+                  title={tab.kind === 'files' ? workspacePath : tab.kind === 'terminal' ? `${runtime.server ? 'Server' : 'Local'} · ${workspacePath}` : tab.label}
                   className="flex items-center gap-1.5 px-2 py-1"
                   onClick={() => selectToolTab(workspaceId, tab.id)}
                 >
@@ -63,7 +64,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-xs" aria-label="New tool tab" disabled={!workspace}><Plus className="size-3.5" /></Button>
+              <Button variant="ghost" size="icon-xs" aria-label="New tool tab" disabled={!hasWorkspace}><Plus className="size-3.5" /></Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuLabel>New tool</DropdownMenuLabel>
@@ -77,7 +78,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         {!everOpened ? null
-          : !workspace ? <p className="p-4 text-[12px] text-muted-foreground">Choose a workspace to browse its files.</p>
+          : !hasWorkspace ? <p className="p-4 text-[12px] text-muted-foreground">Choose a workspace to browse its files.</p>
           : !layout.tabs.length ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
               <p className="text-[13px] text-muted-foreground">No tool tabs open</p>
@@ -91,7 +92,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
             <div key={tab.id} role="tabpanel" aria-label={tab.label} className={cn('h-full min-h-0 flex-col', tab.id === layout.activeId ? 'flex' : 'hidden')}>
               {tab.kind === 'files' ? (
                 <FileBrowser
-                  key={`${workspace.id}-${tab.id}`} workspaceId={workspace.id} active={tab.id === layout.activeId}
+                  key={`${workspaceId}-${tab.id}`} workspaceId={workspaceId} active={tab.id === layout.activeId}
                   expandedPaths={tab.files?.expanded || []}
                   initialScrollTop={tab.files?.scrollTop || 0}
                   onExpanded={expanded => updateFileView(workspaceId, tab.id, {expanded})}
@@ -99,9 +100,9 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
                 />
               ) : tab.kind === 'terminal' ? (
                 <TerminalView
-                  workspaceId={workspace.id} tabId={tab.id} active={tab.id === layout.activeId}
+                  workspaceId={workspaceId} tabId={tab.id} active={tab.id === layout.activeId}
                 />
-              ) : <WebPreviewView workspaceId={workspace.id} tabId={tab.id} active={tab.id === layout.activeId && visible} />}
+              ) : <WebPreviewView workspaceId={workspaceId} tabId={tab.id} active={tab.id === layout.activeId && visible} />}
             </div>
           ))}
       </div>

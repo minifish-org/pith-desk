@@ -23,15 +23,18 @@ function ComposerView() {
   const loading = useDesk(store => store.composer.loading);
   const reading = useDesk(store => store.composer.reading);
   const dropPending = useDesk(store => store.composer.dropPending);
-  const state = useDesk(store => store.state);
   const loaded = useDesk(store => store.loaded);
   const busy = useDesk(store => store.activity.busy);
-  const selectedId = useDesk(store => store.selectedWorkspaceId);
-  const mode = permissionModeOf(activeConversation(state));
-  const workspace = selectedWorkspace(state, selectedId);
-  const blocked = blockingWorkspaceRun(state, workspace?.id);
-  const action = composerAction();
-  const disabled = composerDisabled();
+  const activeId = useDesk(store => store.state.activeId);
+  const supportsImages = useDesk(store => store.state.settings.supportsImages);
+  const modelLocked = useDesk(store => store.state.runs.length > 0);
+  const mode = useDesk(store => permissionModeOf(activeConversation(store.state)));
+  const placeholder = useDesk(store => {
+    const workspace = selectedWorkspace(store.state, store.selectedWorkspaceId);
+    return composerPlaceholder(store.state, store.loaded, workspace, blockingWorkspaceRun(store.state, workspace?.id));
+  });
+  const action = useDesk(() => composerAction());
+  const disabled = useDesk(() => composerDisabled());
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -59,8 +62,6 @@ function ComposerView() {
     if (action === 'stop') void stop();
     else if (!disabled) void send();
   };
-
-  const placeholder = composerPlaceholder(state, loaded, workspace, blocked);
 
   return (
     <div className="conversation-column">
@@ -93,13 +94,13 @@ function ComposerView() {
             <TooltipTrigger asChild>
               <Button
                 type="button" variant="ghost" size="icon-sm" aria-label="Attach images"
-                disabled={busy || reading || loading || !state.settings.supportsImages}
+                disabled={busy || reading || loading || !supportsImages}
                 onClick={() => fileInput.current?.click()}
               >
                 {reading ? <LoaderCircle className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{state.settings.supportsImages ? 'Attach images' : 'This model does not support images'}</TooltipContent>
+            <TooltipContent>{supportsImages ? 'Attach images' : 'This model does not support images'}</TooltipContent>
           </Tooltip>
           <input
             ref={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
@@ -109,9 +110,9 @@ function ComposerView() {
               if (files.length) void addImageFiles(files);
             }}
           />
-          <PermissionControl mode={mode} disabled={!state.activeId || busy} />
+          <PermissionControl mode={mode} disabled={!activeId || busy} />
           <div className="ml-auto flex items-center gap-1.5">
-            <ModelPicker disabled={busy || state.runs.length > 0} />
+            <ModelPicker disabled={busy || modelLocked} />
             <Button
               type="submit"
               size="icon"

@@ -14,11 +14,10 @@ function CompressIcon({className}: {className?: string}) {
 }
 
 export function Header({onOpenNavigation, onOpenTools, showNavigationToggle, showToolsToggle}: {onOpenNavigation: (trigger?: HTMLElement) => void; onOpenTools: (trigger?: HTMLElement) => void; showNavigationToggle: boolean; showToolsToggle: boolean}) {
-  const state = useDesk(store => store.state);
-  const busy = useDesk(store => store.activity.busy);
-  const workspace = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId));
-  const conversation = useDesk(store => activeConversation(store.state));
-  const canCompact = !busy && !state.running && !!state.activeId && state.messages.length > 0;
+  // Select primitives so streamed message text does not re-render the frame.
+  const workspaceName = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId)?.name || 'No workspace');
+  const conversationTitle = useDesk(store => activeConversation(store.state)?.title || 'New conversation');
+  const canCompact = useDesk(store => !store.activity.busy && !store.state.running && !!store.state.activeId && store.state.messages.length > 0);
 
   return (
     <header
@@ -38,9 +37,9 @@ export function Header({onOpenNavigation, onOpenTools, showNavigationToggle, sho
       ) : null}
       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-muted-foreground">
         <Folder className="hidden size-3.5 shrink-0 min-[721px]:inline" />
-        <span data-breadcrumb-workspace="" className="hidden max-w-[6.875rem] truncate min-[521px]:inline min-[721px]:max-w-[12rem]">{workspace ? workspace.name : 'No workspace'}</span>
+        <span data-breadcrumb-workspace="" className="hidden max-w-[6.875rem] truncate min-[521px]:inline min-[721px]:max-w-[12rem]">{workspaceName}</span>
         <ChevronRight className="hidden size-3 shrink-0 opacity-60 min-[521px]:inline" />
-        <span data-breadcrumb-current="" className="min-w-0 truncate text-foreground">{conversation?.title || 'New conversation'}</span>
+        <span data-breadcrumb-current="" className="min-w-0 truncate text-foreground">{conversationTitle}</span>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <Button
