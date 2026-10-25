@@ -12,11 +12,13 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 
 function ConversationView() {
-  const state = useDesk(store => store.state);
+  const messages = useDesk(store => store.state.messages);
+  const running = useDesk(store => store.state.running);
+  const activeId = useDesk(store => store.state.activeId);
   const artifacts = useDesk(store => store.artifacts.files);
   const artifactsError = useDesk(store => store.artifacts.error);
   const workspacePath = useDesk(store => activeWorkspace(store.state, store.selectedWorkspaceId)?.path || '');
-  const scroller = useStickToBottom(JSON.stringify([state.messages.length, state.messages.at(-1)?.text?.length, state.running, artifacts.length]), state.activeId);
+  const scroller = useStickToBottom(JSON.stringify([messages.length, messages.at(-1)?.text?.length, running, artifacts.length]), activeId);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [matches, setMatches] = useState(0);
@@ -69,7 +71,7 @@ function ConversationView() {
     setMatches(ranges.length);
     if (registry && 'Highlight' in window) registry.set('pith-find', new Highlight(...ranges));
     return () => {registry?.delete('pith-find');};
-  }, [findOpen, findQuery, state.messages]);
+  }, [findOpen, findQuery, messages]);
 
   const closeFind = () => {setFindOpen(false); setFindQuery('');};
 
@@ -94,14 +96,14 @@ function ConversationView() {
       ) : null}
       <div ref={scroller.ref} data-conversation-scroll="" onScroll={scroller.onScroll} className="scrollbar-quiet min-h-0 flex-1 overflow-y-auto">
         <div className="conversation-column pt-6 pb-5">
-          {state.messages.length ? <MessageList messages={state.messages} working={state.running} /> : <Welcome />}
-          {state.messages.length && artifacts.length ? (
-            <EditedFiles key={state.activeId} files={artifacts} workspacePath={workspacePath} conversationId={state.activeId} />
+          {messages.length ? <MessageList messages={messages} working={running} /> : <Welcome />}
+          {messages.length && artifacts.length ? (
+            <EditedFiles key={activeId} files={artifacts} workspacePath={workspacePath} conversationId={activeId} />
           ) : null}
-          {state.messages.length && !artifacts.length && !state.running && artifactsError ? (
+          {messages.length && !artifacts.length && !running && artifactsError ? (
             <p data-artifacts-error="" className="mt-4 text-[12px] text-destructive">{artifactsError}</p>
           ) : null}
-          {state.running ? <Working /> : null}
+          {running ? <Working /> : null}
         </div>
       </div>
       <Button

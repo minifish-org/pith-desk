@@ -1,4 +1,5 @@
 import type { State as WireState, Workspace, Conversation, QueuedMessage, AppearanceMode } from './contract.generated';
+import { sameMessage } from './lib/messages.ts';
 export type { ProviderChoice } from './contract.generated';
 
 /** The page's transport connection to the local service or server host. */
@@ -30,7 +31,7 @@ export function normalizeState(next: WireState, previous?: State): State {
     ...next,
     workspaces: reuseItems(previous?.workspaces, next.workspaces || [], sameFields),
     conversations: reuseItems(previous?.conversations, next.conversations || [], sameFields),
-    messages: next.messages || [],
+    messages: reuseItems(previous?.messages, next.messages || [], sameMessage),
     runs: reuseItems(previous?.runs, Array.isArray(next.runs) ? next.runs : [], sameFields),
     queuedMessages: Array.isArray(next.queuedMessages) ? next.queuedMessages : [],
   };

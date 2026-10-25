@@ -6,6 +6,7 @@ import {cn} from '@/lib/utils';
 import {app} from '@/lib/runtime.ts';
 import {desk, useDesk} from '@/stores/desk.ts';
 import type {Message as WireMessage} from '@/contract.generated.ts';
+import {sameMessage, sameMessages} from '@/lib/messages.ts';
 import {Markdown} from '@/lib/markdown';
 import {copyText} from '@/actions/core';
 import {messageAction, openConversationFile} from '@/actions/conversations.ts';
@@ -128,28 +129,7 @@ function MessageItemView({message, streaming}: {message: WireMessage; streaming:
 }
 
 const MessageItem = memo(MessageItemView, (previous, next) =>
-  previous.streaming === next.streaming && sameWireMessage(previous.message, next.message));
-
-function sameWireMessage(a: WireMessage, b: WireMessage): boolean {
-  return a.id === b.id
-    && a.role === b.role
-    && a.text === b.text
-    && a.status === b.status
-    && a.timestamp === b.timestamp
-    && a.toolName === b.toolName
-    && a.toolCallId === b.toolCallId
-    && a.branchNodeId === b.branchNodeId
-    && sameCommand(a.command, b.command)
-    && sameImages(a.images, b.images);
-}
-
-function sameCommand(a: WireMessage['command'], b: WireMessage['command']): boolean {
-  return a === b || !!(a && b && a.text === b.text && a.cwd === b.cwd && a.exitCode === b.exitCode);
-}
-
-function sameImages(a: WireMessage['images'], b: WireMessage['images']): boolean {
-  return a === b || !!(a && b && a.length === b.length && a.every((image, index) => image.index === b[index].index && image.mimeType === b[index].mimeType));
-}
+  previous.streaming === next.streaming && sameMessage(previous.message, next.message));
 
 function MessageImages({images, messageId, conversationId, align}: {images: NonNullable<WireMessage['images']>; messageId: string; conversationId: string; align?: 'end'}) {
   return (
@@ -227,8 +207,7 @@ function ToolGroupView({messages}: {messages: WireMessage[]}) {
   );
 }
 
-const ToolGroup = memo(ToolGroupView, (previous, next) =>
-  previous.messages.length === next.messages.length && previous.messages.every((message, index) => sameWireMessage(message, next.messages[index])));
+const ToolGroup = memo(ToolGroupView, (previous, next) => sameMessages(previous.messages, next.messages));
 
 function ToolCardView({message}: {message: WireMessage}) {
   const [open, setOpen] = useState(false);
@@ -263,4 +242,4 @@ function ToolCardView({message}: {message: WireMessage}) {
   );
 }
 
-const ToolCard = memo(ToolCardView, (previous, next) => sameWireMessage(previous.message, next.message));
+const ToolCard = memo(ToolCardView, (previous, next) => sameMessage(previous.message, next.message));
