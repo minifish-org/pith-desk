@@ -74,6 +74,37 @@ for(const mode of ['desktop','server']) test.describe(mode+' sidebar controls',(
     expect(await draft.evaluate((node:HTMLTextAreaElement)=>[node.selectionStart,node.selectionEnd])).toEqual([2,7]);
   });
 
+  test('a collapsed rail opens only from its toggle, not from a gutter drag', async ({page, host}) => {
+    await page.goto(host.url);
+    await expect(page.getByRole('textbox', {name: 'Message Pith', exact: true})).toBeEditable();
+    const navigation = page.getByRole('complementary', {name: 'Navigation', exact: true});
+    const tools = page.getByRole('complementary', {name: 'Workspace tools', exact: true});
+    const width = (rail: Locator) => rail.evaluate(node => Math.round(node.getBoundingClientRect().width));
+    const mainWidth = () => page.locator('main').evaluate(node => Math.round(node.getBoundingClientRect().width));
+    await page.getByRole('button', {name: 'Close navigation', exact: true}).click();
+    await expect(page.getByRole('button', {name: 'Toggle navigation', exact: true})).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Toggle tools', exact: true})).toBeVisible();
+    const before = {navigation: await width(navigation), tools: await width(tools), main: await mainWidth()};
+    for (const [name, dx] of [['Resize navigation', 140], ['Resize tools', -140]] as const) {
+      const box = (await page.getByRole('separator', {name, exact: true}).boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + 100;
+      await page.mouse.move(x, y);
+      const cursor = await page.evaluate(({x, y}) => {
+        const el = document.elementFromPoint(x, y) as HTMLElement | null;
+        return el ? getComputedStyle(el).cursor : 'none';
+      }, {x, y});
+      expect(cursor).not.toBe('col-resize');
+      await page.mouse.down();
+      await page.mouse.move(x + dx, y, {steps: 8});
+      await page.mouse.up();
+    }
+    // Dragging the gutters leaves both rails closed and the centre untouched.
+    await expect(page.getByRole('button', {name: 'Toggle navigation', exact: true})).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Toggle tools', exact: true})).toBeVisible();
+    expect({navigation: await width(navigation), tools: await width(tools), main: await mainWidth()}).toEqual(before);
+  });
+
   test('800px drawers retain their widths, dialog focus and terminal Escape', async ({page, host}) => {
     await page.setViewportSize({width: 800, height: 840});
     await page.goto(host.url);

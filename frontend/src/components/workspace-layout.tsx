@@ -179,9 +179,9 @@ export function WorkspaceLayout() {
           >
             <Sidebar onCollapse={() => closeRail('navigation')} />
           </Panel>
-          <Separator aria-label="Resize navigation" className={cn(railSeparator, navCollapsed ? 'bg-transparent after:hidden' : 'bg-sidebar')} />
+          <Separator aria-label="Resize navigation" disabled={navCollapsed} className={cn(railSeparator, navCollapsed ? 'bg-transparent' : 'bg-sidebar')} />
           <Panel id="main" minSize={320}>{main}</Panel>
-          <Separator aria-label="Resize tools" className={cn(railSeparator, toolsCollapsed ? 'bg-transparent after:hidden' : 'bg-sidebar')} />
+          <Separator aria-label="Resize tools" disabled={toolsCollapsed} className={cn(railSeparator, toolsCollapsed ? 'bg-transparent' : 'bg-sidebar')} />
           <Panel
             id="tools" panelRef={toolsRef} defaultSize={toolsWidth} minSize={260} maxSize={800} collapsible collapsedSize={0}
             onResize={size => {
