@@ -1,12 +1,11 @@
 New in this preview:
 
-- The entire interface is rebuilt in React 19, Vite and Tailwind CSS v4 with shadcn/ui (Nova) and Radix. Pith UI and its consumption tooling are removed; Lucide icons, Motion, react-resizable-panels, dnd-kit and Zustand are the only UI libraries.
-- Navigation, conversations, streaming messages, the composer, queued messages, approvals and diffs, runtime and cost details, files, artifacts, file previews, terminal tabs, Settings, providers, models, MCP connections, OAuth, resources and Server sign-in keep their existing behavior with a unified neutral design and a responsive phone layout.
-- Sidebars resize and persist their widths, workspace tool layouts survive refresh, attachments can be reordered by drag, and large text previews are paginated. Desktop keeps the native titlebar, file drops and the native Web preview; closing a preview tab releases it without ending the conversation or its lease.
-- Successful file writes and edits now appear in an edited-files card at the end of the conversation, with line totals and an expandable list. Selecting a file opens its recorded changes as a diff, with a Diff/File switch for the complete current file.
-- Existing Desktop settings, conversations, drafts, workspaces, server tokens and update feeds are preserved. The macOS and Linux packages include the embedded UI and the same automatic updates as the previous preview.
-- Release archives now match the shipped dependencies: the retired Pith UI license is no longer bundled, and every retained third-party notice is listed in `THIRD_PARTY.md`.
-- Download headless Server archives for Linux amd64 and arm64, each with a SHA-256 checksum. They embed the frontend and need no GUI libraries or Node runtime.
+- The original blue logo is 25% larger inside browser and application icons. Its colors and backing are preserved, and logos inside the Desk interface keep their existing size.
+- Long streaming conversations reuse unchanged messages and interface state, with fewer redundant updates as transcripts grow.
+- Workspace switches and delayed responses preserve the correct drafts, file results, tool tabs and model settings. Native Web previews retain their page state while hidden and close when their tab is removed.
+- Task recovery avoids repeating an input that was already saved. Workspace path checks handle case-insensitive volumes, file search supports Unicode names, and nested code-mode file changes appear in recorded diffs.
+- Conversation exports, diagnostics and resource edits preserve existing files when a save fails. Native menu, quit, file-drop, terminal and update flows have expanded regression coverage.
+- Frontend components and actions are organized by responsibility, with unused components and retired transports removed. Existing settings, conversations, drafts, saved layouts and update feeds remain compatible.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
 
