@@ -1,5 +1,5 @@
 import type {ApiRequest} from '@/api.ts';
-import {readDraftFlushCallback, readNativeDrop, readNativeMenuAction, type NativeMenuAction} from '@/native-protocol.ts';
+import {readDraftFlushCallback, readNativeDrop, readNativeMenuAction, type NativeDrop, type NativeMenuAction} from '@/native-protocol.ts';
 import {desk, useDesk} from '@/stores/desk.ts';
 import {currentWorkspace, exportConversation, newConversation, openWorkspace} from '@/actions/conversations.ts';
 import {openSettings} from '@/actions/settings.ts';
@@ -10,11 +10,11 @@ import {runtime} from '@/lib/runtime.ts';
 
 
 // Native coordinates are data; only the page decides what a drop targets.
-export function installNativeDrop(enabled: boolean, receive: (paths: string[], x: number, y: number) => void): () => void {
+export function installNativeDrop(enabled: boolean, receive: (drop: NativeDrop) => void): () => void {
   const onDrop = (event: Event) => {
     if (!enabled) return;
     const drop = readNativeDrop((event as CustomEvent<unknown>).detail);
-    if (drop) receive(drop.paths, drop.x, drop.y);
+    if (drop) receive(drop);
   };
   if (enabled) window.addEventListener('pith:file-drop', onDrop);
   return () => window.removeEventListener('pith:file-drop', onDrop);

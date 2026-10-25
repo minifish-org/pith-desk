@@ -139,6 +139,32 @@ return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rec
 	if value := nativeDropEval(t, win, `document.querySelector('textarea[aria-label="Message Pith"]').value`); value != want {
 		t.Fatalf("drop outside composer changed draft: %v", value)
 	}
+
+	// The page cannot read a local path, so the bridge carries a dropped image's
+	// bytes to its attachment area; the reference draft stays untouched.
+	imagePath := filepath.Join(workspace.Path, "dropped photo.png")
+	writeDroppedPNG(t, imagePath)
+	if err := forwardNativeFileDrop(win, &mygo.FileDropEvent{Paths: []string{imagePath}, X: point.X, Y: point.Y}); err != nil {
+		t.Fatal(err)
+	}
+	waitNativeDropCondition(t, win, `document.querySelectorAll('[data-draft-image]').length === 1 && document.querySelector('[data-draft-image] img')?.src.startsWith('blob:')`)
+	if value := nativeDropEval(t, win, `document.querySelector('textarea[aria-label="Message Pith"]').value`); value != want {
+		t.Fatalf("image drop changed the reference draft: %v", value)
+	}
+	t.Log("native image drop reached the draft attachment area")
+
+	// A file that only looks like an image is reported, not dropped silently.
+	fakePath := filepath.Join(workspace.Path, "fake.webp")
+	if err := os.WriteFile(fakePath, []byte("not an image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := forwardNativeFileDrop(win, &mygo.FileDropEvent{Paths: []string{fakePath}, X: point.X, Y: point.Y}); err != nil {
+		t.Fatal(err)
+	}
+	waitNativeDropCondition(t, win, `document.querySelector('[data-inline-error]')?.textContent.includes('fake.webp')`)
+	if count := nativeDropEval(t, win, `document.querySelectorAll('[data-draft-image]').length`); count != float64(1) {
+		t.Fatalf("rejected image changed the attachments: %v", count)
+	}
 	for path, expected := range hashes {
 		data, err := os.ReadFile(path)
 		if err != nil || sha256.Sum256(data) != expected {

@@ -10,7 +10,7 @@ import {createServerSession} from '@/lib/session.ts';
 import {createDraftRecovery} from '@/draft-recovery.ts';
 import {applyAppearance, request, setError} from '@/actions/core.ts';
 import {emitAppEvent} from '@/lib/events.ts';
-import {addImageFiles, disposeComposer, enableDraftRecovery, flushAllDrafts, loadComposerDraft, preserveTexts, setDropPending} from '@/actions/composer.ts';
+import {addDroppedImages, addImageFiles, disposeComposer, enableDraftRecovery, flushAllDrafts, loadComposerDraft, preserveTexts, setDropPending} from '@/actions/composer.ts';
 import {acknowledgeViewed, clearNotices, observeNotices} from '@/actions/notices.ts';
 import {clearFilePreview, loadArtifacts} from '@/actions/files.ts';
 import {pruneWorkspaceTools} from '@/actions/workspace-tools.ts';
@@ -140,9 +140,11 @@ const fileDrop = installWorkspaceFileDrop({
   busy: () => desk().activity.busy || desk().composer.loading || !desk().loaded,
   context: () => `${desk().selectedWorkspaceId}/${desk().state.activeId}`,
 });
-const removeNativeDrop = installNativeDrop(bootstrap.nativeFileDrop, (paths, x, y) => {
-  if (!document.elementFromPoint(x, y)?.closest('[data-composer]')) return;
-  fileDrop.references({paths, uris: '', hasUnidentifiedFiles: false});
+const removeNativeDrop = installNativeDrop(bootstrap.nativeFileDrop, drop => {
+  if (!document.elementFromPoint(drop.x, drop.y)?.closest('[data-composer]')) return;
+  if (drop.notice) setError(drop.notice);
+  if (drop.images.length) void addDroppedImages(drop.images);
+  fileDrop.references({paths: drop.paths, uris: '', hasUnidentifiedFiles: false});
 });
 
 const removeBrowserDrop = installBrowserFileDrop({

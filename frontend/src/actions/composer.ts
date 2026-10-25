@@ -9,6 +9,7 @@ import {unsentEditorText} from './message-edits.ts';
 import {createDrafts, draftKey} from '@/drafts.ts';
 import {createDraftRecovery, type DraftRecovery} from '@/draft-recovery.ts';
 import {imagePreviewBlob} from '@/image-data.ts';
+import type {NativeDropImage} from '@/native-protocol.ts';
 import {app} from '@/lib/runtime.ts';
 import {emitAppEvent} from '@/lib/events.ts';
 import type {ComposerAction} from '@/lib/derive.ts';
@@ -145,6 +146,10 @@ async function restoreDraftImages(images: WireDraftImage[], active: () => boolea
   return restored;
 }
 
+function newImageID(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export async function addImageFiles(files: File[]): Promise<void> {
   const composer = desk().composer;
   if (!files.length || desk().activity.busy || composer.reading || composer.loading) return;
@@ -167,7 +172,7 @@ export async function addImageFiles(files: File[]): Promise<void> {
         reader.readAsDataURL(file);
       });
       added.push({
-        id: Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''),
+        id: newImageID(),
         type: 'image', data, mimeType, name: file.name || 'Pasted image', size: file.size, url: URL.createObjectURL(file),
       });
     }
@@ -183,6 +188,16 @@ export async function addImageFiles(files: File[]): Promise<void> {
   } finally {
     desk().setComposer({reading: false});
   }
+}
+
+// A desktop drop only names local files, so the native bridge brings the bytes
+// of the images among them as Files; browsers read their own File objects.
+export async function addDroppedImages(images: NativeDropImage[]): Promise<void> {
+  const files = await Promise.all(images.map(async image => {
+    const blob = await imagePreviewBlob(image.data, image.mimeType);
+    return blob ? new File([blob], image.name, {type: image.mimeType}) : undefined;
+  }));
+  await addImageFiles(files.filter(file => file !== undefined));
 }
 
 export function removeAttachment(id: string): void {
