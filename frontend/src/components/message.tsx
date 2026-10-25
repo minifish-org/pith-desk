@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {memo, useEffect, useState} from 'react';
 import {
   Check, ChevronRight, Copy, FilePen, FolderOpen, GitBranch, Pencil, Search, TerminalSquare, Wrench,
 } from 'lucide-react';
@@ -37,15 +37,16 @@ export function MessageList({messages, working}: {messages: WireMessage[]; worki
   );
 }
 
-function MessageItem({message, streaming}: {message: WireMessage; streaming: boolean}) {
-  const state = useDesk(store => store.state);
+function MessageItemView({message, streaming}: {message: WireMessage; streaming: boolean}) {
+  const activeId = useDesk(store => store.state.activeId);
+  const running = useDesk(store => store.state.running);
   const busy = useDesk(store => store.activity.busy);
   const user = message.role === 'user';
   const system = message.role === 'system';
   const [copied, setCopied] = useState(false);
   const canCopy = !!message.text && message.status !== 'streaming';
-  const canEdit = user && !busy && !state.running;
-  const canBranch = !user && !!message.branchNodeId && !busy && !state.running;
+  const canEdit = user && !busy && !running;
+  const canBranch = !user && !!message.branchNodeId && !busy && !running;
 
   if (system) {
     return <div className="border-l-2 pl-3 text-[12px] leading-relaxed text-muted-foreground" data-reading-id={message.id}>{message.text}</div>;
@@ -59,18 +60,18 @@ function MessageItem({message, streaming}: {message: WireMessage; streaming: boo
     >
       {user ? (
         <div data-user-text="" className="max-w-[82%] rounded-xl border border-border/70 bg-muted/60 px-3.5 py-2.5 text-[14px] leading-[1.5] whitespace-pre-wrap break-words">
-          {message.images?.length ? <MessageImages images={message.images} messageId={message.id} conversationId={state.activeId} align="end" /> : null}
+          {message.images?.length ? <MessageImages images={message.images} messageId={message.id} conversationId={activeId} align="end" /> : null}
           {message.text}
         </div>
       ) : (
         <div className="min-w-0 max-w-full">
-          {message.images?.length ? <MessageImages images={message.images} messageId={message.id} conversationId={state.activeId} /> : null}
+          {message.images?.length ? <MessageImages images={message.images} messageId={message.id} conversationId={activeId} /> : null}
           {message.text ? (
             <Markdown
               text={message.text}
               onCopyCode={text => {void copyText(text);}}
               resolveLocalFile={href => localFilePath(href)}
-              onLocalFile={path => {void openConversationFile(state.activeId, path);}}
+              onLocalFile={path => {void openConversationFile(activeId, path);}}
             />
           ) : streaming ? null : <p className="text-[13px] text-muted-foreground">No text output.</p>}
           {message.status === 'error' ? <span className="mt-2 block text-[12px] text-destructive">The model response ended with an error.</span> : null}
@@ -126,6 +127,30 @@ function MessageItem({message, streaming}: {message: WireMessage; streaming: boo
   );
 }
 
+const MessageItem = memo(MessageItemView, (previous, next) =>
+  previous.streaming === next.streaming && sameWireMessage(previous.message, next.message));
+
+function sameWireMessage(a: WireMessage, b: WireMessage): boolean {
+  return a.id === b.id
+    && a.role === b.role
+    && a.text === b.text
+    && a.status === b.status
+    && a.timestamp === b.timestamp
+    && a.toolName === b.toolName
+    && a.toolCallId === b.toolCallId
+    && a.branchNodeId === b.branchNodeId
+    && sameCommand(a.command, b.command)
+    && sameImages(a.images, b.images);
+}
+
+function sameCommand(a: WireMessage['command'], b: WireMessage['command']): boolean {
+  return a === b || !!(a && b && a.text === b.text && a.cwd === b.cwd && a.exitCode === b.exitCode);
+}
+
+function sameImages(a: WireMessage['images'], b: WireMessage['images']): boolean {
+  return a === b || !!(a && b && a.length === b.length && a.every((image, index) => image.index === b[index].index && image.mimeType === b[index].mimeType));
+}
+
 function MessageImages({images, messageId, conversationId, align}: {images: NonNullable<WireMessage['images']>; messageId: string; conversationId: string; align?: 'end'}) {
   return (
     <div className={cn('mb-2 flex flex-wrap gap-2', align === 'end' && 'justify-end')}>
@@ -176,7 +201,7 @@ function toolLabel(message: WireMessage): {label: string; icon: typeof Wrench} {
   return toolLabels[message.toolName || ''] || {label: message.toolName || 'Used a tool', icon: Wrench};
 }
 
-function ToolGroup({messages}: {messages: WireMessage[]}) {
+function ToolGroupView({messages}: {messages: WireMessage[]}) {
   const [open, setOpen] = useState(false);
   const first = toolLabel(messages[0]);
   const running = messages.some(message => message.status === 'running');
@@ -202,7 +227,10 @@ function ToolGroup({messages}: {messages: WireMessage[]}) {
   );
 }
 
-function ToolCard({message}: {message: WireMessage}) {
+const ToolGroup = memo(ToolGroupView, (previous, next) =>
+  previous.messages.length === next.messages.length && previous.messages.every((message, index) => sameWireMessage(message, next.messages[index])));
+
+function ToolCardView({message}: {message: WireMessage}) {
   const [open, setOpen] = useState(false);
   const {label, icon: Icon} = toolLabel(message);
   const failed = message.status === 'error';
@@ -234,3 +262,5 @@ function ToolCard({message}: {message: WireMessage}) {
     </div>
   );
 }
+
+const ToolCard = memo(ToolCardView, (previous, next) => sameWireMessage(previous.message, next.message));
