@@ -3,6 +3,7 @@ import {
   ChevronRight, FileText, Folder, LoaderCircle, LogOut, MoreHorizontal, Plug, Plus, Search,
   Settings, ShieldAlert, SquarePen, PanelLeftClose,
 } from 'lucide-react';
+import {useShallow} from 'zustand/react/shallow';
 import {cn} from '@/lib/utils';
 import {desk, useDesk} from '@/stores/desk.ts';
 import {runtime} from '@/lib/runtime.ts';
@@ -23,17 +24,19 @@ import {
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 
 function SidebarView({onCollapse, overlay, onNavigate}: {onCollapse?: () => void; overlay?: boolean; onNavigate?: () => void}) {
-  const state = useDesk(store => store.state);
-  const selectedId = useDesk(store => store.selectedWorkspaceId);
+  const state = useDesk(useShallow(store => ({
+    workspaces: store.state.workspaces,
+    conversations: store.state.conversations,
+    activeId: store.state.activeId,
+    runs: store.state.runs,
+  })));
+  const initialWorkspaceId = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId)?.id || '');
+  const workspace = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId));
   const busy = useDesk(store => store.activity.busy);
   const connection = useDesk(store => store.connection);
   const loaded = useDesk(store => store.loaded);
   const search = useDesk(store => store.search);
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    const initial = selectedWorkspace(state, selectedId)?.id;
-    return new Set(initial ? [initial] : []);
-  });
-  const workspace = selectedWorkspace(state, selectedId);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(initialWorkspaceId ? [initialWorkspaceId] : []));
 
   useEffect(() => {
     setExpanded(previous => {

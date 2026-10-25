@@ -173,8 +173,11 @@ test('confirmed reads update the owner only for the acknowledged completion run'
   await app.start();
   app.confirmRead('chat-a', 'old-run');
   assert.equal(app.state.conversations[0].unread, true);
+  const before = app.state.conversations[0];
   app.confirmRead('chat-a', 'run-previous');
   assert.equal(app.state.conversations[0].unread, false);
+  assert.notEqual(app.state.conversations[0], before);
+  assert.equal(before.unread, true);
   sockets[0].state({ ...fixed, conversations: fixed.conversations.map((entry, index) => index === 0 ? { ...entry, completedRunId: 'next-run' } : entry) });
   app.confirmRead('chat-a', 'run-previous');
   assert.equal(app.state.conversations[0].unread, true);

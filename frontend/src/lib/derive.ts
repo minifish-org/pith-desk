@@ -41,7 +41,7 @@ export function blockingWorkspaceRun(state: State, id?: string): RunSummary | un
   });
 }
 
-export function runStatus(state: State, conversation: Conversation): RunStatus {
+export function runStatus(state: Pick<State, 'runs'>, conversation: Conversation): RunStatus {
   const run = state.runs.find(entry => entry.conversationId === conversation.id);
   if (run?.needsApproval) return 'approval';
   if (run) return 'running';

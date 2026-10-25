@@ -56,7 +56,7 @@ export function createApp(options: AppOptions) {
   function accept(next: WireState): void {
     const previous = state;
     const initialized = loaded;
-    state = normalizeState(next);
+    state = normalizeState(next, previous);
     loaded = true;
     receivedAt = performance.now();
     version++;
@@ -145,8 +145,12 @@ export function createApp(options: AppOptions) {
     refresh,
     // Called only after the matching /api/read command has committed.
     confirmRead(id: string, runID: string): void {
-      const entry = state.conversations.find((entry) => entry.id === id);
-      if (entry?.completedRunId === runID) { entry.unread = false; version++; }
+      const index = state.conversations.findIndex((entry) => entry.id === id);
+      if (index < 0 || state.conversations[index].completedRunId !== runID) return;
+      const conversations = [...state.conversations];
+      conversations[index] = {...conversations[index], unread: false};
+      state = {...state, conversations};
+      version++;
     },
     get state() { return state; },
     get loaded() { return loaded; },
