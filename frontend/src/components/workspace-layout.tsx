@@ -13,7 +13,9 @@ import {ToolsRail} from '@/components/tools-rail';
 
 type Rail = 'navigation' | 'tools';
 
-const railSeparator = 'group relative w-[9px] shrink-0 bg-transparent after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-border hover:after:bg-foreground/30 data-[resize-handle-state=drag]:after:bg-foreground/40';
+// The hairline belongs to the rail on its left; the rest of the grab gutter
+// stays in the neighbouring surface's own background.
+const railSeparator = 'group relative w-[9px] shrink-0 bg-transparent after:absolute after:inset-y-0 after:left-0 after:w-px after:bg-border hover:after:bg-foreground/30 data-[resize-handle-state=drag]:after:bg-foreground/40';
 
 /** Desktop rails and narrow-screen drawers. Panel widths and collapse state are
  * view state, persisted to the host only after a user drag settles. */
@@ -197,7 +199,7 @@ export function WorkspaceLayout() {
           <div ref={drawerPanel} data-drawer-panel="" className={`absolute inset-y-0 shadow-xl ${drawer === 'navigation' ? 'left-0 bg-sidebar' : 'right-0 w-[min(340px,90vw)]'}`}>
             {drawer === 'navigation'
               ? <Sidebar overlay onCollapse={closeDrawer} onNavigate={closeDrawer} />
-              : <ToolsRail onClose={closeDrawer} />}
+              : <ToolsRail onClose={closeDrawer} overlay />}
           </div>
         </div>
       ) : null}

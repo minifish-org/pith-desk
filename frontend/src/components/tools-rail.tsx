@@ -16,7 +16,7 @@ import {FileBrowser} from '@/components/file-browser';
 import {TerminalView} from '@/components/terminal';
 import {WebPreviewView} from '@/components/web-preview';
 
-function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?: boolean}) {
+function ToolsRailView({onClose, visible = true, overlay}: {onClose: () => void; visible?: boolean; overlay?: boolean}) {
   const workspaceId = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId)?.id || '');
   const workspacePath = useDesk(store => selectedWorkspace(store.state, store.selectedWorkspaceId)?.path || '');
   const hasWorkspace = useDesk(store => !!selectedWorkspace(store.state, store.selectedWorkspaceId));
@@ -27,7 +27,7 @@ function ToolsRailView({onClose, visible = true}: {onClose: () => void; visible?
   useEffect(() => {loadWorkspaceTools(workspaceId);}, [workspaceId]);
 
   return (
-    <aside data-tools-rail="" aria-label="Workspace tools" className="flex h-full min-h-0 flex-col border-l border-border/70 bg-background">
+    <aside data-tools-rail="" aria-label="Workspace tools" className={cn('flex h-full min-h-0 flex-col bg-background', overlay && 'border-l border-border/70')}>
       <div
         data-app-region="drag"
         data-rail-heading=""
