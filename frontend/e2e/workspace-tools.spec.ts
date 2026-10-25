@@ -38,7 +38,13 @@ for(const mode of ['desktop','server']) test.describe(mode+' workspace tool tabs
     page.on('request',request=>{if(request.method()==='POST' && new URL(request.url()).pathname==='/api/terminal') starts++;});
     await open(page,host);await expectEmpty(page);
     await page.reload();await expect(page.getByRole('textbox',{name:'Message Pith',exact:true})).toBeEditable();await page.getByRole('button',{name:'Toggle tools',exact:true}).click();await expectEmpty(page);
-    await tools(page).getByRole('button',{name:'Close tools',exact:true}).click();await page.getByRole('textbox',{name:'Message Pith',exact:true}).fill('Multiple tabs keep this draft 中文');await page.getByRole('button',{name:'Toggle tools',exact:true}).click();
+    await tools(page).getByRole('button',{name:'Close tools',exact:true}).click();
+    const toggleTools=page.getByRole('button',{name:'Toggle tools',exact:true});
+    await expect(toggleTools).toBeFocused();
+    const composer=page.getByRole('textbox',{name:'Message Pith',exact:true});
+    await composer.fill('Multiple tabs keep this draft 中文');
+    await expect(composer).toHaveValue('Multiple tabs keep this draft 中文');
+    await toggleTools.click();
     await create(page,'terminal');await command(page,"stty -echo; mkdir first-dir; cd first-dir; export TAB_STATE=first; echo $$ > ../first.pid; sleep 60 & echo $! > ../child.pid");
     await expect.poll(()=>file(first.path+'/child.pid')).toMatch(/^\d+\n$/);
     await input(page).pressSequentially('echo pending-first > pending.txt');
