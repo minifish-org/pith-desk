@@ -76,7 +76,7 @@ func TestUsabilityNativeDraftApprovalAndFilePreviews(t *testing.T) {
 	if err := service.OpenConversation(first.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
+	if err := configureTestService(t, service, desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
 	server, err := startNativeSmokeHost(service)
@@ -241,7 +241,7 @@ func TestUsabilityNativeInitialDraftRejectedSend(t *testing.T) {
 	if _, err := service.AddWorkspace(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Configure(desk.ConfigInput{BaseURL: "http://127.0.0.1:1/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
+	if err := configureTestService(t, service, desk.ConfigInput{BaseURL: "http://127.0.0.1:1/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
 	server, err := startNativeSmokeHost(service)

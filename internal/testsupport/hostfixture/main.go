@@ -16,6 +16,7 @@ import (
 
 	"github.com/minifish-org/pith-desk/internal/desk"
 	"github.com/minifish-org/pith-desk/internal/host"
+	"github.com/minifish-org/pith-desk/internal/testsupport/deskservice"
 )
 
 func main() {
@@ -96,7 +97,7 @@ func main() {
 			return err
 		}
 		if len(service.Snapshot().Workspaces) == 0 {
-			if err := service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-provider-key"}); err != nil {
+			if err := deskservice.Configure(service, desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-provider-key"}); err != nil {
 				return err
 			}
 			var first string

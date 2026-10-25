@@ -66,7 +66,7 @@ func TestTaskStatusTracksRunningApprovalUnreadReadAndServiceClose(t *testing.T) 
 	defer provider.Close()
 	defer release()
 	s := testServer(t)
-	if err := s.service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
+	if err := configureTestService(t, s.service, desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
 	folders := []string{t.TempDir(), t.TempDir()}
@@ -181,7 +181,7 @@ func TestTaskStatusRestoresUnreadOnStartupAndClearsOnDeleteAndHostClose(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
+	if err := configureTestService(t, service, desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.SendConversation(conversation.ID, "Finish"); err != nil {

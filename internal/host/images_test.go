@@ -40,7 +40,7 @@ func TestImageUploadEndpointAndAuthenticatedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "offline-image-key"}); err != nil {
+	if err := configureTestService(t, s.service, desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "offline-image-key"}); err != nil {
 		t.Fatal(err)
 	}
 	var pngBytes bytes.Buffer

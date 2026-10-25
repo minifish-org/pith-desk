@@ -41,7 +41,7 @@ func TestConversationFileLinkNativeSaveCancellationAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
+	if err := configureTestService(t, service, desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(workspace.Path, "output"), 0700); err != nil {

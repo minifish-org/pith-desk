@@ -613,7 +613,7 @@ func TestServerTaskSurvivesBrowserDisconnectRefreshAndDuplicateSubmission(t *tes
 	}))
 	t.Cleanup(provider.Close)
 	s := testServerMode(t, "")
-	if err := s.service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-provider-key"}); err != nil {
+	if err := configureTestService(t, s.service, desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-provider-key"}); err != nil {
 		t.Fatal(err)
 	}
 	workspace, err := s.service.AddWorkspace(t.TempDir())

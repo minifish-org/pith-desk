@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/minifish-org/pith-desk/internal/desk"
+	"github.com/minifish-org/pith-desk/internal/testsupport/deskservice"
 )
 
 func testServer(t *testing.T) *Server {
@@ -31,6 +32,11 @@ func testServer(t *testing.T) *Server {
 	}
 	t.Cleanup(func() { _ = s.Close(); service.Close() })
 	return s
+}
+
+func configureTestService(t *testing.T, service *desk.Service, input desk.ConfigInput) error {
+	t.Helper()
+	return deskservice.Configure(service, input)
 }
 
 func TestWebSocketSnapshotsRequireHeaderCredential(t *testing.T) {
@@ -55,7 +61,7 @@ func TestWebSocketSnapshotsRequireHeaderCredential(t *testing.T) {
 	if _, _, err = conn.Read(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.service.Configure(desk.ConfigInput{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", APIKey: "socket-private-key"}); err != nil {
+	if err = configureTestService(t, s.service, desk.ConfigInput{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", APIKey: "socket-private-key"}); err != nil {
 		t.Fatal(err)
 	}
 	_, data, err := conn.Read(ctx)
@@ -206,7 +212,7 @@ func TestAppearanceEndpointAuthAndNonsecretHTMLBootstrap(t *testing.T) {
 	if !strings.Contains(string(s.index), `data-appearance="__DESK_APPEARANCE__"`) {
 		t.Fatal("embedded frontend index is missing the appearance bootstrap placeholder")
 	}
-	if err := s.service.Configure(desk.ConfigInput{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", APIKey: "appearance-private-key"}); err != nil {
+	if err := configureTestService(t, s.service, desk.ConfigInput{BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-flash", APIKey: "appearance-private-key"}); err != nil {
 		t.Fatal(err)
 	}
 	postAppearance := func(mode string, authenticated bool) int {

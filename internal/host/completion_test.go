@@ -76,7 +76,7 @@ func TestCompletionCallbackRunsOnceWithoutBlockingStateBroadcasts(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.service.Configure(desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
+	if err := configureTestService(t, s.service, desk.ConfigInput{BaseURL: provider.URL + "/v1", Model: "deepseek-flash", APIKey: "fixture-key"}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

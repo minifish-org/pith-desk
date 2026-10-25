@@ -111,19 +111,6 @@ func (s *Service) Snapshot() State {
 	}, time.Now())
 }
 
-func (s *Service) Configure(input ConfigInput) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.idleLocked(); err != nil {
-		return err
-	}
-	next, err := validatedConfig(input, s.connections.config)
-	if err != nil {
-		return err
-	}
-	return s.saveConfigLocked(next)
-}
-
 func (s *Service) saveConfigLocked(next savedConfig) error {
 	affectsActive := s.connections.config.Provider != next.Provider || s.connections.config.Model != next.Model || s.connections.config.ThinkingLevel != next.ThinkingLevel || s.connections.config.BaseURL != next.BaseURL || s.connections.config.APIKey != next.APIKey
 	if err := s.files.WriteJSON(filepath.Join(s.dataDir, "settings.json"), next); err != nil {
