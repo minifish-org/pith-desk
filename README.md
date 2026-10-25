@@ -240,8 +240,9 @@ Each Terminal tab owns an independent shell, environment, current directory and
 process session (up to 16 retained terminal sessions per service). Hiding the rail,
 switching tabs/workspaces, closing the page, logging out or losing the connection
 does not stop the shell. Refresh/reconnect attaches to that same session while
-the same Go service is running. An exited shell stays exited; close it before
-starting another. The Terminal tab's **×** stops its shell and foreground/background
+the same Go service is running; once that service has restarted, the tab starts
+a new shell instead of retrying a session it no longer has. A shell that exits
+closes its own tab, so start another with **+ → New terminal**. The Terminal tab's **×** stops its shell and foreground/background
 jobs. Removing the workspace or exiting the service also cleans them up.
 Explicitly detached processes that start a different OS session are outside this
 terminal's process session and may outlive it.
@@ -430,7 +431,9 @@ Deleting a conversation also deletes its local cost ledger and durable journal.
 Use **Attach images** in the composer, drag images onto it, or paste a screenshot.
 Preview and remove attachments before sending. An image can be sent alone, with
 text, or as a queued instruction or next task while the agent is working.
-Click a draft attachment, a sent image, or an image in a file preview to enlarge
+The desktop app hands dropped images to the page through its native bridge, which
+carries up to 8 MiB per image and 16 MiB per drop; use **Attach images** for larger
+files. Click a draft attachment, a sent image, or an image in a file preview to enlarge
 it. The viewer offers **Fit**, **Original size**, and zoom controls; **Esc** closes
 the viewer and returns to the underlying conversation or file preview.
 

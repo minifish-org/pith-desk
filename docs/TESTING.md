@@ -134,7 +134,7 @@ after task completion, retaining environment isolation and error redaction.
 | Workspace browser | lazy directories and view restoration, saved-layout compatibility, private/symlink boundaries, lease revocation, late workspace/preview responses, reference insertion and draft/image preservation |
 | Sidebars | rail-owned expanded controls/topbar openers, independent drag/keyboard widths, viewport limits and persisted restore across refresh/restart, live PTY columns and pending input, phone overlay exclusion, scrim/close/Escape and focus restoration, native titlebar insets |
 | Workspace tool tabs | initially empty, create/select/close, three direct empty-state entries, single-row tabs and reachable controls, independent file expansion/reading positions, workspace layout/selection restore, drafts and narrow overlays |
-| Manual terminal | independent tab processes/PTY interaction/interrupt/resize/UTF-8, bounded history/parse acknowledgements, page-independent lifetime, reconnect/takeover/late controls, scoped close/workspace cleanup |
+| Manual terminal | independent tab processes/PTY interaction/interrupt/resize/UTF-8, bounded history/parse acknowledgements, page-independent lifetime, reconnect/takeover/late controls, scoped close/workspace cleanup, an exiting shell closes its tab, a session the service no longer has restarts in its tab |
 | Persistence | literal compatibility fixtures, real creation, restart recovery and failure handling |
 
 Browser scenarios use Chromium and WebKit. Isolated local providers and MCP
@@ -165,7 +165,7 @@ different widget/text scaling. `PITH_DESK_NATIVE_INSPECT=1` keeps its isolated
 verification window open after the assertions until it is closed manually.
 
 These checks exercise native titlebar insets and existing controls, drafts, rejected sends, approval, file previews/downloads,
-file-drop forwarding, terminal tabs and reconnect, the native Web preview view,
+file-drop forwarding including dropped image bytes, terminal tabs and reconnect, the native Web preview view,
 update progress/failure and Dock unread state in native WebViews, with temporary
 data and local providers. All macOS application windows use the production
 window options and matching Host titlebar state, with saved window geometry

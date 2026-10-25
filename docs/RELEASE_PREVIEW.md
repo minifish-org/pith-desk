@@ -1,6 +1,8 @@
 New in this preview:
 
-- Browser and application icons now use the original blue logo enlarged by 20%, reduced from 25% in rc.45. Colors and backing are unchanged, and logos inside the Desk interface keep their existing size.
+- A terminal tab now closes when its shell ends, so `exit` no longer leaves a notice and a reconnect loop behind. If the service has since restarted or lost the session, the tab starts a new shell; a short outage keeps the same shell and waits quietly with one stable message instead of replaying the screen.
+- Rails are separated by a single hairline: the tool rail no longer shows a doubled line and navigation no longer leaves a pale strip beside it.
+- On Desktop, images dropped onto the composer become image attachments instead of only workspace references. Unreadable, unsupported or oversized images are reported with a notice, and other dropped files still attach as workspace references.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
 
