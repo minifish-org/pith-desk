@@ -1,8 +1,10 @@
 New in this preview:
 
-- A terminal tab now closes when its shell ends, so `exit` no longer leaves a notice and a reconnect loop behind. If the service has since restarted or lost the session, the tab starts a new shell; a short outage keeps the same shell and waits quietly with one stable message instead of replaying the screen.
-- Rails are separated by a single hairline: the tool rail no longer shows a doubled line and navigation no longer leaves a pale strip beside it.
-- On Desktop, images dropped onto the composer become image attachments instead of only workspace references. Unreadable, unsupported or oversized images are reported with a notice, and other dropped files still attach as workspace references.
+- Paste a screenshot straight into the composer with Cmd+V (Ctrl+V): PNG, JPEG, GIF and WebP images attach exactly like the picker and drag paths, while pasted text is untouched.
+- Sidebars and dialogs follow the harness palette in both appearances: one cool-grey surface for the navigation and tool rails in light mode, one dark grey in dark mode, and dialogs sit on the raised surface.
+- Rail chrome is quieter: the sidebar footer and tool header dividers are gone, and the rail edge itself is the only separator. A closed rail shows no line, strip or resize cursor, and only its toolbar toggle opens it again.
+- On Server, the sidebar shows a labelled **Log out** row instead of a bare icon.
+- Dialog footers now reach the dialog edge, so the takeover and settings dialogs no longer end on a stray strip.
 
 Apple Silicon: open the `darwin-arm64.tar.gz` and move **Pith Desk.app** to Applications. The Mac preview is ad-hoc signed and unnotarized; see [opening instructions](https://github.com/minifish-org/pith-desk/blob/main/docs/RELEASING.md#manual-installation).
 
