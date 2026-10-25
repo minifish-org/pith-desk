@@ -19,7 +19,7 @@ func TestCoalesceChanges(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		coalesceChanges(ctx, changes, ticks, func() { flushed <- struct{}{} })
+		coalesceChanges(ctx, changes, ticks, func() time.Duration { return 0 }, func() { flushed <- struct{}{} })
 	}()
 	for range 80 {
 		changes <- struct{}{}
@@ -46,6 +46,42 @@ func TestCoalesceChanges(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("coalescer did not stop")
+	}
+}
+
+func TestCoalesceChangesWaitsForInterval(t *testing.T) {
+	changes := make(chan struct{})
+	ticks := make(chan time.Time)
+	flushed := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		coalesceChanges(ctx, changes, ticks, func() time.Duration { return time.Hour }, func() { flushed <- struct{}{} })
+	}()
+	changes <- struct{}{}
+	ticks <- time.Now()
+	select {
+	case <-flushed:
+		t.Fatal("flush ignored the minimum interval")
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("coalescer did not stop")
+	}
+}
+
+func TestBroadcastDelayTracksTranscriptSize(t *testing.T) {
+	for _, tc := range []struct {
+		messages int
+		want     time.Duration
+	}{{0, 25 * time.Millisecond}, {499, 25 * time.Millisecond}, {500, 50 * time.Millisecond}, {999, 50 * time.Millisecond}, {1000, 75 * time.Millisecond}, {1999, 75 * time.Millisecond}, {2000, 100 * time.Millisecond}} {
+		if got := broadcastDelay(tc.messages); got != tc.want {
+			t.Errorf("broadcastDelay(%d) = %s, want %s", tc.messages, got, tc.want)
+		}
 	}
 }
 

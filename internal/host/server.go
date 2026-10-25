@@ -27,21 +27,22 @@ import (
 )
 
 type Server struct {
-	URL        string
-	server     *http.Server
-	listener   net.Listener
-	token      string
-	service    *desk.Service
-	terminals  *terminal.Manager
-	terminalMu sync.Mutex
-	operations sync.Mutex // Order committed mutations before handing control to another page.
-	picker     func() (string, error)
-	files      http.Handler
-	index      []byte
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	clients    map[chan []byte]struct{}
+	URL            string
+	server         *http.Server
+	listener       net.Listener
+	token          string
+	service        *desk.Service
+	terminals      *terminal.Manager
+	terminalMu     sync.Mutex
+	operations     sync.Mutex // Order committed mutations before handing control to another page.
+	picker         func() (string, error)
+	files          http.Handler
+	index          []byte
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.Mutex
+	clients        map[chan []byte]struct{}
+	transcriptSize int
 
 	appearanceMu      sync.Mutex
 	appearanceChanged func(desk.AppearanceMode)
@@ -139,17 +140,35 @@ func (s *Server) snapshot() []byte { data, _ := json.Marshal(s.service.Snapshot(
 // coalesce changes into a small number of frames while keeping the latest state.
 const broadcastInterval = 25 * time.Millisecond
 
+// A large transcript makes every full snapshot proportionally expensive. Slow
+// the frame rate rather than spending most of a core encoding unchanged history.
+func broadcastDelay(messages int) time.Duration {
+	switch {
+	case messages >= 2000:
+		return 100 * time.Millisecond
+	case messages >= 1000:
+		return 75 * time.Millisecond
+	case messages >= 500:
+		return 50 * time.Millisecond
+	default:
+		return broadcastInterval
+	}
+}
+
 func (s *Server) broadcast() {
 	ticker := time.NewTicker(broadcastInterval)
 	defer ticker.Stop()
-	coalesceChanges(s.ctx, s.service.Changes(), ticker.C, s.broadcastState)
+	coalesceChanges(s.ctx, s.service.Changes(), ticker.C, func() time.Duration {
+		return broadcastDelay(s.transcriptSize)
+	}, s.broadcastState)
 }
 
 // coalesceChanges turns a burst of change signals into at most one flush per
-// tick. A final change always produces a later flush because the signal remains
-// pending until a tick observes it.
-func coalesceChanges(ctx context.Context, changes <-chan struct{}, ticks <-chan time.Time, flush func()) {
+// interval. A final change always produces a later flush because the signal
+// remains pending until a tick observes it.
+func coalesceChanges(ctx context.Context, changes <-chan struct{}, ticks <-chan time.Time, interval func() time.Duration, flush func()) {
 	dirty := false
+	last := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -157,10 +176,11 @@ func coalesceChanges(ctx context.Context, changes <-chan struct{}, ticks <-chan 
 		case <-changes:
 			dirty = true
 		case <-ticks:
-			if !dirty {
+			if !dirty || time.Since(last) < interval() {
 				continue
 			}
 			dirty = false
+			last = time.Now()
 			flush()
 		}
 	}
@@ -169,6 +189,7 @@ func coalesceChanges(ctx context.Context, changes <-chan struct{}, ticks <-chan 
 func (s *Server) broadcastState() {
 	s.mu.Lock()
 	state := s.service.Snapshot()
+	s.transcriptSize = len(state.Messages)
 	s.updateTaskStatusLocked(state)
 	s.updateNativeMenuLocked(state)
 	data, _ := json.Marshal(state)
