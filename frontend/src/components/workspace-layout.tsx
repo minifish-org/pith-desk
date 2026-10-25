@@ -14,9 +14,9 @@ import {ToolsRail} from '@/components/tools-rail';
 
 type Rail = 'navigation' | 'tools';
 
-// The grab gutter shares the rail's surface, so the colour edge rather than a
-// line divides the rail; a hairline appears only while hovering or dragging.
-const railSeparator = 'group relative w-[9px] shrink-0 after:absolute after:inset-y-0 after:left-0 after:w-px hover:after:bg-foreground/30 data-[separator=active]:after:bg-foreground/40';
+// The grab gutter shares the rail's surface, so the colour edge alone divides
+// the rail; hovering and dragging only change the cursor.
+const railSeparator = 'w-[9px] shrink-0';
 
 /** Desktop rails and narrow-screen drawers. Panel widths and collapse state are
  * view state, persisted to the host only after a user drag settles. */

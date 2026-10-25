@@ -158,16 +158,16 @@ test('phone navigation closes its drawer when an action opens a surface', async 
 });
 
 // The grab gutter carries the rail's surface, so the colour edge divides the
-// rail; a resting hairline or rail border next to it would draw a second line.
-test('rail gutters share the rail surface and draw no resting edge', async ({ page }) => {
+// rail; any hairline, border or decoration would draw a second line next to it.
+test('rail gutters share the rail surface and draw no edge of their own', async ({ page }) => {
   await page.setViewportSize({width: 1600, height: 900});
   await page.getByRole('button', {name: 'Toggle tools', exact: true}).click();
   await expect(page.getByRole('complementary', {name: 'Workspace tools', exact: true})).toBeVisible();
   const read = () => page.evaluate(() => ({
-    surfaces: [...document.querySelectorAll('[role="separator"]')].map(node => {
-      const line = getComputedStyle(node, '::after');
-      return [getComputedStyle(node).backgroundColor, line.width, line.left, line.backgroundColor];
-    }),
+    surfaces: [...document.querySelectorAll('[role="separator"]')].map(node => [
+      getComputedStyle(node).backgroundColor,
+      getComputedStyle(node, '::after').content,
+    ]),
     rail: getComputedStyle(document.querySelector('[data-tools-rail]') as HTMLElement).backgroundColor,
     edges: [...document.querySelectorAll<HTMLElement>('[data-navigation-rail], [data-tools-rail]')].map(node => {
       const style = getComputedStyle(node);
@@ -181,8 +181,8 @@ test('rail gutters share the rail surface and draw no resting edge', async ({ pa
   }).toBe(true);
   const dividers = await read();
   expect(dividers.surfaces).toEqual([
-    [dividers.rail, '1px', '0px', 'rgba(0, 0, 0, 0)'],
-    [dividers.rail, '1px', '0px', 'rgba(0, 0, 0, 0)'],
+    [dividers.rail, 'none'],
+    [dividers.rail, 'none'],
   ]);
   expect(dividers.edges).toEqual([['0px', '0px'], ['0px', '0px']]);
 });
