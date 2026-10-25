@@ -12,17 +12,22 @@ import type {ModelCatalog} from '@/contract.generated.ts';
 /** Model and thinking effort for the next task. The menu keeps an explicit
  * draft so closing it without choosing leaves the shared selection untouched. */
 export function ModelPicker({disabled}: {disabled: boolean}) {
-  const settings = useDesk(store => store.state.settings);
+  const provider = useDesk(store => store.state.settings.provider);
+  const model = useDesk(store => store.state.settings.model);
+  const thinkingLevel = useDesk(store => store.state.settings.thinkingLevel);
+  const modelName = useDesk(store => store.state.settings.modelName);
+  const thinkingLevelsKey = useDesk(store => (store.state.settings.thinkingLevels || []).join('\n'));
+  const thinkingLevels = thinkingLevelsKey ? thinkingLevelsKey.split('\n') : [];
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'root' | 'model' | 'thinking'>('root');
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState({provider: settings.provider, model: settings.model, thinkingLevel: settings.thinkingLevel || 'off'});
+  const [draft, setDraft] = useState({provider, model, thinkingLevel: thinkingLevel || 'off'});
 
   useEffect(() => {
     if (!open) return;
-    setDraft({provider: settings.provider, model: settings.model, thinkingLevel: settings.thinkingLevel || 'off'});
+    setDraft({provider, model, thinkingLevel: thinkingLevel || 'off'});
     // Connections can change while the menu is closed. Retire the old choices
     // until this opening has read the current catalog.
     setCatalog(null);
@@ -36,9 +41,9 @@ export function ModelPicker({disabled}: {disabled: boolean}) {
   const models = catalog?.models || [];
   const groups = providers.map(provider => ({provider, models: models.filter(entry => entry.provider === provider.id)})).filter(group => group.models.length);
   const selected = models.find(entry => entry.provider === draft.provider && entry.id === draft.model);
-  const levels = selected?.thinkingLevels?.length ? selected.thinkingLevels : settings.thinkingLevels?.length ? settings.thinkingLevels : ['off'];
-  const label = selected?.name || settings.modelName || settings.model || 'Choose model';
-  const currentLevels = settings.thinkingLevels?.length ? settings.thinkingLevels : ['off'];
+  const levels = selected?.thinkingLevels?.length ? selected.thinkingLevels : thinkingLevels.length ? thinkingLevels : ['off'];
+  const label = selected?.name || modelName || model || 'Choose model';
+  const currentLevels = thinkingLevels.length ? thinkingLevels : ['off'];
 
   const save = async (next: {provider: string; model: string; thinkingLevel: string}, closeAfter: boolean) => {
     setSaving(true);
@@ -60,10 +65,10 @@ export function ModelPicker({disabled}: {disabled: boolean}) {
           className="h-8 max-w-[250px] gap-1 px-2 text-[12px] text-muted-foreground hover:bg-accent"
           aria-label="Choose model"
           disabled={disabled}
-          title={settings.provider ? `${settings.provider} / ${settings.model}` : 'Choose a model'}
+          title={provider ? `${provider} / ${model}` : 'Choose a model'}
         >
           <span className="truncate">{label}</span>
-          {currentLevels.length > 1 ? <span className="shrink-0 opacity-60">· {thinkingLabel(settings.thinkingLevel || 'off')}</span> : null}
+          {currentLevels.length > 1 ? <span className="shrink-0 opacity-60">· {thinkingLabel(thinkingLevel || 'off')}</span> : null}
           <ChevronDown className="size-3 shrink-0 opacity-60" />
         </Button>
       </DropdownMenuTrigger>
