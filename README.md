@@ -2,9 +2,9 @@
 
 A workspace for getting things done with an AI agent, available as a native **Desktop** app or a headless **Server** accessed through your browser. Bring your model connection, choose a folder, and work through conversations, files and reviewed tool actions.
 
-![Pith Desk in Light appearance, showing workspace navigation, the conversation view and workspace tools](docs/images/pith-desk-overview.png)
+![Pith Desk in Light appearance, showing a project conversation and its workspace files](docs/images/pith-desk-overview.png)
 
-*Current macOS desktop in Light appearance. All screenshots use demonstration workspaces and conversation data.*
+*Current macOS Desktop UI in Light appearance. All screenshots use an isolated demonstration workspace and conversation data.*
 
 - **Workspace conversations:** streamed replies, text and image drafts, searchable history, branches and concurrent tasks in separate folders.
 - **Review before changes:** file diffs and tool approvals, with permission settings for each conversation.
@@ -71,7 +71,7 @@ Open **Settings → Appearance** to choose **Light**, **Dark**, or **Follow syst
 
 Appearance changes apply immediately, including during an agent task, and are saved in the local settings file for the next launch. Native window controls follow the same preference. Model settings and conversation permissions are independent of appearance.
 
-![Pith Desk showing a reviewable file change awaiting approval](docs/images/pith-desk-approval.png)
+![Pith Desk in Dark appearance, showing a Markdown edit and its diff awaiting approval](docs/images/pith-desk-approval.png)
 
 *Dark appearance with a file change ready for review.*
 
@@ -376,7 +376,7 @@ through the same workspace checks as the existing file actions.
 
 ![Pith Desk showing a rendered Markdown file in its file preview dialog](docs/images/pith-desk-file-preview.png)
 
-*Preview a generated file without leaving the conversation.*
+*Preview a workspace Markdown file without leaving the conversation.*
 
 Drop existing files from the selected workspace into the message area to insert editable, workspace-relative paths. Multiple files, spaces and Chinese names are supported. These are plain Markdown path references; dropping them does not import or read their contents. Images keep their existing attachment behavior. The browser can validate complete local file URIs; when it hides the path, type the relative path or use the desktop app.
 
