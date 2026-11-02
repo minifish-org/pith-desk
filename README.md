@@ -617,6 +617,21 @@ are required. Keep backups of the data directory and workspace files.
 and packages both Linux Server architectures with notices, source/version
 metadata and SHA-256 checksums under `build/releases/`.
 
+### Install Server as a web app
+
+Open Server in Chrome over HTTPS (or loopback HTTP for local use), then use
+Chrome's address-bar install button or **Cast, save, and share → Install page
+as app**. Chrome decides when to promote installation based on browser support,
+engagement and whether the app is already installed.
+
+The installed app opens in its own window with the Pith Desk icon. It still
+connects to the same Server and uses the existing token login and exclusive
+browser lease; opening it alongside another controlling page may require
+**Continue here**. Server must remain reachable. No offline cache or background
+write queue is installed, and browser installation does not add Desktop-native
+capabilities. The application manifest and icons are public, contain no tokens,
+and are available before login. Desktop does not advertise web installation.
+
 ### HTTPS reverse proxy
 
 For remote access, terminate HTTPS at your existing reverse proxy and set the

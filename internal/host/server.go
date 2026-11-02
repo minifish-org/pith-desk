@@ -301,11 +301,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			index := strings.ReplaceAll(string(indexBytes), "__DESK_TOKEN__", s.token)
 			mode, appearance := "desktop", "system"
+			manifest := ""
 			if s.access != nil {
 				mode = "server"
+				manifest = `<link rel="manifest" href="/manifest.webmanifest">`
 			} else {
 				appearance = string(s.service.Snapshot().Settings.Appearance)
 			}
+			index = strings.ReplaceAll(index, "<!-- __DESK_MANIFEST__ -->", manifest)
 			index = strings.ReplaceAll(index, "__DESK_MODE__", mode)
 			index = strings.ReplaceAll(index, "__DESK_APPEARANCE__", appearance)
 			s.mu.Lock()
@@ -320,6 +323,17 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			index = strings.ReplaceAll(index, "__DESK_NATIVE_MENUS__", fmt.Sprint(nativeMenus))
 			index = strings.ReplaceAll(index, "__DESK_TITLEBAR_OVERLAY__", fmt.Sprint(titlebarOverlay))
 			_, _ = w.Write([]byte(index))
+			return
+		}
+		if s.access != nil && (r.URL.Path == "/manifest.webmanifest" || r.URL.Path == "/icon-192.png" || r.URL.Path == "/icon-512.png") {
+			if r.URL.Path == "/manifest.webmanifest" {
+				w.Header().Set("Content-Type", "application/manifest+json")
+			}
+			if s.development != nil {
+				s.development.proxy.ServeHTTP(w, r)
+			} else {
+				s.files.ServeHTTP(w, r)
+			}
 			return
 		}
 		if s.development != nil && s.development.assetPath(r.URL.Path) {

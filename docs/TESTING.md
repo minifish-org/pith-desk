@@ -233,6 +233,16 @@ mutating tests. Local Server checks and native builds do not constitute a Desk r
 
 ## Server acceptance
 
+`TestServerWebAppInstallation` validates the embedded application manifest,
+actual PNG dimensions, anonymous install resources, Origin rejection, protected
+APIs and Desktop's absence of an install link. The Server browser suite checks
+the manifest and decoded icons through the development host before login and
+retains the link after login; Chromium also parses it through its manifest API.
+Run `go test ./internal/host -run TestServerWebAppInstallation` after the UI build
+and `npx playwright test frontend/e2e/server.spec.ts` for both browsers.
+Actual Chrome installation into the OS and remote HTTPS/proxy behavior require
+manual acceptance; automated manifest validation does not establish those.
+
 `internal/host/server_mode_test.go` checks every registered business endpoint
 without login, without a lease and after takeover; Host/Origin/CSRF and HTTPS
 cookies; refresh/expiry/logout; immediate WebSocket revocation; mutation deduplication

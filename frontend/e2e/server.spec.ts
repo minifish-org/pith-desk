@@ -165,3 +165,31 @@ test('pending tool approval survives takeover, rejects the old lease, and export
   const exported = await download;
   expect(await readFile((await exported.path())!, 'utf8')).toContain('Write a file after approval');
 });
+
+test('Server advertises an installable app before and after login', async ({page, host, browserName}) => {
+  await page.goto(host.url);
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest');
+  const manifest = await page.evaluate(async () => {
+    const response = await fetch('/manifest.webmanifest');
+    return response.json();
+  });
+  expect(manifest).toMatchObject({id: '/', name: 'Pith Desk', start_url: '/', scope: '/', display: 'standalone'});
+  for (const icon of manifest.icons) {
+    const size = await page.evaluate(src => new Promise<number>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image.naturalWidth);
+      image.onerror = reject;
+      image.src = src;
+    }), icon.src);
+    expect(icon.sizes).toBe(`${size}x${size}`);
+  }
+  if (browserName === 'chromium') {
+    const cdp = await page.context().newCDPSession(page);
+    const result = await cdp.send('Page.getAppManifest');
+    expect(result.errors).toEqual([]);
+    expect(JSON.parse(result.data!)).toMatchObject({name: 'Pith Desk', display: 'standalone'});
+    await cdp.detach();
+  }
+  await login(page, host);
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest');
+});
